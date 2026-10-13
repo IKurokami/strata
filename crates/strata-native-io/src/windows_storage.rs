@@ -42,11 +42,12 @@ fn validate_destination(path: &Path) -> io::Result<()> {
 fn create_temporary(parent: &Path) -> io::Result<(PathBuf, File)> {
     for _ in 0..MAX_TEMPORARY_ATTEMPTS {
         let id = NEXT_STAGING.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(format!(
-            ".strata-write-{}-{id}.tmp",
-            std::process::id()
-        ));
-        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+        let candidate = parent.join(format!(".strata-write-{}-{id}.tmp", std::process::id()));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
             Ok(file) => return Ok((candidate, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
@@ -65,12 +66,16 @@ fn create_temporary(parent: &Path) -> io::Result<(PathBuf, File)> {
 /// include an explicit flush and sync.
 pub fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
     validate_destination(path)?;
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent")
-    })?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent"))?;
     let (temporary, mut file) = create_temporary(parent)?;
 
-    let written = file.write_all(contents).and_then(|()| file.flush()).and_then(|()| file.sync_all());
+    let written = file
+        .write_all(contents)
+        .and_then(|()| file.flush())
+        .and_then(|()| file.sync_all());
     // Windows cannot delete an open file without appropriate sharing flags.
     drop(file);
     if let Err(error) = written {
@@ -94,7 +99,10 @@ pub fn atomic_write_config(path: &Path, contents: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{sync::atomic::{AtomicUsize, Ordering}, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
     static FIXTURE: AtomicUsize = AtomicUsize::new(0);
 
     struct Scratch(PathBuf);
@@ -165,7 +173,12 @@ mod tests {
         if symlink_file(&original, &link).is_ok() {
             assert!(atomic_write_config(&link, b"modified").is_err());
             assert_eq!(fs::read(&original).unwrap(), b"original");
-            assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+            assert!(
+                fs::symlink_metadata(&link)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
         }
     }
 }
