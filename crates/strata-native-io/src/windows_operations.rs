@@ -270,8 +270,8 @@ mod tests {
             .expect("queue");
         assert_eq!(
             finished(&service, id)
-                    .expect_err("reject relative source")
-                    .kind(),
+                .expect_err("reject relative source")
+                .kind(),
             io::ErrorKind::InvalidInput
         );
         assert!(!dir.file("never-created").exists());
@@ -290,8 +290,8 @@ mod tests {
             .expect("queue");
         assert_eq!(
             finished(&service, id)
-                    .expect_err("directory is not a file")
-                    .kind(),
+                .expect_err("directory is not a file")
+                .kind(),
             io::ErrorKind::InvalidInput
         );
         assert!(!destination.exists());
