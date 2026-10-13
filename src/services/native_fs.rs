@@ -4,13 +4,15 @@ use std::{
     collections::HashSet,
     ffi::{OsStr, OsString},
     fs,
-    io::Read,
-    os::unix::ffi::OsStringExt,
     path::Path,
 };
 
 use crate::model::EntryKind;
 
+#[cfg(target_os = "linux")]
+use std::{io::Read, os::unix::ffi::OsStringExt};
+
+#[cfg(target_os = "linux")]
 const MAX_HIDDEN_FILE_BYTES: u64 = 1024 * 1024;
 
 pub(crate) fn native_kind(file_type: fs::FileType, path: &Path) -> EntryKind {
@@ -36,6 +38,14 @@ pub(crate) fn is_hidden_name(native_name: &OsStr, hidden_names: &HashSet<OsStrin
         || hidden_names.contains(native_name)
 }
 
+// Windows hidden files use FILE_ATTRIBUTE_HIDDEN via GIO file metadata;
+// scanning a GNOME .hidden file is not applicable and would waste I/O.
+#[cfg(target_os = "windows")]
+pub(crate) fn native_hidden_names(_path: &Path) -> HashSet<OsString> {
+    HashSet::new()
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn native_hidden_names(path: &Path) -> HashSet<OsString> {
     let Some(bytes) = read_hidden_bounded(&path.join(".hidden")) else {
         return HashSet::new();
@@ -47,6 +57,7 @@ pub(crate) fn native_hidden_names(path: &Path) -> HashSet<OsString> {
         .collect()
 }
 
+#[cfg(target_os = "linux")]
 fn read_hidden_bounded(path: &Path) -> Option<Vec<u8>> {
     // Opening a FIFO without `NONBLOCK` would block waiting for a writer.
     let fd = rustix::fs::open(

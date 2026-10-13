@@ -85,13 +85,19 @@ pub(super) fn general_page(
         append_preference_switch(&window_buttons, &manager, switch);
     }
 
-    let desktop = super::settings_group(&preferences, "DESKTOP INTEGRATION");
-    let portal_row = crate::ui::portal_preferences::settings_row();
-    super::search::tag(&portal_row, "Desktop integration");
-    desktop.append(&portal_row);
-    let udiskie_row = crate::ui::udiskie_preferences::settings_row();
-    super::search::tag(&udiskie_row, "Unlock encrypted volumes");
-    desktop.append(&udiskie_row);
+    // D-Bus portals, FileManager1 and udiskie are Linux desktop services.
+    // Do not query or advertise them on Windows: status probes would add
+    // needless startup latency and the actions cannot be applied there.
+    #[cfg(target_os = "linux")]
+    {
+        let desktop = super::settings_group(&preferences, "DESKTOP INTEGRATION");
+        let portal_row = crate::ui::portal_preferences::settings_row();
+        super::search::tag(&portal_row, "Desktop integration");
+        desktop.append(&portal_row);
+        let udiskie_row = crate::ui::udiskie_preferences::settings_row();
+        super::search::tag(&udiskie_row, "Unlock encrypted volumes");
+        desktop.append(&udiskie_row);
+    }
 
     let startup = super::settings_group(&preferences, "STARTUP");
     append_default_directory_option(&startup, &manager);
