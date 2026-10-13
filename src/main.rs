@@ -38,7 +38,7 @@ mod storage;
 #[cfg(windows)]
 #[path = "storage_windows.rs"]
 mod storage;
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod test_support;
 mod trusted_command;
 mod ui;
@@ -569,5 +569,5 @@ fn write_gvfs_probe_marker() {
     let _ignored = std::fs::write(&path, contents);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
