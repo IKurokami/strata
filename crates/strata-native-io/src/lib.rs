@@ -23,6 +23,8 @@ use std::{
 use std::fs::File;
 
 #[cfg(windows)]
+pub mod windows_file_stamp;
+#[cfg(windows)]
 pub mod windows_operations;
 #[cfg(windows)]
 pub mod windows_paths;
