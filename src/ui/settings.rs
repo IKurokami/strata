@@ -2287,8 +2287,8 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
 }
 
 // Fail closed: a Windows self-update cannot reuse the Linux shell waiter.
- // A future native helper must wait for this process to exit before relaunching
- // and must verify the replacement image without UAC or PATH-based executables.
+// A future native helper must wait for this process to exit before relaunching
+// and must verify the replacement image without UAC or PATH-based executables.
 #[cfg(windows)]
 fn restart_waiter(_current_exe: &std::path::Path, _parent_pid: u32) -> Option<Command> {
     None
