@@ -36,13 +36,13 @@ use crate::{
 #[path = "local_operations/archive/listing.rs"]
 mod listing;
 
+#[cfg(test)]
+pub(crate) use listing::ArchiveListing;
 pub(crate) use listing::{
     ARCHIVE_PREVIEW_FAILED_MESSAGE, ARCHIVE_TOO_LARGE_MESSAGE, ARCHIVE_UNSUPPORTED_MESSAGE,
     ArchiveListingStatus, INVALID_ARCHIVE, MAX_ARCHIVE_PASSWORD_BYTES, archive_payload_valid,
     decode_archive_listing, encode_archive_result,
 };
-#[cfg(test)]
-pub(crate) use listing::ArchiveListing;
 
 pub(crate) const PASSWORD_REQUIRED: &str = "A password is required to extract this archive.";
 pub(crate) const MAYBE_BAD_PASSWORD: &str = "The password may be incorrect.";
@@ -157,7 +157,13 @@ impl ProviderState {
             };
             *self.service.borrow_mut() = Some(service);
         }
-        let id = match self.service.borrow().as_ref().expect("initialized").submit(operation) {
+        let id = match self
+            .service
+            .borrow()
+            .as_ref()
+            .expect("initialized")
+            .submit(operation)
+        {
             Ok(id) => id,
             Err(SubmitError::Busy) => {
                 return rejected(request_id, emit, "Windows file worker queue is busy");
@@ -222,7 +228,11 @@ impl OperationProvider for LocalOperationProvider {
             return async_create_directory(request, emit);
         }
         let Some(parent) = request.parent.native_path() else {
-            return rejected(request.id, emit, "Windows native folder creation requires a local path");
+            return rejected(
+                request.id,
+                emit,
+                "Windows native folder creation requires a local path",
+            );
         };
         let destination = parent.join(&request.name);
         if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&request.name)) {
@@ -248,17 +258,28 @@ impl OperationProvider for LocalOperationProvider {
 
     fn paste(&self, request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         if request.move_sources || request.items.len() != 1 {
-            return rejected(request.id, emit, "Windows batch move/merge is not available yet");
+            return rejected(
+                request.id,
+                emit,
+                "Windows batch move/merge is not available yet",
+            );
         }
         let item = &request.items[0];
         if item.conflict != TransferConflict::FailIfExists {
-            return rejected(request.id, emit, "Windows overwrite, merge and Keep Both are not available yet");
+            return rejected(
+                request.id,
+                emit,
+                "Windows overwrite, merge and Keep Both are not available yet",
+            );
         }
-        let (Some(source), Some(destination_dir)) = (
-            item.source.native_path(),
-            request.destination.native_path(),
-        ) else {
-            return rejected(request.id, emit, "Windows file copy requires local filesystem paths");
+        let (Some(source), Some(destination_dir)) =
+            (item.source.native_path(), request.destination.native_path())
+        else {
+            return rejected(
+                request.id,
+                emit,
+                "Windows file copy requires local filesystem paths",
+            );
         };
         let Some(name) = source.file_name() else {
             return rejected(request.id, emit, "Source file has no ordinary filename");
@@ -279,31 +300,67 @@ impl OperationProvider for LocalOperationProvider {
     }
 
     fn rename(&self, request: RenameRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows no-clobber rename is not implemented")
+        rejected(
+            request.id,
+            emit,
+            "Windows no-clobber rename is not implemented",
+        )
     }
     fn undo_move(&self, request: UndoMoveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         rejected(request.id, emit, "Windows undo move is not implemented")
     }
-    fn undo_rename(&self, request: UndoRenameRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+    fn undo_rename(
+        &self,
+        request: UndoRenameRequest,
+        emit: Rc<dyn Fn(OperationEvent)>,
+    ) -> LoadHandle {
         rejected(request.id, emit, "Windows undo rename is not implemented")
     }
     fn undo_copy(&self, request: UndoCopyRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows undo copy requires Recycle Bin integration")
+        rejected(
+            request.id,
+            emit,
+            "Windows undo copy requires Recycle Bin integration",
+        )
     }
-    fn undo_merge(&self, request: UndoMergeRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows undo merge requires Recycle Bin integration")
+    fn undo_merge(
+        &self,
+        request: UndoMergeRequest,
+        emit: Rc<dyn Fn(OperationEvent)>,
+    ) -> LoadHandle {
+        rejected(
+            request.id,
+            emit,
+            "Windows undo merge requires Recycle Bin integration",
+        )
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows Recycle Bin and permanent deletion are not yet supported")
+        rejected(
+            request.id,
+            emit,
+            "Windows Recycle Bin and permanent deletion are not yet supported",
+        )
     }
     fn restore(&self, request: RestoreRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows Recycle Bin restore is not yet supported")
+        rejected(
+            request.id,
+            emit,
+            "Windows Recycle Bin restore is not yet supported",
+        )
     }
     fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows archive compression needs a secure native writer")
+        rejected(
+            request.id,
+            emit,
+            "Windows archive compression needs a secure native writer",
+        )
     }
     fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows archive extraction needs a sandboxed decoder")
+        rejected(
+            request.id,
+            emit,
+            "Windows archive extraction needs a sandboxed decoder",
+        )
     }
 }
 
@@ -312,7 +369,11 @@ fn async_create_directory(
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
     let Some(parent) = request.parent.native_path() else {
-        return rejected(request.id, emit, "Windows new folder requires a local filesystem path");
+        return rejected(
+            request.id,
+            emit,
+            "Windows new folder requires a local filesystem path",
+        );
     };
     let directory = gio::File::for_path(parent);
     let cancel = gio::Cancellable::new();
@@ -353,7 +414,11 @@ fn async_create_directory(
                     emit(OperationEvent::EntryCreated {
                         request_id: request.id,
                         location: Location::local(
-                            request.parent.native_path().expect("validated").join(candidate),
+                            request
+                                .parent
+                                .native_path()
+                                .expect("validated")
+                                .join(candidate),
                         ),
                     });
                     return;
@@ -377,10 +442,7 @@ fn async_create_directory(
     LoadHandle::new(move || cancel.cancel())
 }
 
-fn async_create_file(
-    request: CreateFileRequest,
-    emit: Rc<dyn Fn(OperationEvent)>,
-) -> LoadHandle {
+fn async_create_file(request: CreateFileRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
     if let Err(message) = validate_basename(&request.name) {
         return rejected(request.id, emit, crate::i18n::tr(message));
     }
@@ -388,7 +450,11 @@ fn async_create_file(
         return rejected(request.id, emit, "Invalid Windows filename");
     }
     let Some(parent) = request.parent.native_path() else {
-        return rejected(request.id, emit, "Windows new file requires a local filesystem path");
+        return rejected(
+            request.id,
+            emit,
+            "Windows new file requires a local filesystem path",
+        );
     };
     let directory = gio::File::for_path(parent);
     let cancel = gio::Cancellable::new();
@@ -439,11 +505,17 @@ fn async_create_file(
                         OperationEvent::EntryCreated {
                             request_id: request.id,
                             location: Location::local(
-                                request.parent.native_path().expect("validated").join(candidate),
+                                request
+                                    .parent
+                                    .native_path()
+                                    .expect("validated")
+                                    .join(candidate),
                             ),
                         }
                     } else {
-                        OperationEvent::Created { request_id: request.id }
+                        OperationEvent::Created {
+                            request_id: request.id,
+                        }
                     });
                     return;
                 }
