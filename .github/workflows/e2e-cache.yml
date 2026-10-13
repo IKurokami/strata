@@ -37,7 +37,7 @@ concurrency:
 jobs:
   warm:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     env:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'

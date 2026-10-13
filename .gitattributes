@@ -1,2 +1,5 @@
 # PDF xref entries are fixed-width and end with a space before LF.
 tests/fixtures/documents/*.pdf whitespace=-blank-at-eol
+
+# Rustfmt expects LF files on Windows runners even when core.autocrlf is enabled.
+*.rs text eol=lf
