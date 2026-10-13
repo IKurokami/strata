@@ -15,8 +15,8 @@ use crate::model::{ActionDefinition, ActionError};
 #[cfg(unix)]
 use crate::model::{ActionRuntime, InterpreterFamily};
 use crate::services::actions::{
-    ActionAvailability, ActionCatalog, ActionHandle, ActionLoadFailure, ActionScript,
-    ActionStore, ActionStoreError, ActionWriteRequest,
+    ActionAvailability, ActionCatalog, ActionHandle, ActionLoadFailure, ActionScript, ActionStore,
+    ActionStoreError, ActionWriteRequest,
 };
 
 #[cfg(all(test, unix))]
@@ -155,7 +155,8 @@ impl ActionStore for LocalActionStore {
         // it; do not follow a redirected config directory on startup.
         #[cfg(windows)]
         if let Err(error) = ensure_plain_directory(&self.root) {
-            if !matches!(fs::symlink_metadata(&self.root), Err(ref err) if err.kind() == io::ErrorKind::NotFound) {
+            if !matches!(fs::symlink_metadata(&self.root), Err(ref err) if err.kind() == io::ErrorKind::NotFound)
+            {
                 tracing::warn!(%error, "refusing non-regular Windows action root");
             }
             return ActionCatalog::default();
@@ -284,14 +285,7 @@ impl ActionStore for LocalActionStore {
             }
             Err(error) => return Err(io_error(error)),
         };
-        #[cfg(windows)]
-    let is_reparse = {
-        use std::os::windows::fs::MetadataExt;
-        metadata.file_attributes() & 0x0000_0400 != 0
-    };
-    #[cfg(unix)]
-    let is_reparse = false;
-    if !metadata.file_type().is_dir() || is_reparse {
+        if !metadata.file_type().is_dir() {
             return Err(ActionStoreError::NotARegularFile(id.to_owned()));
         }
         ensure_plain_directory(&directory)?;
@@ -560,7 +554,14 @@ fn ensure_private_directory(path: &Path) -> Result<(), ActionStoreError> {
 
 fn ensure_plain_directory(path: &Path) -> Result<(), ActionStoreError> {
     let metadata = fs::symlink_metadata(path).map_err(io_error)?;
-    if !metadata.file_type().is_dir() {
+    #[cfg(windows)]
+    let is_reparse = {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_attributes() & 0x0000_0400 != 0
+    };
+    #[cfg(unix)]
+    let is_reparse = false;
+    if !metadata.file_type().is_dir() || is_reparse {
         return Err(ActionStoreError::Io(format!(
             "“{}” is not a folder",
             path.display()
