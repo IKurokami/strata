@@ -3,12 +3,13 @@
 use std::{
     cmp::Ordering,
     ffi::{OsStr, OsString},
-    os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
 use gio::prelude::*;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 pub mod action;
 
@@ -37,6 +38,7 @@ pub(crate) fn uri_contains_credentials(uri: &gio::glib::Uri) -> bool {
         || uri.user().is_some_and(|user| user.contains([':', ';']))
 }
 
+#[cfg(unix)]
 pub(crate) fn transfer_file_name(file: &gio::File) -> Option<OsString> {
     let basename = file.basename()?.into_os_string();
     if !file
@@ -76,6 +78,12 @@ pub(crate) fn transfer_file_name(file: &gio::File) -> Option<OsString> {
         return None;
     }
     Some(OsStr::from_bytes(bytes).to_os_string())
+}
+
+// GVfs's Unix-specific trash filename escaping does not apply on Windows.
+#[cfg(windows)]
+pub(crate) fn transfer_file_name(file: &gio::File) -> Option<OsString> {
+    file.basename().map(|basename| basename.into_os_string())
 }
 
 /// GIO hands out percent-encoded URIs; keep path, query and fragment encoded so names that are
@@ -268,6 +276,15 @@ impl Location {
             return None;
         }
         if name.as_encoded_bytes().contains(&b'/') {
+            return None;
+        }
+        // Windows path joining would otherwise accept absolute/drive-relative
+        // syntax, device names or NTFS alternate data streams as a child.
+        // Pure lexical validation: no ACL, shell or filesystem probe.
+        #[cfg(windows)]
+        if self.native_path().is_some()
+            && !strata_native_io::windows_paths::valid_child_name(name)
+        {
             return None;
         }
         match &self.kind {
