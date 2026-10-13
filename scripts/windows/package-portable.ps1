@@ -163,7 +163,30 @@ $errorOutput = $process.StandardError.ReadToEnd()
 if ($process.ExitCode -ne 0 -or $output -notmatch 'strata\s+1\.\d+') {
     throw "Packaged executable failed without MSYS2 PATH. Exit=$($process.ExitCode), output='$output', stderr='$errorOutput'"
 }
-Write-Host "Portable runtime smoke passed: $($output.Trim())"
+Write-Host "Portable PE smoke passed: $($output.Trim())"
+
+# A working PE is insufficient if the double-click launcher has invalid
+# quoting or a broken runtime directory. Execute the launcher independently.
+$cmd = [System.Diagnostics.ProcessStartInfo]::new()
+$cmd.FileName = Join-Path (Join-Path $env:SystemRoot "System32") "cmd.exe"
+$cmd.Arguments = ('/d /c "' + '"' + (Join-Path $Destination "Start-Strata.cmd") + '" --version"')
+$cmd.WorkingDirectory = $Destination
+$cmd.UseShellExecute = $false
+$cmd.RedirectStandardOutput = $true
+$cmd.RedirectStandardError = $true
+$cmd.Environment["PATH"] = "$stageBin;$($env:SystemRoot)\System32;$($env:SystemRoot)"
+$cmdProcess = [System.Diagnostics.Process]::Start($cmd)
+if (-not $cmdProcess) { throw "Could not start portable launcher" }
+if (-not $cmdProcess.WaitForExit(15000)) {
+    $cmdProcess.Kill($true)
+    throw "Portable launcher timed out"
+}
+$cmdOutput = $cmdProcess.StandardOutput.ReadToEnd()
+$cmdError = $cmdProcess.StandardError.ReadToEnd()
+if ($cmdProcess.ExitCode -ne 0 -or $cmdOutput -notmatch 'strata\s+1\.\d+') {
+    throw "Portable launcher failed. Exit=$($cmdProcess.ExitCode), output='$cmdOutput', stderr='$cmdError'"
+}
+Write-Host "Portable launcher smoke passed: $($cmdOutput.Trim())"
 Write-Host "Bundled runtime dependency imports: $importCount"
 Write-Host "Bundled native DLL files: $((Get-ChildItem -LiteralPath $stageBin -Filter '*.dll').Count)"
 
