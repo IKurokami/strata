@@ -161,7 +161,10 @@ fn spawn_operation_worker(
     thread::Builder::new().name(name.into()).spawn(move || {
         while let Ok((id, operation, cancelled)) = requests.recv() {
             let result = if cancelled.load(Ordering::Acquire) {
-                Err(io::Error::new(io::ErrorKind::Interrupted, "operation cancelled"))
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "operation cancelled",
+                ))
             } else {
                 execute(operation, &cancelled)
             };
@@ -169,7 +172,10 @@ fn spawn_operation_worker(
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&id);
-            if completions.send(OperationCompletion { id, result }).is_err() {
+            if completions
+                .send(OperationCompletion { id, result })
+                .is_err()
+            {
                 break;
             }
         }
@@ -490,8 +496,12 @@ mod tests {
         }
         let dir = TempDir::new();
         let dest = dir.file("not-published");
-        let err = stage_and_publish(&mut FailAfterFirstRead(false), &dest, &AtomicBool::new(false))
-            .expect_err("injected copy must fail");
+        let err = stage_and_publish(
+            &mut FailAfterFirstRead(false),
+            &dest,
+            &AtomicBool::new(false),
+        )
+        .expect_err("injected copy must fail");
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(
             !dest.exists(),
