@@ -585,6 +585,94 @@ mod tests {
     }
 
     #[test]
+    fn listing_drops_queued_events_from_superseded_folders() {
+        // Deterministic: inject stale events, as if a previous scan filled
+        // the channel, then navigate without allowing another worker to race.
+        let mailbox: Arc<Mailbox<PathBuf>> = Arc::new(Mailbox::new());
+        let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
+        let service = ListingService {
+            mailbox: Arc::clone(&mailbox),
+            updates,
+        };
+        let old = mailbox.submit(PathBuf::from("old-folder"));
+        sender
+            .try_send(ListingEvent::Batch {
+                generation: old,
+                entries: vec![],
+            })
+            .expect("queue stale batch");
+        sender
+            .try_send(ListingEvent::Finished {
+                generation: old,
+                error: Some("obsolete failure".into()),
+            })
+            .expect("queue stale finish");
+        let current = mailbox.submit(PathBuf::from("new-folder"));
+        sender
+            .try_send(ListingEvent::Finished {
+                generation: current,
+                error: None,
+            })
+            .expect("queue current finish");
+        assert!(matches!(
+            service.try_recv(),
+            Ok(ListingEvent::Finished {
+                generation,
+                error: None
+            }) if generation == current
+        ));
+        assert!(matches!(service.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn preview_drops_queued_bytes_from_superseded_selection() {
+        let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
+        let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
+        let service = PreviewService {
+            mailbox: Arc::clone(&mailbox),
+            updates,
+        };
+        let old = mailbox.submit(PreviewTask {
+            path: PathBuf::from("old"),
+            max_bytes: 1,
+        });
+        sender
+            .try_send(PreviewEvent {
+                generation: old,
+                result: Ok(RawPreview {
+                    bytes: b"old".to_vec(),
+                    truncated: false,
+                }),
+            })
+            .expect("queue stale preview");
+        let current = mailbox.submit(PreviewTask {
+            path: PathBuf::from("new"),
+            max_bytes: 1,
+        });
+        sender
+            .try_send(PreviewEvent {
+                generation: current,
+                result: Ok(RawPreview {
+                    bytes: b"new".to_vec(),
+                    truncated: false,
+                }),
+            })
+            .expect("queue newest preview");
+        let event = service.try_recv().expect("must deliver current preview");
+        assert_eq!(event.generation, current);
+        assert_eq!(event.result.expect("preview").bytes, b"new");
+        assert!(matches!(service.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn shutdown_stops_pending_mailbox_dispatch() {
+        let mailbox = Mailbox::new();
+        mailbox.submit(PathBuf::from("before-shutdown"));
+        mailbox.shutdown();
+        assert!(mailbox.next().is_none());
+    }
+
+    #[test]
     fn preview_is_bounded_and_reports_truncation() {
         let fixture = Fixture::new();
         let path = fixture.0.join("sample.bin");
