@@ -1,0 +1,107 @@
+name: Windows GUI compilation (experimental)
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/windows-gui-build.yml'
+  push:
+    branches:
+      - 'feat/windows-*'
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/windows-gui-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-gui-diagnostic-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-windows-gtk:
+    name: Experimental GTK4 Windows GNU compiler gate
+    runs-on: windows-2025
+    timeout-minutes: 40
+    # This is an explicitly nonblocking diagnostic until strata.exe builds.
+    # Never treat a green *workflow* as proof of a successful GUI compile.
+    continue-on-error: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Windows GTK4 toolchain and native libraries
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-gtksourceview5
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-poppler
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-cmake
+
+      - name: Confirm actual Windows-GNU target and native libraries
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          echo "MSYSTEM=$MSYSTEM"
+          rustc -vV
+          cargo -V
+          pkgconf --modversion gtk4
+          pkgconf --modversion gtksourceview-5
+          pkgconf --modversion gstreamer-1.0
+          pkgconf --modversion poppler-glib
+          pkgconf --modversion fontconfig
+
+      - name: Compile entire GTK application for native Windows
+        id: gui_check
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -uo pipefail
+          mkdir -p target/windows-gui-diagnostics
+          cargo check --locked --no-default-features --bin strata --message-format=short \
+            2>&1 | tee target/windows-gui-diagnostics/cargo-check.log
+          code=${PIPESTATUS[0]}
+          echo "cargo_exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Print diagnostic compiler summary
+        if: always()
+        shell: msys2 {0}
+        run: |
+          echo '### Native Windows GTK compile diagnostic' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This job is intentionally experimental until the full application compiles.' >> "$GITHUB_STEP_SUMMARY"
+          echo "Compiler result: ${{ steps.gui_check.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          if test -f target/windows-gui-diagnostics/cargo-check.log; then
+            grep -E '^error|error\[|^warning|\.rs:[0-9]+:[0-9]+' target/windows-gui-diagnostics/cargo-check.log \
+              | head -100 || true
+          fi
+
+      - name: Upload bounded-build diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+        with:
+          name: windows-gui-compile-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/windows-gui-diagnostics/cargo-check.log
+          if-no-files-found: ignore
+          retention-days: 7
