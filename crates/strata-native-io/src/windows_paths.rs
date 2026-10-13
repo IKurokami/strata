@@ -155,7 +155,10 @@ mod tests {
             Path::new(r"C:\\Windows\\System32"),
             Path::new(r"\\\\server\\share\\file"),
         ] {
-            assert!(volume_query_may_block(path), "must defer volume lookup: {path:?}");
+            assert!(
+                volume_query_may_block(path),
+                "must defer volume lookup: {path:?}"
+            );
         }
         for path in [Path::new(r"C:relative"), Path::new(r"relative\\file")] {
             assert!(!volume_query_may_block(path));
