@@ -8,10 +8,10 @@ use std::{
     rc::Rc,
 };
 
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 use crate::{
     model::{FolderColorValue, SortDirection, SortKey, ViewPreferences},
