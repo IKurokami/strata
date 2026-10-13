@@ -9,9 +9,9 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     os::windows::fs::{MetadataExt, OpenOptionsExt},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU8, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
@@ -21,6 +21,10 @@ use std::{
 
 const MAX_QUEUED_OPERATIONS: usize = 32;
 const MAX_QUEUED_REMOTE_OPERATIONS: usize = 8;
+// Non-system drive letters can be mapped SMB shares without UNC syntax.
+// Route them via one bounded dispatcher; spawn per-letter workers lazily.
+const MAX_QUEUED_DRIVE_DISPATCH: usize = 32;
+const MAX_QUEUED_PER_DRIVE: usize = 8;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
 // An accepted cancellation must win the same CAS as final publication.
@@ -80,12 +84,14 @@ pub enum SubmitError {
     Closed,
 }
 
-/// One worker per backend preserves submission ordering within that backend.
-/// UNC shares are isolated: a hung network copy cannot block a local mkdir.
+/// System-drive work, UNC paths and uncertain drive-letter roots are separate.
+/// Unknown letters get independent, lazily spawned worker lanes: an offline
+/// mapped Z: drive cannot stall C: file operations or D: local drive work.
 /// Neither submission nor polling performs filesystem I/O on GTK's thread.
 pub struct LocalOperationService {
     sender: SyncSender<QueuedOperation>,
     remote_sender: SyncSender<QueuedOperation>,
+    drive_sender: SyncSender<QueuedOperation>,
     updates: Receiver<OperationCompletion>,
     outstanding: OutstandingOperations,
     next_id: AtomicU64,
@@ -95,6 +101,7 @@ impl LocalOperationService {
     pub fn new() -> io::Result<Self> {
         let (sender, requests) = mpsc::sync_channel(MAX_QUEUED_OPERATIONS);
         let (remote_sender, remote_requests) = mpsc::sync_channel(MAX_QUEUED_REMOTE_OPERATIONS);
+        let (drive_sender, drive_requests) = mpsc::sync_channel(MAX_QUEUED_DRIVE_DISPATCH);
         let (completions, updates) = mpsc::sync_channel(MAX_QUEUED_COMPLETIONS);
         let outstanding: OutstandingOperations = Arc::new(Mutex::new(HashMap::new()));
         spawn_operation_worker(
@@ -106,12 +113,14 @@ impl LocalOperationService {
         spawn_operation_worker(
             "strata-windows-unc-ops",
             remote_requests,
-            completions,
+            completions.clone(),
             Arc::clone(&outstanding),
         )?;
+        spawn_drive_dispatcher(drive_requests, completions, Arc::clone(&outstanding))?;
         Ok(Self {
             sender,
             remote_sender,
+            drive_sender,
             updates,
             outstanding,
             next_id: AtomicU64::new(1),
@@ -123,6 +132,8 @@ impl LocalOperationService {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let queue = if operation_uses_unc(&operation) {
             &self.remote_sender
+        } else if uncertain_drive_lane(&operation).is_some() {
+            &self.drive_sender
         } else {
             &self.sender
         };
@@ -176,6 +187,123 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
             destination,
         } => remote(source) || remote(destination),
     }
+}
+
+// Get the native drive prefix without inspecting the filesystem. Calling
+// GetDriveType or shell APIs on the UI thread can hang for an offline SMB map.
+fn drive_letter(path: &Path) -> Option<u8> {
+    let Component::Prefix(prefix) = path.components().next()? else {
+        return None;
+    };
+    match prefix.kind() {
+        Prefix::Disk(letter) => Some(letter.to_ascii_uppercase()),
+        _ => None,
+    }
+}
+
+fn system_drive_letter() -> u8 {
+    static LETTER: OnceLock<u8> = OnceLock::new();
+    *LETTER.get_or_init(|| {
+        std::env::var("SystemDrive")
+            .ok()
+            .and_then(|drive| {
+                let bytes = drive.as_bytes();
+                (bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic())
+                    .then(|| bytes[0].to_ascii_uppercase())
+            })
+            .unwrap_or(b'C')
+    })
+}
+
+// Prefer the destination volume so an offline mapped copy target never occupies
+// its local source-drive lane. If only the source is non-system, use that lane.
+fn uncertain_drive_lane(operation: &LocalOperation) -> Option<u8> {
+    let system = system_drive_letter();
+    let non_system = |path: &Path| drive_letter(path).filter(|&letter| letter != system);
+    match operation {
+        LocalOperation::CreateDirectory(path) => non_system(path),
+        LocalOperation::CopyFile {
+            source,
+            destination,
+        } => non_system(destination).or_else(|| non_system(source)),
+    }
+}
+
+fn complete_dispatch_error(
+    id: u64,
+    error: io::Error,
+    completions: &SyncSender<OperationCompletion>,
+    outstanding: &OutstandingOperations,
+) -> bool {
+    outstanding
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&id);
+    completions
+        .send(OperationCompletion {
+            id,
+            result: Err(error),
+        })
+        .is_ok()
+}
+
+// Dispatching and starting a worker happen off GTK's thread. At most 25
+// non-system letters can be used, and every lane has a bounded FIFO. A failed
+// lane allocation produces a completion error rather than silently losing an
+// accepted request.
+fn spawn_drive_dispatcher(
+    requests: Receiver<QueuedOperation>,
+    completions: SyncSender<OperationCompletion>,
+    outstanding: OutstandingOperations,
+) -> io::Result<()> {
+    thread::Builder::new()
+        .name("strata-drive-dispatch".to_owned())
+        .spawn(move || {
+            let mut lanes: HashMap<u8, SyncSender<QueuedOperation>> = HashMap::new();
+            while let Ok(task) = requests.recv() {
+                let Some(letter) = uncertain_drive_lane(&task.1) else {
+                    if !complete_dispatch_error(
+                        task.0,
+                        io::Error::new(io::ErrorKind::InvalidInput, "missing drive prefix"),
+                        &completions,
+                        &outstanding,
+                    ) {
+                        break;
+                    }
+                    continue;
+                };
+                if let std::collections::hash_map::Entry::Vacant(slot) = lanes.entry(letter) {
+                    let (sender, pending) = mpsc::sync_channel(MAX_QUEUED_PER_DRIVE);
+                    if let Err(error) = spawn_operation_worker(
+                        &format!("strata-drive-{}", letter as char),
+                        pending,
+                        completions.clone(),
+                        Arc::clone(&outstanding),
+                    ) {
+                        if !complete_dispatch_error(task.0, error, &completions, &outstanding) {
+                            break;
+                        }
+                        continue;
+                    }
+                    slot.insert(sender);
+                }
+                if let Err(error) = lanes.get(&letter).expect("worker was inserted").try_send(task) {
+                    let (task, message) = match error {
+                        TrySendError::Full(task) => (task, "drive operation queue is full"),
+                        TrySendError::Disconnected(task) => (task, "drive worker stopped"),
+                    };
+                    if !complete_dispatch_error(
+                        task.0,
+                        io::Error::new(io::ErrorKind::WouldBlock, message),
+                        &completions,
+                        &outstanding,
+                    ) {
+                        break;
+                    }
+                }
+            }
+        })?;
+    Ok(())
 }
 
 fn spawn_operation_worker(
