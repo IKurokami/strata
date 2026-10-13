@@ -256,7 +256,9 @@ mod tests {
                 .submit(LocalOperation::CreateDirectory(destination))
                 .expect("queue");
             assert_eq!(
-                finished(&service, id).expect_err("reject invalid path").kind(),
+                finished(&service, id)
+                    .expect_err("reject invalid path")
+                    .kind(),
                 io::ErrorKind::InvalidInput
             );
         }
@@ -267,7 +269,9 @@ mod tests {
             })
             .expect("queue");
         assert_eq!(
-            finished(&service, id).expect_err("reject relative source").kind(),
+            finished(&service, id)
+                    .expect_err("reject relative source")
+                    .kind(),
             io::ErrorKind::InvalidInput
         );
         assert!(!dir.file("never-created").exists());
@@ -285,7 +289,9 @@ mod tests {
             })
             .expect("queue");
         assert_eq!(
-            finished(&service, id).expect_err("directory is not a file").kind(),
+            finished(&service, id)
+                    .expect_err("directory is not a file")
+                    .kind(),
             io::ErrorKind::InvalidInput
         );
         assert!(!destination.exists());
