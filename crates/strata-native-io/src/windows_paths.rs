@@ -48,6 +48,25 @@ pub fn volume_query_may_block(path: &Path) -> bool {
     )
 }
 
+/// Windows FILE_ATTRIBUTE_HIDDEN is provided with FindFirstFile/FindNextFile.
+/// This is a bit test, not a metadata probe or a rule about dot-prefixed names.
+pub const fn is_hidden_attributes(attributes: u32) -> bool {
+    attributes & 0x0000_0002 != 0
+}
+
+/// The Windows DirEntry already carries file attributes from directory
+/// enumeration. Do not inspect a dot prefix or issue a fresh ACL query.
+pub fn should_skip_hidden_entry(entry: &std::fs::DirEntry, show_hidden: bool) -> bool {
+    if show_hidden {
+        return false;
+    }
+    use std::os::windows::fs::MetadataExt;
+    entry
+        .metadata()
+        .ok()
+        .is_some_and(|info| is_hidden_attributes(info.file_attributes()))
+}
+
 /// Validate a single ordinary child component without touching the filesystem.
 ///
 /// Avoid path traversal, alternate data streams, reserved Win32 device names
@@ -128,6 +147,9 @@ pub fn valid_child_name(name: &OsStr) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod search_tests;
 
 #[cfg(test)]
 mod tests {

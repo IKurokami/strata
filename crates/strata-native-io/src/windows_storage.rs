@@ -16,6 +16,19 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+/// A refusal to replace a non-regular file or Windows reparse target.
+/// This is kept distinct from ordinary OS errors for localized GUI messages.
+#[derive(Debug)]
+pub struct DestinationError;
+
+impl std::fmt::Display for DestinationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("refusing a non-regular or reparse-point destination")
+    }
+}
+
+impl std::error::Error for DestinationError {}
+
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const MAX_TEMPORARY_ATTEMPTS: usize = 64;
 static NEXT_STAGING: AtomicU64 = AtomicU64::new(0);
@@ -29,7 +42,7 @@ fn validate_destination(path: &Path) -> io::Result<()> {
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "refusing a non-regular or reparse-point destination",
+                    DestinationError,
                 ));
             }
             Ok(())
@@ -148,6 +161,11 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let error = atomic_write(&directory, b"not a file").expect_err("reject directory");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            error
+                .get_ref()
+                .is_some_and(|inner| inner.is::<DestinationError>())
+        );
         assert!(directory.is_dir());
         assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
     }
