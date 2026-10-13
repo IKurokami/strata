@@ -4,23 +4,34 @@ use std::{
     ffi::OsStr,
     fs::{self, DirBuilder},
     io,
-    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     rc::Rc,
 };
 
-use crate::model::{ActionDefinition, ActionError, ActionRuntime, InterpreterFamily};
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+use crate::model::{ActionDefinition, ActionError};
+#[cfg(unix)]
+use crate::model::{ActionRuntime, InterpreterFamily};
 use crate::services::actions::{
-    ActionAvailability, ActionCatalog, ActionHandle, ActionLoadFailure, ActionProgram,
-    ActionScript, ActionStore, ActionStoreError, ActionWriteRequest,
+    ActionAvailability, ActionCatalog, ActionHandle, ActionLoadFailure, ActionScript, ActionStore,
+    ActionStoreError, ActionWriteRequest,
 };
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
+#[cfg(all(test, windows))]
+#[path = "local_actions/tests_windows.rs"]
+mod tests_windows;
+
+#[cfg(unix)]
+use crate::services::actions::ActionProgram;
 
 pub(crate) const MANIFEST_FILE: &str = "action.toml";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_SCRIPT_BYTES: u64 = 1024 * 1024;
+#[cfg(unix)]
 const MAX_SHEBANG_PREFIX_BYTES: u64 = 4096;
 
 pub(crate) fn actions_directory() -> PathBuf {
@@ -140,6 +151,16 @@ impl LocalActionStore {
 
 impl ActionStore for LocalActionStore {
     fn load(&self) -> ActionCatalog {
+        // On Win32, reject a junction as the action root before enumerating
+        // it; do not follow a redirected config directory on startup.
+        #[cfg(windows)]
+        if let Err(error) = ensure_plain_directory(&self.root) {
+            if !matches!(fs::symlink_metadata(&self.root), Err(ref err) if err.kind() == io::ErrorKind::NotFound)
+            {
+                tracing::warn!(%error, "refusing non-regular Windows action root");
+            }
+            return ActionCatalog::default();
+        }
         let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -188,8 +209,7 @@ impl ActionStore for LocalActionStore {
         request.definition.validate()?;
         let directory = self.action_directory(&request.definition.id)?;
         ensure_private_directory(&self.root)?;
-        DirBuilder::new()
-            .mode(0o700)
+        private_directory_builder()
             .create(&directory)
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::AlreadyExists {
@@ -314,8 +334,7 @@ impl ActionStore for LocalActionStore {
             .ok_or_else(|| ActionStoreError::NotFound(id.to_owned()))?;
         ensure_plain_directory(destination)?;
         let target = destination.join(id);
-        DirBuilder::new()
-            .mode(0o700)
+        private_directory_builder()
             .create(&target)
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::AlreadyExists {
@@ -343,6 +362,7 @@ impl ActionStore for LocalActionStore {
     }
 }
 
+#[cfg(unix)]
 fn resolve_availability(
     directory: &Path,
     definition: &ActionDefinition,
@@ -420,7 +440,21 @@ fn resolve_availability(
     }
 }
 
+// Keep action manifests editable and importable on Windows, but do not
+// advertise any script or command as runnable without Windows Job Object
+// containment and whole-process-tree cancellation.
+#[cfg(windows)]
+fn resolve_availability(
+    _directory: &Path,
+    _definition: &ActionDefinition,
+) -> Result<ActionAvailability, ActionStoreError> {
+    Ok(ActionAvailability::Unavailable {
+        reason: "Custom actions on Windows require native process-tree isolation".to_owned(),
+    })
+}
+
 /// Unlike sandbox helpers, trusted actions need the user's PATH, including shims.
+#[cfg(unix)]
 pub(crate) fn resolve_executable(program: &str) -> Option<PathBuf> {
     if program.contains('/') {
         if !Path::new(program).is_absolute() {
@@ -435,6 +469,7 @@ pub(crate) fn resolve_executable(program: &str) -> Option<PathBuf> {
         .find(|candidate| is_executable_file(candidate))
 }
 
+#[cfg(unix)]
 fn is_executable_file(path: &Path) -> bool {
     fs::metadata(path)
         .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
@@ -462,6 +497,7 @@ fn read_regular_text(path: &Path, max_bytes: u64) -> Result<String, ActionStoreE
     fs::read_to_string(path).map_err(io_error)
 }
 
+#[cfg(unix)]
 fn read_regular_prefix(path: &Path, max_bytes: u64) -> Result<String, ActionStoreError> {
     use std::io::Read;
 
@@ -481,6 +517,28 @@ fn file_label(path: &Path) -> String {
         .into_owned()
 }
 
+/// The Windows adapter does not scan PATH or launch executables. Even if
+/// other modules ask for a binary, refuse rather than invoke shells implicitly.
+#[cfg(windows)]
+pub(crate) fn resolve_executable(_program: &str) -> Option<PathBuf> {
+    None
+}
+
+fn private_directory_builder() -> DirBuilder {
+    #[cfg(unix)]
+    {
+        let mut builder = DirBuilder::new();
+        builder.mode(0o700);
+        builder
+    }
+    #[cfg(windows)]
+    {
+        // Inherit the caller's directory ACL; never try chmod(0700).
+        // ACL hardening still needs a platform-specific follow-up.
+        DirBuilder::new()
+    }
+}
+
 fn ensure_private_directory(path: &Path) -> Result<(), ActionStoreError> {
     if path.exists() {
         return ensure_plain_directory(path);
@@ -491,12 +549,19 @@ fn ensure_private_directory(path: &Path) -> Result<(), ActionStoreError> {
     {
         ensure_private_directory(parent)?;
     }
-    DirBuilder::new().mode(0o700).create(path).map_err(io_error)
+    private_directory_builder().create(path).map_err(io_error)
 }
 
 fn ensure_plain_directory(path: &Path) -> Result<(), ActionStoreError> {
     let metadata = fs::symlink_metadata(path).map_err(io_error)?;
-    if !metadata.file_type().is_dir() {
+    #[cfg(windows)]
+    let is_reparse = {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_attributes() & 0x0000_0400 != 0
+    };
+    #[cfg(unix)]
+    let is_reparse = false;
+    if !metadata.file_type().is_dir() || is_reparse {
         return Err(ActionStoreError::Io(format!(
             "“{}” is not a folder",
             path.display()
