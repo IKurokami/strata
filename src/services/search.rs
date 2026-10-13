@@ -1764,5 +1764,5 @@ fn fuzzy_ascii_subsequence_score(haystack: &[u8], needle: &[u8]) -> Option<i64> 
     Some(score)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

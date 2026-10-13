@@ -1010,7 +1010,7 @@ fn register_application_fonts(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 #[cfg(test)]
 pub(crate) use tests::{

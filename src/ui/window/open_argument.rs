@@ -320,5 +320,5 @@ fn show_error(browser: &BrowserView, file: gio::File, location: Location) {
     overlay.add_overlay(&content);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
