@@ -67,18 +67,23 @@ impl IconDetailsFingerprint {
 
     #[cfg(windows)]
     fn read(path: &Path) -> Option<Self> {
-        // Windows FILETIME values and attributes are available through std.
-        // Avoid ACL, Shell/COM, icon extractor or separate permission queries.
         let metadata = fs::metadata(path).ok()?;
+        Some(Self::from_windows_metadata(&metadata))
+    }
+
+    #[cfg(windows)]
+    fn from_windows_metadata(metadata: &fs::Metadata) -> Self {
+        // Windows directory enumeration already returned basic metadata.
+        // Reuse it instead of an additional per-item filesystem stat on
+        // revisited folders; no ACL or Shell extension call is required.
         let modified = metadata.last_write_time();
-        Some(Self {
+        Self {
             size: metadata.len(),
             modified_seconds: (modified / 10_000_000) as i64,
             modified_nanoseconds: ((modified % 10_000_000) * 100) as i64,
-            // These two fields are opaque cache-validation values on Windows.
             changed_seconds: metadata.creation_time() as i64,
             changed_nanoseconds: i64::from(metadata.file_attributes()),
-        })
+        }
     }
 }
 
@@ -192,6 +197,7 @@ fn cached_icon_details(path: &Path, fingerprint: IconDetailsFingerprint) -> Opti
 
 static CACHE_HAS_ENTRIES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(unix)]
 fn cached_icon_details_for_revisit(path: &Path) -> Option<IconDetails> {
     if !CACHE_HAS_ENTRIES.load(std::sync::atomic::Ordering::Acquire) {
         return None;
@@ -201,6 +207,22 @@ fn cached_icon_details_for_revisit(path: &Path) -> Option<IconDetails> {
         return None;
     }
     cached_icon_details(path, IconDetailsFingerprint::read(path)?)
+}
+
+#[cfg(windows)]
+fn cached_icon_details_for_revisit(
+    path: &Path,
+    metadata: Option<&fs::Metadata>,
+) -> Option<IconDetails> {
+    if !CACHE_HAS_ENTRIES.load(std::sync::atomic::Ordering::Acquire) {
+        return None;
+    }
+    let was_cached = icon_details_cache().lock().ok()?.entries.contains_key(path);
+    if !was_cached {
+        return None;
+    }
+    let fingerprint = IconDetailsFingerprint::from_windows_metadata(metadata?);
+    cached_icon_details(path, fingerprint)
 }
 
 fn cache_icon_details(
@@ -623,9 +645,10 @@ fn scan_native_directory(
         #[cfg(unix)]
         let is_hidden = is_hidden_name(&native_name, &hidden_names);
         #[cfg(windows)]
-        let is_hidden = child
-            .metadata()
-            .ok()
+        let native_metadata = child.metadata().ok();
+        #[cfg(windows)]
+        let is_hidden = native_metadata
+            .as_ref()
             .map(|metadata| metadata.file_attributes() & 0x0000_0002 != 0)
             .unwrap_or_else(|| is_hidden_name(&native_name, &hidden_names));
         if entries.len() == request.max_entries {
@@ -641,7 +664,10 @@ fn scan_native_directory(
         };
         let path = child.path();
         let kind = native_kind(file_type, &path);
+        #[cfg(unix)]
         let cached_details = cached_icon_details_for_revisit(&path);
+        #[cfg(windows)]
+        let cached_details = cached_icon_details_for_revisit(&path, native_metadata.as_ref());
         let mut entry = FileEntry {
             location: Location::local(path),
             display_name: native_name.to_string_lossy().into_owned(),
