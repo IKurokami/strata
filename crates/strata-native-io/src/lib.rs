@@ -19,12 +19,12 @@ use std::{
     time::Duration,
 };
 
-/// Names per event; file type and metadata are fetched lazily by the caller.
-#[cfg(windows)]
-pub mod windows_paths;
 #[cfg(windows)]
 pub mod windows_operations;
+#[cfg(windows)]
+pub mod windows_paths;
 
+/// Maximum names per listing event, without eager metadata I/O.
 pub const LISTING_BATCH_SIZE: usize = 256;
 /// Prevent unread UI events from consuming unbounded memory.
 const LISTING_CHANNEL_CAPACITY: usize = 64;
