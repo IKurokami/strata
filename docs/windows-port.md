@@ -24,9 +24,11 @@ Status: **foundation only**, not a bootable Windows edition of Strata. Keep the 
 
 - [x] Create isolated Windows-port branch.
 - [x] Add an independent native Windows + Linux CI gate for portable background I/O.
-- [x] Implement a bounded, latest-request-wins filename enumeration service and raw preview prefetch primitive, both off the UI thread.
-- [ ] Extract OS-neutral location/path semantics from `src/model` (Windows UTF-16 and drive/UNC handling; preserve non-UTF-8 Unix paths).
-- [ ] Split Cargo dependencies and implementation modules using per-target `cfg`, while preserving the supported Linux build.
+- [x] Implement bounded, latest-request-wins filename enumeration and raw preview prefetch services, both off the UI thread. On Windows, reuse directory entry type hints instead of per-file stat calls.
+- [x] Introduce Windows-only zero-I/O path classification and safe ordinary filename validation in `strata-native-io::windows_paths`; wire native child name validation into `src/model/mod.rs` and isolate Unix-specific GVfs trash filename parsing.
+- [ ] Complete OS-neutral location/URI handling throughout `src/model`, including drive/UNC, extended-length paths and remote URI edge cases; preserve non-UTF-8 Unix paths.
+- [x] Add `strata-native-io` as a path dependency in root `Cargo.toml` and lockfile; validate root metadata in Linux/Windows CI.
+- [ ] Split the remaining application dependencies and implementation modules using per-target `cfg`, while preserving the supported Linux build.
 - [ ] Use native Windows drive/volume enumeration, Recycle Bin, change notification and Shell integration; keep calls asynchronous.
 - [ ] Integrate the native listing and preview services with existing GTK list models and verify actual first-frame behavior on Windows.
 - [ ] Replace Linux-only preview isolation with a Windows restricted-token/AppContainer strategy and validate attack surface.
@@ -50,3 +52,10 @@ cargo run --release --manifest-path crates/strata-native-io/Cargo.toml --example
 ```
 
 The example reports initial-pass and warm p50/p95 times for the first batch and full enumeration. This is **not** an application-startup measurement or an Everything-like indexed search. Measure on the target workstation and profile GTK integration separately.
+
+## Validation status and remaining gaps
+
+- Windows native I/O module unit tests, Clippy and release compilation pass on Windows Server 2025 and Ubuntu 24.04. CI includes Cargo root lockfile metadata validation, **not** full application compilation on Windows.
+- In the application's `src/model/mod.rs`, Unix-only GVfs trash filename decoding now uses conditional compilation, and native Windows child names are checked against path traversal, device names and NTFS alternate data streams without I/O.
+- No native Windows GUI build, running `strata.exe`, full GTK smoke test, Windows sandbox or measurable first-frame latency yet. None of these should be labeled complete.
+- At this stage, the Windows classifier does not auto-resolve drive-relative (`C:foo`), root-relative (`\\foo`) or special device namespace paths; a future user-facing path handler must resolve/reject them intentionally.
