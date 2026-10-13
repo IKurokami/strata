@@ -61,6 +61,7 @@ impl FilesystemType {
     }
 
     /// Candidate executables, in preference order.
+#[cfg(target_os = "linux")]
     fn mkfs_candidates(self) -> &'static [&'static str] {
         match self {
             Self::Fat32 => &["mkfs.fat"],
@@ -69,6 +70,7 @@ impl FilesystemType {
         }
     }
 
+#[cfg(target_os = "linux")]
     fn format_options(self, label: &str, quick: bool) -> glib::Variant {
         let options = glib::VariantDict::new(None);
         options.insert("update-partition-type", true);
@@ -84,6 +86,7 @@ impl FilesystemType {
         options.end()
     }
 
+#[cfg(target_os = "linux")]
     fn udisks_type(self) -> &'static str {
         match self {
             Self::Fat32 => "vfat",
@@ -92,6 +95,7 @@ impl FilesystemType {
         }
     }
 
+#[cfg(target_os = "linux")]
     fn resolve_mkfs(self) -> Option<PathBuf> {
         self.mkfs_candidates().iter().find_map(|cmd| tool_path(cmd))
     }
@@ -190,6 +194,7 @@ impl From<glib::Error> for DriveOpError {
 }
 
 /// Locate an executable through `PATH` plus the usual sbin directories.
+#[cfg(target_os = "linux")]
 fn tool_path(cmd: &str) -> Option<PathBuf> {
     if cmd.contains('/') {
         let path = PathBuf::from(cmd);
@@ -317,6 +322,7 @@ pub(super) fn device_size_bytes(_device: &Path) -> Option<u64> { None }
 
 /// Unmount the volume when mounted: the label/format tools need exclusive
 /// access to the block device.
+#[cfg(target_os = "linux")]
 async fn unmount_for_exclusive_access(
     parent: &gtk::Widget,
     volume: &gio::Volume,
