@@ -7,7 +7,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
@@ -90,13 +90,39 @@ impl LocalOperationService {
     }
 }
 
+/// Refuse working-directory-relative and Windows device namespace paths.
+/// A UI-selected operation must refer to an explicit absolute filesystem path,
+/// not a process-global current-directory or a named device.
+fn validate_native_file_path(path: &Path) -> io::Result<()> {
+    use crate::windows_paths::{PathKind, classify, valid_child_name};
+
+    if !matches!(
+        classify(path),
+        PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+    ) || !path.file_name().is_some_and(valid_child_name)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected an absolute ordinary Windows filesystem path",
+        ));
+    }
+    Ok(())
+}
+
 fn execute(operation: LocalOperation) -> io::Result<()> {
     match operation {
-        LocalOperation::CreateDirectory(path) => fs::create_dir(path),
+        LocalOperation::CreateDirectory(path) => {
+            validate_native_file_path(&path)?;
+            fs::create_dir(path)
+        }
         LocalOperation::CopyFile {
             source,
             destination,
-        } => copy_no_clobber(source, destination),
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            copy_no_clobber(source, destination)
+        }
     }
 }
 
@@ -215,6 +241,54 @@ mod tests {
             io::ErrorKind::AlreadyExists
         );
         assert_eq!(fs::read(dest).expect("original destination"), b"keep me");
+    }
+
+    #[test]
+    fn rejects_relative_and_device_paths_without_touching_them() {
+        let dir = TempDir::new();
+        let service = LocalOperationService::new().expect("service");
+        for destination in [
+            PathBuf::from(r"some-relative-folder"),
+            PathBuf::from(r"C:drive-relative"),
+            PathBuf::from(r"\\.\pipe\strata-test"),
+        ] {
+            let id = service
+                .submit(LocalOperation::CreateDirectory(destination))
+                .expect("queue");
+            assert_eq!(
+                finished(&service, id).expect_err("reject invalid path").kind(),
+                io::ErrorKind::InvalidInput
+            );
+        }
+        let id = service
+            .submit(LocalOperation::CopyFile {
+                source: PathBuf::from("relative-src"),
+                destination: dir.file("never-created"),
+            })
+            .expect("queue");
+        assert_eq!(
+            finished(&service, id).expect_err("reject relative source").kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(!dir.file("never-created").exists());
+    }
+
+    #[test]
+    fn copying_directory_is_rejected_without_creating_destination() {
+        let dir = TempDir::new();
+        let destination = dir.file("new-file");
+        let service = LocalOperationService::new().expect("service");
+        let id = service
+            .submit(LocalOperation::CopyFile {
+                source: dir.0.clone(),
+                destination: destination.clone(),
+            })
+            .expect("queue");
+        assert_eq!(
+            finished(&service, id).expect_err("directory is not a file").kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(!destination.exists());
     }
 
     #[test]
