@@ -90,6 +90,9 @@ while ($queue.Count -gt 0) {
             throw "Suspicious DLL import name '$dll' in $binary"
         }
         $importCount++
+        if ($dll -ieq "msys-2.0.dll") {
+            throw "MSYS2 POSIX-runtime dependency in native Windows package: $binary"
+        }
         $localDll = Join-Path $runtimeBin $dll
         if (Test-Path -LiteralPath $localDll) {
             $packaged = Join-Path $stageBin $dll
