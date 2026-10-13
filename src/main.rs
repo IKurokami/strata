@@ -53,12 +53,14 @@ const GIO_FALLBACK_BACKENDS: [(&str, &str); 2] =
 enum LaunchMode {
     PreviewHelper,
     BrowserWorker,
+    #[cfg(target_os = "linux")]
     GvfsProbe,
     Portal,
     InstallPortal,
     DismissPortalPrompt,
     UninstallPortal,
     Version,
+    #[cfg(target_os = "linux")]
     UdiskieHook,
     InstallUdiskie,
     UninstallUdiskie,
@@ -71,12 +73,14 @@ fn launch_mode(arguments: &[OsString]) -> LaunchMode {
     match arguments.get(1).and_then(|argument| argument.to_str()) {
         Some("--preview-helper") => LaunchMode::PreviewHelper,
         Some("--browser-worker") => LaunchMode::BrowserWorker,
+        #[cfg(target_os = "linux")]
         Some(GVFS_PROBE_ARGUMENT) => LaunchMode::GvfsProbe,
         Some("--portal") => LaunchMode::Portal,
         Some("--install-portal") => LaunchMode::InstallPortal,
         Some("--dismiss-portal-prompt") => LaunchMode::DismissPortalPrompt,
         Some("--uninstall-portal") => LaunchMode::UninstallPortal,
         Some("--version") => LaunchMode::Version,
+        #[cfg(target_os = "linux")]
         Some("--udiskie-hook") => LaunchMode::UdiskieHook,
         Some("--install-udiskie-unlock") => LaunchMode::InstallUdiskie,
         Some("--uninstall-udiskie-unlock") => LaunchMode::UninstallUdiskie,
@@ -99,6 +103,7 @@ fn version_line() -> String {
     )
 }
 
+#[cfg(target_os = "linux")]
 fn classify_udiskie_hook(arguments: &[OsString]) -> Option<&str> {
     let [event, id_usage, device_file, id_uuid, ..] = arguments else {
         return None;
@@ -121,6 +126,7 @@ fn classify_udiskie_hook(arguments: &[OsString]) -> Option<&str> {
     None
 }
 
+#[cfg(target_os = "linux")]
 fn run_udiskie_hook(arguments: &[OsString]) -> gtk::glib::ExitCode {
     let Some(operand) = classify_udiskie_hook(arguments) else {
         return gtk::glib::ExitCode::SUCCESS;
@@ -156,6 +162,7 @@ fn main() -> gtk::glib::ExitCode {
             }
             return gtk::glib::ExitCode::SUCCESS;
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::GvfsProbe => {
             let _vfs = gio::Vfs::default();
             let _volumes = gio::VolumeMonitor::get();
@@ -175,6 +182,7 @@ fn main() -> gtk::glib::ExitCode {
             println!("{}", version_line());
             return gtk::glib::ExitCode::SUCCESS;
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::UdiskieHook => return run_udiskie_hook(&arguments[2..]),
         LaunchMode::InstallUdiskie => {
             return finish_portal_setup(portal_setup::udiskie::install());
@@ -372,6 +380,7 @@ fn install_application_identity() {
     glib::set_application_name("Strata");
 }
 
+#[cfg(target_os = "linux")]
 fn install_x11_program_class() {
     let Some(display) = gtk::gdk::Display::default() else {
         return;

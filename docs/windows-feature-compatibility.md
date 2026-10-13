@@ -40,6 +40,12 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 - Windows native folder inode-identity recovery is temporarily disabled because portable stable Rust does not provide a reliable Windows per-file identity. Rename notification recovery needs a dedicated Windows file-ID implementation; never infer identity solely from filenames or creation timestamps.
 - The complete GTK GUI is still not compiled or tested on Windows. No end-to-end performance figures are claimed.
 
+## Phase 5: Windows entry-point portability
+
+- The `--gvfs-probe` dispatch and Unix `udiskie` hook execution are compiled only for Linux; Windows must not compile Unix process `exec` or register GVfs-only launch behavior.
+- The `gdk4_x11::X11Display` helper is now Linux-only, matching the target-gated `gdk4-x11` dependency. Windows startup does not load X11 or run the Linux GVfs probe.
+- These guards remove *specific* Windows compilation blockers without changing Linux entry points. `portal_setup`, sandboxing, native volume support and the rest of the GTK application still need platform separation; this is not proof of a Windows GUI build.
+
 ## CI and blockers
 
 - Independent crate CI runs formatting, Clippy, tests and release compilation on Windows Server 2025 and Ubuntu.
