@@ -25,6 +25,10 @@ mod rar_extraction;
 mod sandbox;
 mod sandbox_helper;
 mod services;
+#[cfg(not(windows))]
+mod storage;
+#[cfg(windows)]
+#[path = "storage_windows.rs"]
 mod storage;
 #[cfg(test)]
 mod test_support;
