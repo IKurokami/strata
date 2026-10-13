@@ -33,9 +33,16 @@ impl MountTable {
     }
 
     pub(super) fn query_may_block(&self, path: &Path) -> bool {
-        // UNC can block, so existing volume probes must remain asynchronous.
-        // Mapped remote drives are not yet identified and remain a blocker.
-        self.is_remote_path(path)
+        // A local-looking absolute path may actually be a mapped network drive
+        // (for example Z:\\ on an offline SMB server). There is no cheap
+        // reliable lexical distinction. Force native volume identity lookups
+        // onto GIO's asynchronous route instead of probing GTK's UI thread.
+        // This is deliberately conservative until a cached, background Win32
+        // drive classifier is available. Ordinary filename listing is unaffected.
+        matches!(
+            classify(path),
+            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+        )
     }
 
     pub(crate) fn is_mount_point(&self, path: &Path) -> bool {
@@ -64,6 +71,9 @@ mod tests {
     fn classifies_unc_without_probing_and_does_not_assume_mapped_drive() {
         let mounts = MountTable::current();
         assert!(mounts.query_may_block(Path::new(r"\\server\share\folder")));
+        assert!(mounts.query_may_block(Path::new(r"Z:\offline\folder")));
+        assert!(mounts.query_may_block(Path::new(r"C:\Users\Public")));
+        assert!(!mounts.query_may_block(Path::new("relative\\path")));
         assert!(mounts.is_network_path(Path::new(r"\\server\share\item")));
         assert!(!mounts.is_network_path(Path::new(r"C:\Users\Public")));
         assert!(mounts.fs_type_for(Path::new(r"C:\")).is_none());
