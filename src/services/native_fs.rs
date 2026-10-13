@@ -33,9 +33,17 @@ pub(crate) fn native_kind(file_type: fs::FileType, path: &Path) -> EntryKind {
     }
 }
 
+#[cfg(unix)]
 pub(crate) fn is_hidden_name(native_name: &OsStr, hidden_names: &HashSet<OsString>) -> bool {
     native_name.as_encoded_bytes().first().copied() == Some(b'.')
         || hidden_names.contains(native_name)
+}
+
+#[cfg(windows)]
+pub(crate) fn is_hidden_name(_native_name: &OsStr, _hidden_names: &HashSet<OsString>) -> bool {
+    // Windows dotfiles are ordinary files. Callers combine this with the
+    // FILE_ATTRIBUTE_HIDDEN bit returned by directory enumeration metadata.
+    false
 }
 
 // Windows hidden files use FILE_ATTRIBUTE_HIDDEN via GIO file metadata;

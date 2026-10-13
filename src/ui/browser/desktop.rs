@@ -156,6 +156,7 @@ fn report_open_result(
     }
 }
 
+#[cfg(unix)]
 pub(super) fn is_regular_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
@@ -163,6 +164,17 @@ pub(super) fn is_regular_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(windows)]
+pub(super) fn is_regular_executable(path: &Path) -> bool {
+    // Keep the fast context-menu path entirely lexical: no ACL or antivirus
+    // preflight per file. Windows starts PE executables without a Unix mode bit.
+    // Batch files require an explicit shell handler and are not direct programs.
+    path.extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("com"))
+}
+
+#[cfg(unix)]
 pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
     entry.location.native_path().is_some()
         && matches!(
@@ -170,6 +182,18 @@ pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
             crate::model::EntryKind::File | crate::model::EntryKind::FileSymbolicLink
         )
         && matches!(entry.mode, crate::model::MetadataValue::Known(mode) if mode & 0o111 != 0)
+}
+
+#[cfg(windows)]
+pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
+    entry
+        .location
+        .native_path()
+        .is_some_and(is_regular_executable)
+        && matches!(
+            entry.kind,
+            crate::model::EntryKind::File | crate::model::EntryKind::FileSymbolicLink
+        )
 }
 
 pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Widget>) {
@@ -242,6 +266,7 @@ fn program_command(
     path: &Path,
     resolve_terminal: impl FnOnce() -> Option<terminal::Terminal>,
 ) -> std::io::Result<Command> {
+    #[cfg(unix)]
     if path.extension().is_some_and(|extension| extension == "sh") {
         let terminal = resolve_terminal().ok_or_else(|| {
             std::io::Error::new(

@@ -7,7 +7,7 @@
 
 use std::{
     ffi::OsString,
-    fs::{self, File},
+    fs,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::{
@@ -19,6 +19,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(windows))]
+use std::fs::File;
+
 #[cfg(windows)]
 pub mod windows_operations;
 #[cfg(windows)]
@@ -27,8 +30,12 @@ pub mod windows_paths;
 /// Maximum names per listing event, without eager metadata I/O.
 pub const LISTING_BATCH_SIZE: usize = 256;
 /// Prevent unread UI events from consuming unbounded memory.
-const LISTING_CHANNEL_CAPACITY: usize = 64;
-const PREVIEW_CHANNEL_CAPACITY: usize = 8;
+// Bound stale batches to 8 * 256 names, not 16,384 names.
+// New navigation can drain abandoned generations promptly.
+const LISTING_CHANNEL_CAPACITY: usize = 8;
+// Only the newest selection is useful; cap buffered raw bytes to 2 MiB
+// instead of retaining up to 8 MiB of stale 1-MiB previews.
+const PREVIEW_CHANNEL_CAPACITY: usize = 2;
 /// A raw prefetch bound, not a limit on the final parser-backed preview.
 pub const MAX_RAW_PREVIEW_BYTES: usize = 1024 * 1024;
 
@@ -40,7 +47,7 @@ struct MailboxState<T> {
 /// One pending request per service; new requests replace stale pending work.
 /// An OS call already in flight may finish, but its result cannot be published.
 struct Mailbox<T> {
-    latest: AtomicU64,
+    latest: Arc<AtomicU64>,
     state: Mutex<MailboxState<T>>,
     ready: Condvar,
 }
@@ -51,8 +58,12 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl<T> Mailbox<T> {
     fn new() -> Self {
+        Self::with_generation(Arc::new(AtomicU64::new(0)))
+    }
+
+    fn with_generation(latest: Arc<AtomicU64>) -> Self {
         Self {
-            latest: AtomicU64::new(0),
+            latest,
             state: Mutex::new(MailboxState {
                 pending: None,
                 stopping: false,
@@ -66,10 +77,11 @@ impl<T> Mailbox<T> {
         let mut state = lock(&self.state);
         // The public API is thread-safe: an older submitter cannot overwrite
         // a newer pending request if their mutex acquisition is reordered.
-        if state
-            .pending
-            .as_ref()
-            .is_none_or(|(queued, _)| *queued < generation)
+        if self.is_current(generation)
+            && state
+                .pending
+                .as_ref()
+                .is_none_or(|(queued, _)| *queued < generation)
         {
             state.pending = Some((generation, task));
         }
@@ -83,8 +95,12 @@ impl<T> Mailbox<T> {
             if state.stopping {
                 return None;
             }
-            if let Some(task) = state.pending.take() {
-                return Some(task);
+            if let Some((generation, task)) = state.pending.take() {
+                if self.is_current(generation) {
+                    return Some((generation, task));
+                }
+                // A racing submitter must not resurrect superseded work.
+                continue;
             }
             state = self
                 .ready
@@ -142,6 +158,9 @@ pub struct ListingEntry {
     /// Windows FindFirst/FindNext supplies type with the enumeration result;
     /// Linux leaves it lazy to avoid a potential stat on unusual filesystems.
     pub fast_kind: Option<FastFileKind>,
+    /// Windows hidden attribute from the already-fetched directory entry.
+    /// None on Unix, where asking for metadata could cause an extra stat.
+    pub hidden_hint: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -160,12 +179,17 @@ pub enum ListingEvent {
 /// inside an unresponsive network filesystem call. No worker can block GTK.
 pub struct ListingService {
     mailbox: Arc<Mailbox<PathBuf>>,
+    #[cfg(windows)]
+    remote_mailbox: Arc<Mailbox<PathBuf>>,
     updates: Receiver<ListingEvent>,
 }
 
 impl ListingService {
     pub fn new() -> Self {
         let mailbox: Arc<Mailbox<PathBuf>> = Arc::new(Mailbox::new());
+        #[cfg(windows)]
+        let remote_mailbox: Arc<Mailbox<PathBuf>> =
+            Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest)));
         let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
         for index in 0..2 {
             let mailbox = Arc::clone(&mailbox);
@@ -179,16 +203,56 @@ impl ListingService {
                 })
                 .expect("failed to start the filesystem listing worker");
         }
-        Self { mailbox, updates }
+        #[cfg(windows)]
+        {
+            // UNC paths get a distinct, bounded worker. A stalled remote
+            // filesystem call must not consume either of the two local workers.
+            // Mapped drives cannot be recognized lexically and still require
+            // an OS-specific volume classification in a later phase.
+            let worker = Arc::clone(&remote_mailbox);
+            thread::Builder::new()
+                .name("strata-listing-unc".into())
+                .spawn(move || {
+                    while let Some((generation, path)) = worker.next() {
+                        run_listing(&path, generation, &worker, &sender);
+                    }
+                })
+                .expect("failed to start UNC listing worker");
+        }
+        Self {
+            mailbox,
+            #[cfg(windows)]
+            remote_mailbox,
+            updates,
+        }
     }
 
     /// Return immediately without probing existence, permissions or metadata.
     pub fn request(&self, path: impl Into<PathBuf>) -> u64 {
-        self.mailbox.submit(path.into())
+        let path = path.into();
+        #[cfg(windows)]
+        if matches!(
+            windows_paths::classify(&path),
+            windows_paths::PathKind::NetworkAbsolute
+        ) {
+            return self.remote_mailbox.submit(path);
+        }
+        self.mailbox.submit(path)
     }
 
     pub fn try_recv(&self) -> Result<ListingEvent, TryRecvError> {
-        self.updates.try_recv()
+        // Never surface a stale folder batch to callers. Drain bounded old
+        // events so the current navigation does not sit behind them.
+        loop {
+            let event = self.updates.try_recv()?;
+            let generation = match &event {
+                ListingEvent::Batch { generation, .. }
+                | ListingEvent::Finished { generation, .. } => *generation,
+            };
+            if self.mailbox.is_current(generation) {
+                return Ok(event);
+            }
+        }
     }
 }
 
@@ -203,6 +267,8 @@ impl Drop for ListingService {
         // Never join workers on the UI thread: network I/O cannot always be
         // cancelled while the kernel is executing the underlying call.
         self.mailbox.shutdown();
+        #[cfg(windows)]
+        self.remote_mailbox.shutdown();
     }
 }
 
@@ -212,6 +278,11 @@ fn run_listing(
     mailbox: &Mailbox<PathBuf>,
     sender: &SyncSender<ListingEvent>,
 ) {
+    // Do not open a stale, potentially unresponsive UNC path if superseded
+    // before this worker started processing it.
+    if !mailbox.is_current(generation) {
+        return;
+    }
     let listing = match fs::read_dir(path) {
         Ok(listing) => listing,
         Err(error) => {
@@ -249,9 +320,22 @@ fn run_listing(
                 });
                 #[cfg(not(windows))]
                 let fast_kind = None;
+                #[cfg(windows)]
+                let hidden_hint = {
+                    use std::os::windows::fs::MetadataExt;
+                    // std::fs::DirEntry::metadata() on Windows reuses data
+                    // from FindFirstFile / FindNextFile: no additional syscall.
+                    entry
+                        .metadata()
+                        .ok()
+                        .map(|metadata| metadata.file_attributes() & 0x0000_0002 != 0)
+                };
+                #[cfg(not(windows))]
+                let hidden_hint = None;
                 batch.push(ListingEntry {
                     file_name: entry.file_name(),
                     fast_kind,
+                    hidden_hint,
                 });
                 if batch.len() == LISTING_BATCH_SIZE
                     && !send_current(
@@ -329,12 +413,17 @@ pub struct PreviewEvent {
 /// preview parser runs here: untrusted formats require a separate sandbox.
 pub struct PreviewService {
     mailbox: Arc<Mailbox<PreviewTask>>,
+    #[cfg(windows)]
+    remote_mailbox: Arc<Mailbox<PreviewTask>>,
     updates: Receiver<PreviewEvent>,
 }
 
 impl PreviewService {
     pub fn new() -> Self {
         let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
+        #[cfg(windows)]
+        let remote_mailbox: Arc<Mailbox<PreviewTask>> =
+            Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest)));
         let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
         // A second worker can service a new selection while a stale file
         // open/read is stuck in an uncancellable OS or network call.
@@ -361,19 +450,60 @@ impl PreviewService {
                 })
                 .expect("failed to start the preview I/O worker");
         }
-        Self { mailbox, updates }
+        #[cfg(windows)]
+        {
+            let worker = Arc::clone(&remote_mailbox);
+            thread::Builder::new()
+                .name("strata-preview-unc".into())
+                .spawn(move || {
+                    while let Some((generation, task)) = worker.next() {
+                        let result = load_preview(&task, &worker, generation);
+                        if let Some(result) = result {
+                            let _ = send_current(
+                                &sender,
+                                &worker,
+                                generation,
+                                PreviewEvent {
+                                    generation,
+                                    result: result.map_err(|error| error.to_string()),
+                                },
+                            );
+                        }
+                    }
+                })
+                .expect("failed to start UNC preview worker");
+        }
+        Self {
+            mailbox,
+            #[cfg(windows)]
+            remote_mailbox,
+            updates,
+        }
     }
 
     /// Latest request wins. Zero-length requests are permitted.
     pub fn request(&self, path: impl Into<PathBuf>, max_bytes: usize) -> u64 {
-        self.mailbox.submit(PreviewTask {
+        let task = PreviewTask {
             path: path.into(),
             max_bytes: max_bytes.min(MAX_RAW_PREVIEW_BYTES),
-        })
+        };
+        #[cfg(windows)]
+        if matches!(
+            windows_paths::classify(&task.path),
+            windows_paths::PathKind::NetworkAbsolute
+        ) {
+            return self.remote_mailbox.submit(task);
+        }
+        self.mailbox.submit(task)
     }
 
     pub fn try_recv(&self) -> Result<PreviewEvent, TryRecvError> {
-        self.updates.try_recv()
+        loop {
+            let event = self.updates.try_recv()?;
+            if self.mailbox.is_current(event.generation) {
+                return Ok(event);
+            }
+        }
     }
 }
 
@@ -386,6 +516,8 @@ impl Default for PreviewService {
 impl Drop for PreviewService {
     fn drop(&mut self) {
         self.mailbox.shutdown();
+        #[cfg(windows)]
+        self.remote_mailbox.shutdown();
     }
 }
 
@@ -395,6 +527,13 @@ fn load_preview(
     generation: u64,
 ) -> Option<io::Result<RawPreview>> {
     let result = (|| {
+        // A superseded request must not open a file or touch a network share.
+        if !mailbox.is_current(generation) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "superseded"));
+        }
+        #[cfg(windows)]
+        let mut file = windows_operations::open_regular_source(&task.path)?;
+        #[cfg(not(windows))]
         let mut file = File::open(&task.path)?;
         let mut bytes = Vec::with_capacity(task.max_bytes.min(8192));
         let mut buffer = [0u8; 8192];
@@ -412,6 +551,10 @@ fn load_preview(
                 });
             }
             bytes.extend_from_slice(&buffer[..read]);
+        }
+        // Avoid even one extra network read after a selection changed.
+        if !mailbox.is_current(generation) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "superseded"));
         }
         // One extra byte distinguishes exact-size files from truncated reads.
         let mut extra = [0u8; 1];
@@ -508,6 +651,136 @@ mod tests {
             }) if generation == newest => Some(()),
             _ => None,
         });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_listing_reuses_hidden_attribute_without_extra_stat() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("ordinary.txt"), b"x").expect("create entry");
+        let service = ListingService::new();
+        let generation = service.request(&fixture.0);
+        let entries = wait_for(|| match service.try_recv() {
+            Ok(ListingEvent::Batch {
+                generation: current,
+                entries,
+            }) if current == generation => Some(entries),
+            _ => None,
+        });
+        let file = entries
+            .iter()
+            .find(|entry| entry.file_name == "ordinary.txt")
+            .expect("ordinary entry");
+        assert_eq!(file.fast_kind, Some(FastFileKind::File));
+        assert_eq!(file.hidden_hint, Some(false));
+    }
+
+    #[test]
+    fn listing_drops_queued_events_from_superseded_folders() {
+        // Deterministic: inject stale events, as if a previous scan filled
+        // the channel, then navigate without allowing another worker to race.
+        let mailbox: Arc<Mailbox<PathBuf>> = Arc::new(Mailbox::new());
+        let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
+        let service = ListingService {
+            mailbox: Arc::clone(&mailbox),
+            #[cfg(windows)]
+            remote_mailbox: Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest))),
+            updates,
+        };
+        let old = mailbox.submit(PathBuf::from("old-folder"));
+        sender
+            .try_send(ListingEvent::Batch {
+                generation: old,
+                entries: vec![],
+            })
+            .expect("queue stale batch");
+        sender
+            .try_send(ListingEvent::Finished {
+                generation: old,
+                error: Some("obsolete failure".into()),
+            })
+            .expect("queue stale finish");
+        let current = mailbox.submit(PathBuf::from("new-folder"));
+        sender
+            .try_send(ListingEvent::Finished {
+                generation: current,
+                error: None,
+            })
+            .expect("queue current finish");
+        assert!(matches!(
+            service.try_recv(),
+            Ok(ListingEvent::Finished {
+                generation,
+                error: None
+            }) if generation == current
+        ));
+        assert!(matches!(service.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn preview_drops_queued_bytes_from_superseded_selection() {
+        let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
+        let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
+        let service = PreviewService {
+            mailbox: Arc::clone(&mailbox),
+            #[cfg(windows)]
+            remote_mailbox: Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest))),
+            updates,
+        };
+        let old = mailbox.submit(PreviewTask {
+            path: PathBuf::from("old"),
+            max_bytes: 1,
+        });
+        sender
+            .try_send(PreviewEvent {
+                generation: old,
+                result: Ok(RawPreview {
+                    bytes: b"old".to_vec(),
+                    truncated: false,
+                }),
+            })
+            .expect("queue stale preview");
+        let current = mailbox.submit(PreviewTask {
+            path: PathBuf::from("new"),
+            max_bytes: 1,
+        });
+        sender
+            .try_send(PreviewEvent {
+                generation: current,
+                result: Ok(RawPreview {
+                    bytes: b"new".to_vec(),
+                    truncated: false,
+                }),
+            })
+            .expect("queue newest preview");
+        let event = service.try_recv().expect("must deliver current preview");
+        assert_eq!(event.generation, current);
+        assert_eq!(event.result.expect("preview").bytes, b"new");
+        assert!(matches!(service.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_and_unc_workers_share_the_latest_generation() {
+        let local: Mailbox<PathBuf> = Mailbox::new();
+        let remote: Mailbox<PathBuf> = Mailbox::with_generation(Arc::clone(&local.latest));
+        let prior = remote.submit(PathBuf::from(r"\\server\share\stalled"));
+        let current = local.submit(PathBuf::from(r"C:\fast-local"));
+        assert!(current > prior);
+        assert!(!remote.is_current(prior));
+        assert!(local.is_current(current));
+        assert_eq!(
+            lock(&remote.state).pending.as_ref().map(|task| task.0),
+            Some(prior)
+        );
+    }
+
+    #[test]
+    fn shutdown_stops_pending_mailbox_dispatch() {
+        let mailbox = Mailbox::new();
+        mailbox.submit(PathBuf::from("before-shutdown"));
+        mailbox.shutdown();
+        assert!(mailbox.next().is_none());
     }
 
     #[test]

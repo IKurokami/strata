@@ -2,6 +2,9 @@
 !Cargo.toml
 !Cargo.lock
 !build.rs
+!crates/
+!crates/strata-native-io/
+!crates/strata-native-io/**
 !src/
 !src/**
 !data/

@@ -1416,6 +1416,12 @@ fn build_index(
                 coverage.depth_limit = true;
                 continue;
             }
+            // Windows does not have Unix executable permission bits. A
+            // filename-only search must never stat every file just to
+            // guess executability; avoid expensive network/ACL round trips.
+            #[cfg(windows)]
+            let mode = MetadataValue::Unknown;
+            #[cfg(unix)]
             let mode = if is_directory {
                 MetadataValue::Unknown
             } else {

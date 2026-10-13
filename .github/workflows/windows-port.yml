@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - feat/windows-native-port
+      - 'feat/windows-*'
     paths:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
@@ -12,6 +12,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/model/**'
+      - 'src/adapters/**'
+      - 'src/services/**'
+      - 'src/ui/**'
+      - 'src/main.rs'
   pull_request:
     paths:
       - 'crates/strata-native-io/**'
@@ -20,6 +24,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/model/**'
+      - 'src/adapters/**'
+      - 'src/services/**'
+      - 'src/ui/**'
+      - 'src/main.rs'
   workflow_dispatch:
 
 permissions:
@@ -66,3 +74,13 @@ jobs:
 
       - name: Compile release mode
         run: cargo build --manifest-path crates/strata-native-io/Cargo.toml --locked --release
+
+      - name: Measure listing latency on a synthetic 2048-file folder (informational)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/native-io-benchmark
+          for i in {1..2048}; do
+            : > "target/native-io-benchmark/file-$i"
+          done
+          cargo run --manifest-path crates/strata-native-io/Cargo.toml --locked --release --example measure -- target/native-io-benchmark

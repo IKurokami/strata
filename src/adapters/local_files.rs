@@ -6,7 +6,6 @@ use std::{
     fs,
     future::Future,
     io::ErrorKind,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
     rc::Rc,
@@ -16,6 +15,11 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as WindowsMetadataExt;
 
 use gtk::{gio, glib, prelude::*};
 
@@ -49,6 +53,7 @@ struct IconDetailsFingerprint {
 }
 
 impl IconDetailsFingerprint {
+    #[cfg(unix)]
     fn read(path: &Path) -> Option<Self> {
         let metadata = fs::metadata(path).ok()?;
         Some(Self {
@@ -58,6 +63,27 @@ impl IconDetailsFingerprint {
             changed_seconds: metadata.ctime(),
             changed_nanoseconds: metadata.ctime_nsec(),
         })
+    }
+
+    #[cfg(windows)]
+    fn read(path: &Path) -> Option<Self> {
+        let metadata = fs::metadata(path).ok()?;
+        Some(Self::from_windows_metadata(&metadata))
+    }
+
+    #[cfg(windows)]
+    fn from_windows_metadata(metadata: &fs::Metadata) -> Self {
+        // Windows directory enumeration already returned basic metadata.
+        // Reuse it instead of an additional per-item filesystem stat on
+        // revisited folders; no ACL or Shell extension call is required.
+        let modified = metadata.last_write_time();
+        Self {
+            size: metadata.len(),
+            modified_seconds: (modified / 10_000_000) as i64,
+            modified_nanoseconds: ((modified % 10_000_000) * 100) as i64,
+            changed_seconds: metadata.creation_time() as i64,
+            changed_nanoseconds: i64::from(metadata.file_attributes()),
+        }
     }
 }
 
@@ -171,6 +197,7 @@ fn cached_icon_details(path: &Path, fingerprint: IconDetailsFingerprint) -> Opti
 
 static CACHE_HAS_ENTRIES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(unix)]
 fn cached_icon_details_for_revisit(path: &Path) -> Option<IconDetails> {
     if !CACHE_HAS_ENTRIES.load(std::sync::atomic::Ordering::Acquire) {
         return None;
@@ -180,6 +207,22 @@ fn cached_icon_details_for_revisit(path: &Path) -> Option<IconDetails> {
         return None;
     }
     cached_icon_details(path, IconDetailsFingerprint::read(path)?)
+}
+
+#[cfg(windows)]
+fn cached_icon_details_for_revisit(
+    path: &Path,
+    metadata: Option<&fs::Metadata>,
+) -> Option<IconDetails> {
+    if !CACHE_HAS_ENTRIES.load(std::sync::atomic::Ordering::Acquire) {
+        return None;
+    }
+    let was_cached = icon_details_cache().lock().ok()?.entries.contains_key(path);
+    if !was_cached {
+        return None;
+    }
+    let fingerprint = IconDetailsFingerprint::from_windows_metadata(metadata?);
+    cached_icon_details(path, fingerprint)
 }
 
 fn cache_icon_details(
@@ -559,7 +602,16 @@ fn fill_native_entry_metadata(entry: &mut FileEntry) {
         .and_then(unix_seconds)
         .map(MetadataValue::Known)
         .unwrap_or(MetadataValue::Unavailable);
-    entry.mode = MetadataValue::Known(metadata.mode());
+    #[cfg(unix)]
+    {
+        entry.mode = MetadataValue::Known(metadata.mode());
+    }
+    #[cfg(windows)]
+    {
+        // Windows uses executable file extensions and OS associations.
+        // No expensive Unix-style mode/ACL probe is required here.
+        entry.mode = MetadataValue::Unknown;
+    }
 }
 
 fn scan_native_directory(
@@ -590,7 +642,15 @@ fn scan_native_directory(
             }
         };
         let native_name = child.file_name();
+        #[cfg(unix)]
         let is_hidden = is_hidden_name(&native_name, &hidden_names);
+        #[cfg(windows)]
+        let native_metadata = child.metadata().ok();
+        #[cfg(windows)]
+        let is_hidden = native_metadata
+            .as_ref()
+            .map(|metadata| metadata.file_attributes() & 0x0000_0002 != 0)
+            .unwrap_or_else(|| is_hidden_name(&native_name, &hidden_names));
         if entries.len() == request.max_entries {
             truncated = true;
             break;
@@ -604,7 +664,10 @@ fn scan_native_directory(
         };
         let path = child.path();
         let kind = native_kind(file_type, &path);
+        #[cfg(unix)]
         let cached_details = cached_icon_details_for_revisit(&path);
+        #[cfg(windows)]
+        let cached_details = cached_icon_details_for_revisit(&path, native_metadata.as_ref());
         let mut entry = FileEntry {
             location: Location::local(path),
             display_name: native_name.to_string_lossy().into_owned(),
@@ -1453,7 +1516,7 @@ impl FileSource for LocalFileSource {
                 let cancelled = cancelled_for_change.clone();
                 let source = glib::timeout_add_local_once(Duration::from_millis(100), move || {
                     timeout.take();
-                    flush_monitor_changes(&pending, &notify, &cancelled);
+                    flush_monitor_changes(&pending, &notify, &cancelled, include_hidden);
                 });
                 timeout_for_change.replace(Some(source));
             }
@@ -1951,6 +2014,7 @@ fn log_directory_load_started(request_id: RequestId, location: &Location) {
     );
 }
 
+#[cfg(unix)]
 fn folder_identity(metadata: &fs::Metadata) -> Option<LocationIdentity> {
     metadata.is_dir().then(|| LocationIdentity {
         device: metadata.dev(),
@@ -1959,6 +2023,7 @@ fn folder_identity(metadata: &fs::Metadata) -> Option<LocationIdentity> {
     })
 }
 
+#[cfg(unix)]
 fn native_entry_with_identity(directory: &Path, identity: LocationIdentity) -> Option<PathBuf> {
     use std::os::unix::fs::DirEntryExt;
     let entries: Vec<fs::DirEntry> = fs::read_dir(directory).ok()?.flatten().collect();
@@ -1983,10 +2048,32 @@ fn native_entry_with_identity(directory: &Path, identity: LocationIdentity) -> O
         .map(fs::DirEntry::path)
 }
 
+// Stable std::os::windows::fs does not expose by-handle file ID yet.
+// Do not guess identity from file names or timestamps after a rename;
+// disable this optimization until a native Windows file-ID adapter exists.
+#[cfg(windows)]
+fn folder_identity(_metadata: &fs::Metadata) -> Option<LocationIdentity> {
+    None
+}
+
+#[cfg(windows)]
+fn native_entry_with_identity(_directory: &Path, _identity: LocationIdentity) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
 fn monitor_location_is_hidden(location: &Location) -> bool {
     location
         .file_name()
         .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'))
+}
+
+// On Windows names beginning with '.' are not inherently hidden. Avoid
+// stat calls in the monitor/UI callback; GIO enumerations already carry the
+// Windows hidden attribute via standard::is-hidden.
+#[cfg(windows)]
+fn monitor_location_is_hidden(_location: &Location) -> bool {
+    false
 }
 
 fn visible_monitor_change(
@@ -2123,6 +2210,7 @@ fn flush_monitor_changes(
     pending: &RefCell<HashMap<PendingMonitorKey, PendingMonitorChange>>,
     notify: &Rc<dyn Fn(DirectoryChange)>,
     cancelled: &Rc<Cell<bool>>,
+    include_hidden: bool,
 ) {
     let changes: Vec<_> = pending
         .borrow_mut()
@@ -2142,12 +2230,20 @@ fn flush_monitor_changes(
             PendingMonitorChange::Remove(location) => {
                 notify(DirectoryChange::Remove(location));
             }
-            PendingMonitorChange::Upsert(location) => {
-                query_monitored_entry(location, None, notify.clone(), cancelled.clone())
-            }
-            PendingMonitorChange::Move { from, to } => {
-                query_monitored_entry(to, Some(from), notify.clone(), cancelled.clone())
-            }
+            PendingMonitorChange::Upsert(location) => query_monitored_entry(
+                location,
+                None,
+                notify.clone(),
+                cancelled.clone(),
+                include_hidden,
+            ),
+            PendingMonitorChange::Move { from, to } => query_monitored_entry(
+                to,
+                Some(from),
+                notify.clone(),
+                cancelled.clone(),
+                include_hidden,
+            ),
             PendingMonitorChange::Rescan => {}
         }
     }
@@ -2166,6 +2262,7 @@ fn query_monitored_entry(
     moved_from: Option<Location>,
     notify: Rc<dyn Fn(DirectoryChange)>,
     cancelled: Rc<Cell<bool>>,
+    include_hidden: bool,
 ) {
     glib::MainContext::default().spawn_local(async move {
         let file = gio_file_for_location(&location);
@@ -2182,6 +2279,16 @@ fn query_monitored_entry(
         match result {
             Ok(info) => {
                 let entry = entry_from_info(location, info);
+                if !include_hidden && entry.is_hidden {
+                    // A newly hidden file (or rename into a hidden name)
+                    // must disappear from the visible list. The query ran
+                    // asynchronously; no metadata I/O happened in the
+                    // monitor callback or on the GTK event loop.
+                    notify(DirectoryChange::Remove(
+                        moved_from.unwrap_or_else(|| entry.location.clone()),
+                    ));
+                    return;
+                }
                 if let Some(from) = moved_from {
                     notify(DirectoryChange::Move { from, entry });
                 } else {

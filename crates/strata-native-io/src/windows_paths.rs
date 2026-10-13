@@ -49,12 +49,16 @@ pub fn valid_child_name(name: &OsStr) -> bool {
     {
         return false;
     }
-    let units: Vec<u16> = name.encode_wide().collect();
-    if units.is_empty() || matches!(units.last(), Some(0x20 | 0x2e)) {
-        return false;
-    }
-    if units.iter().any(|&unit| {
-        unit < 32
+    // A single UTF-16 pass, with no heap allocation per name. Reserved DOS
+    // device stems never exceed seven UTF-16 code units (CONOUT$).
+    let mut stem = [0u16; 7];
+    let mut stem_len = 0usize;
+    let mut meaningful_stem_len = 0usize;
+    let mut in_stem = true;
+    let mut last = None;
+    for unit in name.encode_wide() {
+        last = Some(unit);
+        if unit < 32
             || matches!(
                 unit,
                 0x0022 // double quote
@@ -67,27 +71,47 @@ pub fn valid_child_name(name: &OsStr) -> bool {
                     | 0x005c // backslash
                     | 0x007c // pipe
             )
-    }) {
+        {
+            return false;
+        }
+        if in_stem {
+            if unit == b'.' as u16 {
+                in_stem = false;
+            } else {
+                if stem_len < stem.len() {
+                    stem[stem_len] = match unit {
+                        0x61..=0x7a => unit - 32, // ASCII uppercase
+                        _ => unit,
+                    };
+                }
+                stem_len = stem_len.saturating_add(1);
+                if unit != 0x20 {
+                    meaningful_stem_len = stem_len;
+                }
+            }
+        }
+    }
+    if matches!(last, None | Some(0x20 | 0x2e)) {
         return false;
     }
-    // Win32 resolves reserved device names even with file extensions.
-    let base: Vec<u16> = units
-        .iter()
-        .copied()
-        .take_while(|&unit| unit != b'.' as u16)
-        .map(|unit| match unit {
-            0x61..=0x7a => unit - 32, // ASCII uppercase
-            _ => unit,
-        })
-        .collect();
+
+    // Keep the last non-space position so arbitrarily many trailing spaces
+    // cannot bypass reserved aliases such as "CON           .txt".
+    let base = if meaningful_stem_len <= stem.len() {
+        &stem[..meaningful_stem_len]
+    } else {
+        &stem[..0]
+    };
     if matches!(
-        base.as_slice(),
+        base,
         [67, 79, 78] // CON
             | [80, 82, 78] // PRN
             | [65, 85, 88] // AUX
             | [78, 85, 76] // NUL
-            | [67, 79, 77, 49..=57] // COM1 through COM9
-            | [76, 80, 84, 49..=57] // LPT1 through LPT9
+            | [67, 79, 78, 73, 78, 36] // CONIN$
+            | [67, 79, 78, 79, 85, 84, 36] // CONOUT$
+            | [67, 79, 77, 49..=57 | 0x00B9 | 0x00B2 | 0x00B3] // COM1-9 + superscript
+            | [76, 80, 84, 49..=57 | 0x00B9 | 0x00B2 | 0x00B3] // LPT1-9 + superscript
     ) {
         return false;
     }
@@ -129,6 +153,14 @@ mod tests {
             "CON",
             "nul.txt",
             "COM1.log",
+            "COM¹.txt",
+            "LPT².txt",
+            "CONIN$.ini",
+            "CONOUT$",
+            "CON .txt",
+            "CON          .txt",
+            "conout$.cfg",
+            "COM3 .bak",
             "LPT9",
             "PRN",
             "AUX.ini",
@@ -142,6 +174,9 @@ mod tests {
             ".gitignore",
             "file with spaces.txt",
             "COnsole",
+            "convenient.txt",
+            "COM10.txt",
+            "普通文件.txt",
         ] {
             assert!(valid_child_name(OsStr::new(name)), "should allow {name:?}");
         }
