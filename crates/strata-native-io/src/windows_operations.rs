@@ -7,17 +7,22 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
+    os::windows::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const MAX_QUEUED_OPERATIONS: usize = 32;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+static NEXT_STAGING_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Non-destructive local operations that Windows can execute without Shell
 /// callbacks or elevation. Rename/move and Recycle Bin remain in the
@@ -126,40 +131,97 @@ fn execute(operation: LocalOperation) -> io::Result<()> {
     }
 }
 
-fn copy_no_clobber(source: PathBuf, destination: PathBuf) -> io::Result<()> {
-    // Avoid accidentally reading a device or directory with streaming APIs.
-    // All probes occur on the I/O worker, never on the UI thread.
-    let source_metadata = fs::symlink_metadata(&source)?;
-    if !source_metadata.file_type().is_file() {
+/// Open the source handle without following the final NTFS symlink/reparse
+/// point. Checking the opened handle, not the path before open, closes the
+/// final-component TOCTOU race; intermediate parent junctions still resolve.
+pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
+    validate_native_file_path(path)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "source must be an ordinary file, not a directory or symlink",
+            "source must be an ordinary file, not a directory or reparse point",
         ));
     }
+    Ok(file)
+}
 
-    let mut reader = File::open(source)?;
-    // CREATE_NEW on Windows: no existing file, ADS, or symlink target is overwritten.
-    let mut writer = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&destination)?;
-    let result = (|| {
-        let mut buffer = [0u8; COPY_BUFFER_BYTES];
-        loop {
-            let read = reader.read(&mut buffer)?;
-            if read == 0 {
-                return Ok(());
+/// Each request creates an exclusive staging file in the destination folder.
+/// Publishing is an atomic no-overwrite NTFS hardlink, never an unsafe rename.
+/// On volumes without compatible hardlinks, this operation fails without
+/// touching the final destination (a slow fallback must be explicit).
+fn copy_no_clobber(source: PathBuf, destination: PathBuf) -> io::Result<()> {
+    let mut reader = open_regular_source(&source)?;
+    stage_and_publish(&mut reader, &destination)
+}
+
+struct StagingFile {
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl Drop for StagingFile {
+    fn drop(&mut self) {
+        // The randomly named scratch file is never the user's requested
+        // destination. This best-effort cleanup does not touch the final link.
+        self.file.take();
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn new_staging_file(destination: &Path) -> io::Result<StagingFile> {
+    let directory = destination.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent")
+    })?;
+    // Per-process monotonic ID plus time is a collision-resistant scratch
+    // filename; CREATE_NEW remains the authority for concurrent processes.
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for _ in 0..16 {
+        let counter = NEXT_STAGING_ID.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!(
+            ".strata-stage-{}-{seed:x}-{counter:x}.tmp",
+            std::process::id(),
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => {
+                return Ok(StagingFile {
+                    file: Some(file),
+                    path,
+                });
             }
-            writer.write_all(&buffer[..read])?;
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
         }
-    })();
-    drop(writer);
-    // Do not unlink the destination by pathname after a failed write.
-    // Another process may have renamed/replaced it while this worker ran,
-    // and a path-based cleanup could delete that process's unrelated file.
-    // A failed copy may leave a partial *new* file; the caller must report
-    // this and offer an explicit cleanup/retry, not silently delete by path.
-    result
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not reserve a unique staging filename",
+    ))
+}
+
+fn stage_and_publish(reader: &mut impl Read, destination: &Path) -> io::Result<()> {
+    let mut staging = new_staging_file(destination)?;
+    let file = staging.file.as_mut().expect("staging writer exists");
+    let mut buffer = [0u8; COPY_BUFFER_BYTES];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])?;
+    }
+    file.flush()?;
+    // Atomic publication, only once the entire source was read successfully.
+    // Hard-link creation fails with AlreadyExists if the destination is
+    // concurrently created, and never replaces an existing file.
+    fs::hard_link(&staging.path, destination)
 }
 
 #[cfg(test)]
@@ -295,6 +357,63 @@ mod tests {
             io::ErrorKind::InvalidInput
         );
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn failed_reader_does_not_publish_partial_destination() {
+        struct FailAfterFirstRead(bool);
+        impl Read for FailAfterFirstRead {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.0 {
+                    return Err(io::Error::other("injected source failure"));
+                }
+                self.0 = true;
+                buf[0] = 42;
+                Ok(1)
+            }
+        }
+        let dir = TempDir::new();
+        let dest = dir.file("not-published");
+        let err = stage_and_publish(&mut FailAfterFirstRead(false), &dest)
+            .expect_err("injected copy must fail");
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert!(!dest.exists(), "failed staging must not publish a partial file");
+        assert_eq!(
+            fs::read_dir(&dir.0).expect("list scratch").count(),
+            0,
+            "failed staging must release the scratch file"
+        );
+    }
+
+    #[test]
+    fn final_destination_created_during_copy_is_never_replaced() {
+        struct PublishExisting<'a> {
+            destination: &'a Path,
+            sent: bool,
+        }
+        impl Read for PublishExisting<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.sent {
+                    return Ok(0);
+                }
+                self.sent = true;
+                fs::write(self.destination, b"created concurrently")?;
+                buf[0] = 7;
+                Ok(1)
+            }
+        }
+        let dir = TempDir::new();
+        let dest = dir.file("concurrent.txt");
+        let result = stage_and_publish(
+            &mut PublishExisting {
+                destination: &dest,
+                sent: false,
+            },
+            &dest,
+        );
+        assert_eq!(result.expect_err("destination collision").kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&dest).expect("read concurrent file"), b"created concurrently");
+        assert_eq!(fs::read_dir(&dir.0).expect("list").count(), 1);
     }
 
     #[test]
