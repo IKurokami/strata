@@ -869,5 +869,5 @@ fn decode_text_sample(sample: &[u8]) -> String {
     normalize_preview_text(&String::from_utf8_lossy(sample)).into_owned()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

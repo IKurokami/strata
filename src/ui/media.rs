@@ -20,7 +20,7 @@ pub(crate) mod ambient;
 mod audio;
 #[cfg(debug_assertions)]
 mod diagnostics;
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 use audio::PcmOutput;
 
@@ -46,12 +46,12 @@ const EDGE_SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
 static MEDIA_POSITIONS: LazyLock<Mutex<HashMap<PathBuf, (u64, Instant)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 thread_local! {
     static TEST_STREAMS: Cell<bool> = const { Cell::new(false) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(crate) fn use_test_streams(enabled: bool) {
     TEST_STREAMS.with(|streams| streams.set(enabled));
 }
@@ -89,7 +89,7 @@ pub(crate) fn resume_position(path: &Path) -> Option<u64> {
     recall_media_position(path).filter(|&position| position > RESTORE_MIN_US)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 type TestLoader = std::rc::Rc<dyn Fn(SandboxedMedia, u32) -> Result<Session, String>>;
 
 mod imp {
@@ -97,11 +97,11 @@ mod imp {
 
     #[derive(Default)]
     pub struct DecodedMedia {
-        #[cfg(test)]
+        #[cfg(all(test, not(windows)))]
         pub(super) loader: RefCell<Option<TestLoader>>,
-        #[cfg(test)]
+        #[cfg(all(test, not(windows)))]
         pub(super) audio_sink: RefCell<Option<String>>,
-        #[cfg(test)]
+        #[cfg(all(test, not(windows)))]
         pub(super) audio_clock: RefCell<Option<gstreamer::Clock>>,
         pub(super) source: RefCell<Option<SandboxedMedia>>,
         pub(super) session: RefCell<Option<Session>>,
@@ -312,7 +312,7 @@ impl DecodedMedia {
         obj.imp()
             .start_after
             .set(Some(Instant::now() + START_DWELL));
-        #[cfg(test)]
+        #[cfg(all(test, not(windows)))]
         if TEST_STREAMS.with(Cell::get) {
             obj.use_test_stream();
         }
@@ -350,12 +350,12 @@ impl DecodedMedia {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn fade(&self) -> f64 {
         self.imp().fade.get().unwrap_or(1.0)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn use_test_stream(&self) {
         self.imp().loader.replace(Some(std::rc::Rc::new(|_, tick| {
             crate::sandbox::media::tests::stream(Header {
@@ -368,12 +368,12 @@ impl DecodedMedia {
         })));
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn use_test_audio_stream(&self) {
         self.use_test_audio_stream_lasting(60_000_000);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn use_test_audio_stream_lasting(&self, duration_us: u64) {
         self.imp()
             .loader
@@ -388,7 +388,7 @@ impl DecodedMedia {
             })));
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pub(crate) fn present_test_frame(&self, width: u32, height: u32) {
         let imp = self.imp();
         let header = imp.header.get().unwrap_or(Header {
@@ -623,7 +623,7 @@ impl DecodedMedia {
     }
 
     fn pcm_output(&self) -> Result<PcmOutput, String> {
-        #[cfg(test)]
+        #[cfg(all(test, not(windows)))]
         let output = if let Some(description) = self.imp().audio_sink.borrow().as_deref() {
             PcmOutput::test_sink(
                 self.is_muted(),
@@ -635,7 +635,7 @@ impl DecodedMedia {
         } else {
             PcmOutput::new(self.is_muted(), self.volume(), AUDIO_LOOKAHEAD)?
         };
-        #[cfg(not(test))]
+        #[cfg(any(not(test), windows))]
         let output = PcmOutput::new(self.is_muted(), self.volume(), AUDIO_LOOKAHEAD)?;
         if let Some(fade) = self.imp().fade.get() {
             output.set_fade(fade);
@@ -716,12 +716,12 @@ impl DecodedMedia {
                 .cloned()
                 .ok_or("Preview closed")?;
             let size = source.size;
-            #[cfg(test)]
+            #[cfg(all(test, not(windows)))]
             let started = match imp.loader.borrow().as_ref() {
                 Some(loader) => loader(source, tick),
                 None => Session::start(source, tick),
             };
-            #[cfg(not(test))]
+            #[cfg(any(not(test), windows))]
             let started = Session::start(source, tick);
             match started {
                 Ok(session) => {

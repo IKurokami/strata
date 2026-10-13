@@ -112,5 +112,5 @@ fn retain_unrelated_bookmarks(contents: &[u8], deleted: &[gio::File]) -> Vec<u8>
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

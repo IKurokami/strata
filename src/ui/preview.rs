@@ -238,7 +238,7 @@ pub(in crate::ui) use keyboard::{
     ArchiveMove, DocumentScroll, MediaCommand, PreviewSurface, media_key_command,
 };
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 pub(super) const PREVIEW_LABEL: &str = "Preview";

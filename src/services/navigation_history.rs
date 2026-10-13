@@ -326,5 +326,5 @@ fn save_entries(path: &Path, entries: &[HistoryEntry]) -> std::io::Result<()> {
     crate::storage::atomic_write(path, &contents)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

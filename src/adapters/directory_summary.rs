@@ -223,5 +223,5 @@ fn measure_entry(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

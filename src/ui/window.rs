@@ -4170,7 +4170,7 @@ fn startup_location(manager: &PreferenceManager) -> Location {
     Location::local(home_directory())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 pub(super) fn load_styles() {

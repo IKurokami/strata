@@ -569,5 +569,5 @@ fn write_gvfs_probe_marker() {
     let _ignored = std::fs::write(&path, contents);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

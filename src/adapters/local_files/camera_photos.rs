@@ -194,5 +194,5 @@ fn is_photo_media(name: &std::ffi::OsStr) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

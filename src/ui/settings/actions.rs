@@ -29,7 +29,7 @@ use crate::model::action::examples::{ACTION_EXAMPLES, ActionExample};
 mod examples;
 mod readiness;
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 const MAX_EXTENSION_FIELD_CHARS: usize = 256;

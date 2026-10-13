@@ -423,5 +423,5 @@ pub(in crate::ui::preview) fn load_peaks(
     PeaksLoad(handle)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

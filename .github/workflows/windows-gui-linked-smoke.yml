@@ -1,0 +1,143 @@
+name: Windows GTK linked executable smoke
+
+# No paths filter: build.rs, data/**, .cargo/** and toolchain inputs can
+# change Win32 compilation or linking even when src/** is untouched.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-gui-linked-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: Link Windows strata.exe and run executable
+    runs-on: windows-2025
+    timeout-minutes: 55
+    # Unlike the old compile-only diagnostic, failure of any step here is
+    # a real failing CI check. We never claim the GUI runs on a successful
+    # cargo check alone.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Windows GTK4 build and runtime libraries
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-gtksourceview5
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-poppler
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-cmake
+
+      - name: Verify the native UCRT64 toolchain
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          rustc -vV
+          cargo -V
+          pkgconf --modversion gtk4
+          pkgconf --modversion gtksourceview-5
+          pkgconf --modversion gstreamer-1.0
+          pkgconf --modversion poppler-glib
+
+      - name: Compile and LINK the Windows GUI binary
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo build --locked --no-default-features --bin strata
+          test -s target/debug/strata.exe
+          echo 'The Windows PE executable exists and linked successfully.'
+
+      - name: Run executable version smoke test
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          output="$(./target/debug/strata.exe --version)"
+          printf '%s\n' "$output"
+          case "$output" in
+            *Strata*|*strata*) ;;
+            *) echo 'Unexpected version response'; exit 1 ;;
+          esac
+          echo 'Windows strata.exe executed successfully under UCRT64.'
+
+      - name: Compile all Windows GUI unit tests
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo test --locked --no-default-features --bin strata --no-run
+
+      - name: Run Windows-only safety and filesystem tests
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo test --locked --no-default-features --bin strata -- --list > target/windows-test-inventory.txt
+          # Each case must really exist. A 0-tests result is not a pass.
+          for name in \
+            windows_keeps_saved_action_but_never_executes_a_process_tree \
+            windows_refuses_reparse_action_roots_without_following_them \
+            windows_directory_index_obeys_hidden_attribute_not_dot_prefix \
+            cannot_install_or_launch_untrusted_archive \
+            cancellation_precedes_any_installation \
+            root_confinement_rejects_sibling_and_missing_paths \
+            refuses_linux_trash_metadata_in_windows_recycle_bin \
+            untrusted_parse_refused_without_touching_path \
+            no_external_provider_can_be_discovered_on_windows \
+            rejects_provider_requests_without_executing_helpers \
+            private_preview_helper_rejects_execution; do
+            if ! grep -Fq "${name}: test" target/windows-test-inventory.txt; then
+              echo "Windows-only regression test missing: ${name}" >&2
+              exit 1
+            fi
+            cargo test --locked --no-default-features --bin strata "${name}" -- --test-threads=1
+          done
+
+      - name: Label executable as developer-only until runtime bundling
+        if: success()
+        shell: msys2 {0}
+        run: |
+          cat > target/debug/WINDOWS-DEVELOPER-BUILD.txt <<'NOTE'
+          Strata Windows experimental development binary.
+          The executable dynamically requires GTK4, GtkSourceView5, GLib,
+          GStreamer, Poppler, Fontconfig and MSYS2 UCRT64 DLLs.
+          This is NOT a standalone portable zip/installer. Full GUI startup,
+          file operations and secure media previews need integration testing.
+          The --version smoke proves linking and process launch only.
+          NOTE
+
+      - name: Upload linked executable for developer evaluation
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+        with:
+          name: strata-windows-linked-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            target/debug/strata.exe
+            target/debug/WINDOWS-DEVELOPER-BUILD.txt
+          if-no-files-found: error
+          retention-days: 7

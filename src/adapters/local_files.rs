@@ -2311,5 +2311,5 @@ fn query_monitored_entry(
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

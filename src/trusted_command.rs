@@ -27,7 +27,7 @@ pub(crate) const TRUST_ROOTS: &[&str] = &[
     "/gnu/store",
 ];
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 pub(crate) fn resolve(name: &str) -> Result<PathBuf, String> {

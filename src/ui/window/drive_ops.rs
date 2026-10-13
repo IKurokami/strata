@@ -475,5 +475,5 @@ pub(super) fn report_result(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

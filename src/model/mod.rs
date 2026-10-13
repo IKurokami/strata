@@ -723,5 +723,5 @@ impl FolderColorValue {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

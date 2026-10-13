@@ -1010,9 +1010,9 @@ fn register_application_fonts(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(crate) use tests::{
     custom_colored_icon_paintable, folder_decoration_paintable, primary_icon_paintable,
 };

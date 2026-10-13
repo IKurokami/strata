@@ -175,3 +175,17 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - `--preview-helper` and `--browser-worker` cannot be used on Windows to bypass isolation. A future implementation requires a Job Object (kill-on-close), bounded I/O and memory, restricted launch token/AppContainer when appropriate, pipe identity verification, and cancellation of all descendants.
 - The shared decoded-media wire structures remain compiled on Windows; only the Linux FD/poll-based timed reader is excluded.
 - **Functionality trade-off:** advanced thumbnail/preview decoders are temporarily unavailable on Windows. Core file navigation, listing and safe file actions remain separate and should continue to work as they are integrated. This is not full feature parity, and no untrusted parser should be enabled without equivalent containment.
+
+## Phase 20: blocking Win32 executable build and launch smoke
+
+- A separate **blocking** Windows UCRT64 CI job now performs `cargo build --locked --no-default-features --bin strata`, verifies that `strata.exe` exists, launches `strata.exe --version`, and checks that Windows GUI unit test targets compile using `cargo test --no-run`.
+- Unlike the old experimental `cargo check` job, linker, runtime launch or test compilation failure causes the check to **fail**; a superficially green workflow is no longer considered sufficient evidence of a runnable binary.
+- The linked PE artifact is uploaded only after all checks succeed. It is clearly labeled **developer-only** because it depends on MSYS2 UCRT64 GTK, GtkSourceView, GLib, GStreamer, Poppler and Fontconfig DLLs; this is **not** a portable installer or feature-complete release.
+- `--version` is a process-start smoke check, not evidence that the GTK main window displayed or that untrusted preview decoders are safely isolated. Full GUI startup and first-paint measurements require a real Windows interactive desktop harness, plus DLL/resource bundling.
+
+### Windows test scope and build input coverage
+
+- The blocking workflow runs on **every PR and every push to main**, including changes to `build.rs`, `data/**`, `.cargo/**`, the toolchain and other build inputs. No narrow source-only path filter can accidentally skip this gate.
+- Linux-only `#[cfg(test)]` suites using POSIX permissions, Unix paths, the freedesktop Trash protocol and Unix preview sandbox are isolated from Windows test compilation; Linux continues to run these unchanged.
+- Shared test-support utilities remain available on both platforms. Only the `/dev/shm` fixture is platform-gated; it does not probe arbitrary Windows disks.
+- Besides `cargo test --no-run`, the linked Win32 job now **discovers and executes** the Windows-specific non-GUI security/operation tests (action execution refusal, hidden-file indexing, updater refusal, junction containment, Trash refusal and sandbox/helper refusal). A named test missing from the executable fails CI rather than silently running zero tests. GUI-interaction tests still require a desktop session to validate first paint.

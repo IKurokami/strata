@@ -1281,5 +1281,5 @@ fn write_pasted_image(
     Err(std::io::Error::other("image filename suffixes exhausted"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

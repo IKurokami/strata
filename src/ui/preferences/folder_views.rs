@@ -568,5 +568,5 @@ pub(in crate::ui) fn folder_was_deleted(
         && !holds_mount_points(parent)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

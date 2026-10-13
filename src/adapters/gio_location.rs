@@ -40,5 +40,5 @@ pub(crate) fn reveal_target_for_file(file: &gio::File) -> Option<(Location, Loca
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

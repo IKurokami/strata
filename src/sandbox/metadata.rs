@@ -283,5 +283,5 @@ impl AudioTags {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
