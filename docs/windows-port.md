@@ -167,3 +167,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Linux freedesktop.org `.trashinfo` restore path guessing is **not** treated as a Windows Recycle Bin implementation. All Windows restore planners return an explicit unsupported error and never mutate the disk or manufacture inode/UID identities. A future Windows implementation needs trustworthy shell-item identifiers, safe original-path validation and undo guarantees.
 - Embedded document-image rendering is disabled on Windows until a secure native open-beneath/junction-aware resolver and isolated parser exist, preventing a malicious Markdown image path from escaping the document folder. Linux still uses `openat2(RESOLVE_BENEATH|NO_MAGICLINKS)`.
 - The Windows GUI remains incomplete and this change does not bypass preview sandboxing. Any GUI tests in these new modules cannot run until the full application compiles; Linux and native I/O CI check independent behavior.
+
+## Phase 19: explicit native Windows sandbox boundary
+
+- On Windows, **none** of the Linux bubblewrap, Landlock, seccomp, PidFD or Unix socket helper code is compiled or invoked. `sandbox_windows.rs` keeps the app-facing cancellation, preview and media model types, but **fails closed** for untrusted image/PDF/media/model/archive decoding until a real Win32 sandbox is available.
+- A browser thumbnail request returns a concrete unavailable result rather than invoking a fallback in-process decoder or an uncontained subprocess. Media sessions likewise refuse startup; metadata wire parsers remain available for future trusted helper results.
+- `--preview-helper` and `--browser-worker` cannot be used on Windows to bypass isolation. A future implementation requires a Job Object (kill-on-close), bounded I/O and memory, restricted launch token/AppContainer when appropriate, pipe identity verification, and cancellation of all descendants.
+- The shared decoded-media wire structures remain compiled on Windows; only the Linux FD/poll-based timed reader is excluded.
+- **Functionality trade-off:** advanced thumbnail/preview decoders are temporarily unavailable on Windows. Core file navigation, listing and safe file actions remain separate and should continue to work as they are integrated. This is not full feature parity, and no untrusted parser should be enabled without equivalent containment.
