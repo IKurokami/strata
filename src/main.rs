@@ -30,9 +30,10 @@ mod trusted_command;
 mod ui;
 mod util;
 
-use std::{
-    ffi::OsString, ops::ControlFlow, os::unix::process::CommandExt, process::Stdio, time::Duration,
-};
+use std::{ffi::OsString, ops::ControlFlow};
+
+#[cfg(target_os = "linux")]
+use std::{os::unix::process::CommandExt, process::Stdio, time::Duration};
 
 use gtk::{gio, glib, prelude::*};
 
@@ -40,8 +41,11 @@ use ui::UnlockTarget;
 
 const APPLICATION_ID: &str = "io.github.lgse.Strata";
 const CAIRO_SELECTED_BY_STRATA: &str = "STRATA_CAIRO_SELECTED_BY_STRATA";
+#[cfg(target_os = "linux")]
 const GVFS_PROBE_ARGUMENT: &str = "--gvfs-probe";
+#[cfg(target_os = "linux")]
 const GVFS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(target_os = "linux")]
 const GIO_FALLBACK_BACKENDS: [(&str, &str); 2] =
     [("GIO_USE_VFS", "local"), ("GIO_USE_VOLUME_MONITOR", "unix")];
 
@@ -158,6 +162,7 @@ fn main() -> gtk::glib::ExitCode {
             return gtk::glib::ExitCode::SUCCESS;
         }
         LaunchMode::Portal => {
+            #[cfg(target_os = "linux")]
             restart_with_local_vfs_if_gvfs_is_unresponsive();
             return portal::run();
         }
@@ -183,6 +188,9 @@ fn main() -> gtk::glib::ExitCode {
     install_application_identity();
     metrics::initialize();
     logging::initialize();
+    // Windows GTK uses its platform renderer; do not spawn/re-exec the
+    // application or probe a Linux backend during cold startup.
+    #[cfg(target_os = "linux")]
     if should_select_cairo(
         std::env::var_os("GSK_RENDERER").as_deref(),
         ui::preferences::PreferenceManager::shared().interface_renderer(),
@@ -202,6 +210,7 @@ fn main() -> gtk::glib::ExitCode {
         return gtk::glib::ExitCode::FAILURE;
     }
 
+    #[cfg(target_os = "linux")]
     if let Err(error) = portal_setup::refresh_stale_portal() {
         tracing::warn!(%error, "could not refresh the stale Strata portal");
     }
@@ -209,11 +218,16 @@ fn main() -> gtk::glib::ExitCode {
     // Timed from here so `window presented` covers the whole launch, the way
     // the field harness measures mapped from process start.
     let launched = std::time::Instant::now();
-    restart_with_local_vfs_if_gvfs_is_unresponsive();
-    tracing::debug!(
-        elapsed_ms = launched.elapsed().as_millis() as u64,
-        "startup gvfs probe finished"
-    );
+    // No GVfs daemon or /proc on Windows: entering this 2-second subprocess
+    // health probe would add delay without enabling any Win32 functionality.
+    #[cfg(target_os = "linux")]
+    {
+        restart_with_local_vfs_if_gvfs_is_unresponsive();
+        tracing::debug!(
+            elapsed_ms = launched.elapsed().as_millis() as u64,
+            "startup gvfs probe finished"
+        );
+    }
 
     let assets_started = std::time::Instant::now();
     if let Err(error) = assets::prepare() {
@@ -239,7 +253,9 @@ fn main() -> gtk::glib::ExitCode {
         Some("DEVICE"),
     );
     application.connect_handle_local_options(|_, _| ControlFlow::Continue(()));
+    #[cfg(target_os = "linux")]
     application.connect_startup(|_| install_x11_program_class());
+    #[cfg(target_os = "linux")]
     application.connect_startup(export_file_manager_interface);
     application.connect_startup(|_application| ui::schedule_rollback_cleanup());
     application.connect_shutdown(|_| ui::preferences::flush_pending_folder_views());
@@ -395,6 +411,7 @@ fn finish_portal_setup(result: Result<String, String>) -> gtk::glib::ExitCode {
 /// Answers "Open file location" from browsers and other desktop apps, which
 /// call `org.freedesktop.FileManager1` instead of the `inode/directory`
 /// handler.
+#[cfg(target_os = "linux")]
 fn export_file_manager_interface(application: &gtk::Application) {
     let Some(connection) = application.dbus_connection() else {
         return;
@@ -407,6 +424,7 @@ fn export_file_manager_interface(application: &gtk::Application) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn restart_with_local_vfs_if_gvfs_is_unresponsive() {
     if std::env::var_os("GIO_USE_VFS").is_some() {
         return;
