@@ -49,12 +49,15 @@ pub fn valid_child_name(name: &OsStr) -> bool {
     {
         return false;
     }
-    let units: Vec<u16> = name.encode_wide().collect();
-    if units.is_empty() || matches!(units.last(), Some(0x20 | 0x2e)) {
-        return false;
-    }
-    if units.iter().any(|&unit| {
-        unit < 32
+    // A single UTF-16 pass, with no heap allocation per name. Reserved DOS
+    // device stems never exceed seven UTF-16 code units (CONOUT$).
+    let mut stem = [0u16; 7];
+    let mut stem_len = 0usize;
+    let mut in_stem = true;
+    let mut last = None;
+    for unit in name.encode_wide() {
+        last = Some(unit);
+        if unit < 32
             || matches!(
                 unit,
                 0x0022 // double quote
@@ -67,26 +70,41 @@ pub fn valid_child_name(name: &OsStr) -> bool {
                     | 0x005c // backslash
                     | 0x007c // pipe
             )
-    }) {
+        {
+            return false;
+        }
+        if in_stem {
+            if unit == b'.' as u16 {
+                in_stem = false;
+            } else {
+                if stem_len < stem.len() {
+                    stem[stem_len] = match unit {
+                        0x61..=0x7a => unit - 32, // ASCII uppercase
+                        _ => unit,
+                    };
+                }
+                stem_len = stem_len.saturating_add(1);
+            }
+        }
+    }
+    if matches!(last, None | Some(0x20 | 0x2e)) {
         return false;
     }
-    // Win32 resolves reserved device names even with file extensions.
-    let mut base: Vec<u16> = units
-        .iter()
-        .copied()
-        .take_while(|&unit| unit != b'.' as u16)
-        .map(|unit| match unit {
-            0x61..=0x7a => unit - 32, // ASCII uppercase
-            _ => unit,
-        })
-        .collect();
-    // Win32 trims spaces before an extension when resolving device names,
-    // e.g. "CON .txt". Reject these spellings without hitting the disk.
-    while base.last() == Some(&0x20) {
-        base.pop();
-    }
+
+    // The DOS device alias is the pre-extension stem with spaces stripped
+    // from the end, such as "CON .txt". Stems longer than seven units cannot
+    // equal any of the listed reserved names.
+    let base = if stem_len <= stem.len() {
+        let mut end = stem_len;
+        while end > 0 && stem[end - 1] == 0x20 {
+            end -= 1;
+        }
+        &stem[..end]
+    } else {
+        &stem[..0]
+    };
     if matches!(
-        base.as_slice(),
+        base,
         [67, 79, 78] // CON
             | [80, 82, 78] // PRN
             | [65, 85, 88] // AUX
@@ -141,6 +159,8 @@ mod tests {
             "CONIN$.ini",
             "CONOUT$",
             "CON .txt",
+            "conout$.cfg",
+            "COM3 .bak",
             "LPT9",
             "PRN",
             "AUX.ini",
@@ -154,6 +174,9 @@ mod tests {
             ".gitignore",
             "file with spaces.txt",
             "COnsole",
+            "convenient.txt",
+            "COM10.txt",
+            "普通文件.txt",
         ] {
             assert!(valid_child_name(OsStr::new(name)), "should allow {name:?}");
         }
