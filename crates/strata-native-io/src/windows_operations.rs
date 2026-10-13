@@ -5,12 +5,14 @@
 //! operations run off the GTK thread without UAC, Shell hooks or ACL preflights.
 //! Recycle Bin and permanent deletion are deliberately not implemented here.
 use std::{
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     os::windows::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
     thread,
@@ -21,6 +23,8 @@ const MAX_QUEUED_OPERATIONS: usize = 32;
 const MAX_QUEUED_REMOTE_OPERATIONS: usize = 8;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
+type QueuedOperation = (u64, LocalOperation, Arc<AtomicBool>);
+type OutstandingOperations = Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 static NEXT_STAGING_ID: AtomicU64 = AtomicU64::new(0);
@@ -53,9 +57,10 @@ pub enum SubmitError {
 /// UNC shares are isolated: a hung network copy cannot block a local mkdir.
 /// Neither submission nor polling performs filesystem I/O on GTK's thread.
 pub struct LocalOperationService {
-    sender: SyncSender<(u64, LocalOperation)>,
-    remote_sender: SyncSender<(u64, LocalOperation)>,
+    sender: SyncSender<QueuedOperation>,
+    remote_sender: SyncSender<QueuedOperation>,
     updates: Receiver<OperationCompletion>,
+    outstanding: OutstandingOperations,
     next_id: AtomicU64,
 }
 
@@ -64,12 +69,24 @@ impl LocalOperationService {
         let (sender, requests) = mpsc::sync_channel(MAX_QUEUED_OPERATIONS);
         let (remote_sender, remote_requests) = mpsc::sync_channel(MAX_QUEUED_REMOTE_OPERATIONS);
         let (completions, updates) = mpsc::sync_channel(MAX_QUEUED_COMPLETIONS);
-        spawn_operation_worker("strata-windows-file-ops", requests, completions.clone())?;
-        spawn_operation_worker("strata-windows-unc-ops", remote_requests, completions)?;
+        let outstanding: OutstandingOperations = Arc::new(Mutex::new(HashMap::new()));
+        spawn_operation_worker(
+            "strata-windows-file-ops",
+            requests,
+            completions.clone(),
+            Arc::clone(&outstanding),
+        )?;
+        spawn_operation_worker(
+            "strata-windows-unc-ops",
+            remote_requests,
+            completions,
+            Arc::clone(&outstanding),
+        )?;
         Ok(Self {
             sender,
             remote_sender,
             updates,
+            outstanding,
             next_id: AtomicU64::new(1),
         })
     }
@@ -82,10 +99,39 @@ impl LocalOperationService {
         } else {
             &self.sender
         };
-        match queue.try_send((id, operation)) {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        self.outstanding
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, Arc::clone(&cancelled));
+        match queue.try_send((id, operation, cancelled)) {
             Ok(()) => Ok(id),
-            Err(TrySendError::Full(_)) => Err(SubmitError::Busy),
-            Err(TrySendError::Disconnected(_)) => Err(SubmitError::Closed),
+            Err(error) => {
+                self.outstanding
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                match error {
+                    TrySendError::Full(_) => Err(SubmitError::Busy),
+                    TrySendError::Disconnected(_) => Err(SubmitError::Closed),
+                }
+            }
+        }
+    }
+
+    /// Cooperatively cancel a queued or active operation. A kernel read already
+    /// in progress cannot be interrupted, but no further copy chunk or final
+    /// publication occurs once the worker observes this flag.
+    pub fn cancel(&self, id: u64) -> bool {
+        let entries = self
+            .outstanding
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cancelled) = entries.get(&id) {
+            cancelled.store(true, Ordering::Release);
+            true
+        } else {
+            false
         }
     }
 
@@ -108,12 +154,21 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
 
 fn spawn_operation_worker(
     name: &str,
-    requests: Receiver<(u64, LocalOperation)>,
+    requests: Receiver<QueuedOperation>,
     completions: SyncSender<OperationCompletion>,
+    outstanding: OutstandingOperations,
 ) -> io::Result<()> {
     thread::Builder::new().name(name.into()).spawn(move || {
-        while let Ok((id, operation)) = requests.recv() {
-            let result = execute(operation);
+        while let Ok((id, operation, cancelled)) = requests.recv() {
+            let result = if cancelled.load(Ordering::Acquire) {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "operation cancelled"))
+            } else {
+                execute(operation, &cancelled)
+            };
+            outstanding
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&id);
             if completions.send(OperationCompletion { id, result }).is_err() {
                 break;
             }
@@ -141,7 +196,7 @@ fn validate_native_file_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn execute(operation: LocalOperation) -> io::Result<()> {
+fn execute(operation: LocalOperation, cancelled: &AtomicBool) -> io::Result<()> {
     match operation {
         LocalOperation::CreateDirectory(path) => {
             validate_native_file_path(&path)?;
@@ -153,7 +208,7 @@ fn execute(operation: LocalOperation) -> io::Result<()> {
         } => {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
-            copy_no_clobber(source, destination)
+            copy_no_clobber(source, destination, cancelled)
         }
     }
 }
@@ -181,9 +236,13 @@ pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
 /// Publishing is an atomic no-overwrite NTFS hardlink, never an unsafe rename.
 /// On volumes without compatible hardlinks, this operation fails without
 /// touching the final destination (a slow fallback must be explicit).
-fn copy_no_clobber(source: PathBuf, destination: PathBuf) -> io::Result<()> {
+fn copy_no_clobber(
+    source: PathBuf,
+    destination: PathBuf,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
     let mut reader = open_regular_source(&source)?;
-    stage_and_publish(&mut reader, &destination)
+    stage_and_publish(&mut reader, &destination, cancelled)
 }
 
 struct StagingFile {
@@ -233,11 +292,18 @@ fn new_staging_file(destination: &Path) -> io::Result<StagingFile> {
     ))
 }
 
-fn stage_and_publish(reader: &mut impl Read, destination: &Path) -> io::Result<()> {
+fn stage_and_publish(
+    reader: &mut impl Read,
+    destination: &Path,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
     let mut staging = new_staging_file(destination)?;
     let file = staging.file.as_mut().expect("staging writer exists");
     let mut buffer = [0u8; COPY_BUFFER_BYTES];
     loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+        }
         let read = reader.read(&mut buffer)?;
         if read == 0 {
             break;
@@ -245,6 +311,9 @@ fn stage_and_publish(reader: &mut impl Read, destination: &Path) -> io::Result<(
         file.write_all(&buffer[..read])?;
     }
     file.flush()?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+    }
     // Atomic publication, only once the entire source was read successfully.
     // Hard-link creation fails with AlreadyExists if the destination is
     // concurrently created, and never replaces an existing file.
@@ -421,7 +490,7 @@ mod tests {
         }
         let dir = TempDir::new();
         let dest = dir.file("not-published");
-        let err = stage_and_publish(&mut FailAfterFirstRead(false), &dest)
+        let err = stage_and_publish(&mut FailAfterFirstRead(false), &dest, &AtomicBool::new(false))
             .expect_err("injected copy must fail");
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(
@@ -460,6 +529,7 @@ mod tests {
                 sent: false,
             },
             &dest,
+            &AtomicBool::new(false),
         );
         assert_eq!(
             result.expect_err("destination collision").kind(),
@@ -470,6 +540,34 @@ mod tests {
             b"created concurrently"
         );
         assert_eq!(fs::read_dir(&dir.0).expect("list").count(), 1);
+    }
+
+    #[test]
+    fn explicit_cancel_stops_before_any_final_filename_is_published() {
+        struct CancelAfterFirstRead<'a>(&'a AtomicBool, bool);
+        impl Read for CancelAfterFirstRead<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.1 {
+                    return Ok(0);
+                }
+                self.1 = true;
+                buf[0] = 99;
+                self.0.store(true, Ordering::Release);
+                Ok(1)
+            }
+        }
+        let dir = TempDir::new();
+        let destination = dir.file("not-published");
+        let cancelled = AtomicBool::new(false);
+        let error = stage_and_publish(
+            &mut CancelAfterFirstRead(&cancelled, false),
+            &destination,
+            &cancelled,
+        )
+        .expect_err("copy cancelled before publish");
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(!destination.exists());
+        assert_eq!(fs::read_dir(&dir.0).expect("list directory").count(), 0);
     }
 
     #[test]
