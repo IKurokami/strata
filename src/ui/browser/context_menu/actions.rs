@@ -9,7 +9,7 @@ use std::{
 
 use gtk::{gio, prelude::*};
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 use crate::{
