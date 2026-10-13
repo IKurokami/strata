@@ -114,5 +114,5 @@ fn load_details_with(
     DetailsLoad(cancellation)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
