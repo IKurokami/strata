@@ -229,7 +229,7 @@ fn bind_update_notice_preferences(
 
 fn browser_for_window() -> BrowserView {
     let browser = BrowserView::new(Rc::new(LocalFileSource), PeekBehavior::default());
-    browser.set_operation_provider(Rc::new(LocalOperationProvider));
+    browser.set_operation_provider(Rc::new(LocalOperationProvider::default()));
     browser
 }
 
