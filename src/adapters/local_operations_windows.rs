@@ -217,9 +217,9 @@ impl OperationProvider for LocalOperationProvider {
             return rejected(request.id, emit, crate::i18n::tr(message));
         }
         if request.unique_name {
-            // Unique-name collision retries require a native operation that
-            // publishes the exact resulting path. Never guess on the UI thread.
-            return rejected(request.id, emit, "Unique folder creation is not yet available on Windows");
+            // GIO make_directory_async publishes the exact successful sibling
+            // after atomic no-clobber creation. Do not preflight exists().
+            return async_create_directory(request, emit);
         }
         let Some(parent) = request.parent.native_path() else {
             return rejected(request.id, emit, "Windows native folder creation requires a local path");
@@ -305,6 +305,76 @@ impl OperationProvider for LocalOperationProvider {
     fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         rejected(request.id, emit, "Windows archive extraction needs a sandboxed decoder")
     }
+}
+
+fn async_create_directory(
+    request: CreateDirectoryRequest,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    let Some(parent) = request.parent.native_path() else {
+        return rejected(request.id, emit, "Windows new folder requires a local filesystem path");
+    };
+    let directory = gio::File::for_path(parent);
+    let cancel = gio::Cancellable::new();
+    let task_cancel = cancel.clone();
+    let _task = glib::MainContext::default().spawn_local(async move {
+        let mut suffix = 0u64;
+        loop {
+            if task_cancel.is_cancelled() {
+                return;
+            }
+            let candidate = if suffix == 0 {
+                request.name.clone()
+            } else {
+                format!("{} ({suffix})", request.name)
+            };
+            if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&candidate)) {
+                emit(OperationEvent::Failed {
+                    request_id: request.id,
+                    message: "Invalid Windows folder name".to_owned(),
+                    password_failure: None,
+                });
+                return;
+            }
+            let target = directory.child(&candidate);
+            let result = gio::GioFuture::new(&target, {
+                let task_cancel = task_cancel.clone();
+                move |file, _, result| {
+                    file.make_directory_async(
+                        glib::Priority::DEFAULT,
+                        Some(&task_cancel),
+                        move |output| result.resolve(output),
+                    );
+                }
+            })
+            .await;
+            match result {
+                Ok(()) => {
+                    emit(OperationEvent::EntryCreated {
+                        request_id: request.id,
+                        location: Location::local(
+                            request.parent.native_path().expect("validated").join(candidate),
+                        ),
+                    });
+                    return;
+                }
+                Err(error) if suffix < u64::MAX && error.matches(gio::IOErrorEnum::Exists) => {
+                    suffix += 1;
+                }
+                Err(error) => {
+                    if !task_cancel.is_cancelled() {
+                        emit(OperationEvent::Failed {
+                            request_id: request.id,
+                            message: crate::services::gio_error_message(&error),
+                            password_failure: None,
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+    });
+    LoadHandle::new(move || cancel.cancel())
 }
 
 fn async_create_file(
