@@ -4,10 +4,14 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     fs, io,
-    os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
     rc::Rc,
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 
 use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -1522,12 +1526,27 @@ type FileStamp = (u64, i64, i64, u64);
 /// process's later write.
 fn file_stamp(path: &Path) -> Option<FileStamp> {
     let metadata = fs::metadata(path).ok()?;
-    Some((
-        metadata.ino(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.len(),
-    ))
+    #[cfg(unix)]
+    {
+        Some((
+            metadata.ino(),
+            metadata.mtime(),
+            metadata.mtime_nsec(),
+            metadata.len(),
+        ))
+    }
+    #[cfg(windows)]
+    {
+        // Windows creation/write FILETIME values have 100ns resolution.
+        // Include attributes and size so same-name atomic replacement and
+        // external edits invalidate settings without an extra filesystem probe.
+        Some((
+            metadata.creation_time(),
+            i64::try_from(metadata.last_write_time()).ok()?,
+            i64::from(metadata.file_attributes()),
+            metadata.len(),
+        ))
+    }
 }
 
 fn read_state_file(path: &Path) -> io::Result<Option<String>> {
