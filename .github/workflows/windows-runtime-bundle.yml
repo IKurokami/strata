@@ -1,0 +1,71 @@
+name: Windows runtime bundle smoke
+
+# Bundle verification runs for every build-affecting PR; do not accidentally
+# omit GResources, localization, .cargo settings or build.rs modifications.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-bundle-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-portable-dev:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    name: Build, bundle and run Strata outside MSYS2 PATH
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install GTK4 and UCRT64 build libraries
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-gtksourceview5
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-poppler
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-cmake
+
+      - name: Build native Windows GUI and stage recursive DLL dependencies
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo build --locked --no-default-features --bin strata
+          bash scripts/windows-bundle-ucrt64.sh target/debug/strata.exe dist/Strata-Windows-UCRT64
+          test -s dist/Strata-Windows-UCRT64/bin/strata.exe
+
+      - name: Run bundled PE and launcher with sanitized runtime PATH
+        shell: pwsh
+        run: |
+          ./scripts/test-windows-bundle.ps1 -BundleRoot ./dist/Strata-Windows-UCRT64
+
+      - name: Upload experimental bundled Windows build
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+        with:
+          name: strata-windows-ucrt64-bundled-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/Strata-Windows-UCRT64/
+          if-no-files-found: error
+          retention-days: 7
