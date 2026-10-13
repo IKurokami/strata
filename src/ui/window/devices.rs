@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-use std::{
-    collections::HashMap,
-    os::unix::ffi::OsStringExt,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::{Path, PathBuf}};
+#[cfg(target_os = "linux")]
+use std::os::unix::ffi::OsStringExt;
 
 use gtk::{gio, prelude::*};
 
+#[cfg(target_os = "linux")]
 fn system_mounted_devices() -> Vec<PathBuf> {
     // MountEntry bindings require GLib 2.84; retain compatibility with GLib 2.72.
     std::fs::read("/proc/self/mountinfo")
@@ -15,6 +14,7 @@ fn system_mounted_devices() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+#[cfg(target_os = "linux")]
 fn mounted_devices_from_table(table: &[u8]) -> Vec<PathBuf> {
     table
         .split(|byte| *byte == b'\n')
@@ -37,6 +37,7 @@ fn mounted_devices_from_table(table: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg(target_os = "linux")]
 fn mount_entries(table: &[u8]) -> impl Iterator<Item = (PathBuf, PathBuf)> {
     table.split(|byte| *byte == b'\n').filter_map(|line| {
         let fields: Vec<_> = line.split(|byte| *byte == b' ').collect();
@@ -50,6 +51,7 @@ fn mount_entries(table: &[u8]) -> impl Iterator<Item = (PathBuf, PathBuf)> {
     })
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn block_device_from_mount_table(table: &[u8], path: &Path) -> Option<PathBuf> {
     mount_entries(table)
         .filter(|(root, _)| path.starts_with(root))
@@ -58,6 +60,7 @@ pub(super) fn block_device_from_mount_table(table: &[u8], path: &Path) -> Option
         .filter(|source| source.starts_with("/dev"))
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn mounted_path_from_table(table: &[u8], device: &Path) -> Option<PathBuf> {
     let device = device
         .canonicalize()
@@ -71,6 +74,7 @@ pub(super) fn mounted_path_from_table(table: &[u8], device: &Path) -> Option<Pat
     })
 }
 
+#[cfg(target_os = "linux")]
 fn mount_path(encoded: &[u8]) -> Option<PathBuf> {
     let mut decoded = Vec::with_capacity(encoded.len());
     let mut bytes = encoded.iter().copied();
@@ -89,6 +93,18 @@ fn mount_path(encoded: &[u8]) -> Option<PathBuf> {
         }
     }
     Some(std::ffi::OsString::from_vec(decoded).into())
+}
+
+// These interfaces use Linux block-device identifiers. Do not touch /proc,
+// shell helpers or mapped Windows paths while a native drive enumerator is absent.
+#[cfg(windows)]
+pub(super) fn block_device_from_mount_table(_table: &[u8], _path: &Path) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(windows)]
+pub(super) fn mounted_path_from_table(_table: &[u8], _device: &Path) -> Option<PathBuf> {
+    None
 }
 
 pub(super) fn label_identity(uuid: Option<&str>, root_uri: Option<&str>) -> Option<String> {
@@ -250,6 +266,7 @@ fn sort_removable_destinations(destinations: &mut [RemovableDestination]) {
     });
 }
 
+#[cfg(target_os = "linux")]
 pub(in crate::ui) fn removable_destinations() -> Vec<RemovableDestination> {
     let monitor = gio::VolumeMonitor::get();
     let mut destinations = without_ambiguous_destinations(
@@ -263,12 +280,25 @@ pub(in crate::ui) fn removable_destinations() -> Vec<RemovableDestination> {
     destinations
 }
 
+#[cfg(target_os = "linux")]
 pub(in crate::ui) fn resolve_removable_destination(id: &str) -> Option<PathBuf> {
     let destination = removable_destinations()
         .into_iter()
         .find(|destination| destination.id == id)?;
     let root = std::fs::canonicalize(destination.root).ok()?;
     root_is_writable_directory(&gio::File::for_path(&root)).then_some(root)
+}
+
+// Unknown volume IDs must never be invented from drive letters. A later
+// background Win32 volume worker will publish confirmed drive roots.
+#[cfg(windows)]
+pub(in crate::ui) fn removable_destinations() -> Vec<RemovableDestination> {
+    Vec::new()
+}
+
+#[cfg(windows)]
+pub(in crate::ui) fn resolve_removable_destination(_id: &str) -> Option<PathBuf> {
+    None
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -553,6 +583,7 @@ pub(super) fn password_drive_is_orphaned(
     should_list_orphaned_password_drive(start_stop, covered)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn global_search_roots() -> Vec<PathBuf> {
     let monitor = gio::VolumeMonitor::get();
     let roots = monitor
@@ -564,6 +595,14 @@ pub(super) fn global_search_roots() -> Vec<PathBuf> {
     search_roots(&super::home_directory(), roots)
 }
 
+/// Windows must not enumerate volumes or query offline mapped drives on the
+/// GTK thread just to populate the initial global search roots.
+#[cfg(windows)]
+pub(super) fn global_search_roots() -> Vec<PathBuf> {
+    vec![super::home_directory()]
+}
+
+#[cfg(target_os = "linux")]
 fn search_roots(home: &Path, mounts: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     let mut mounts: Vec<_> = mounts
         .into_iter()
@@ -584,5 +623,5 @@ fn search_roots(home: &Path, mounts: impl IntoIterator<Item = PathBuf>) -> Vec<P
     std::iter::once(home.to_owned()).chain(mounts).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;
