@@ -34,7 +34,7 @@ pub(super) fn pause_if_simulated_offline(operation: &LocalOperation) {
         return;
     };
     let pause = PAUSED.lock().unwrap().as_ref().cloned();
-    let Some(pause) = pause.filter(|gate| gate.path == *path) else {
+    let Some(pause) = pause.filter(|gate| gate.path.as_path() == path) else {
         return;
     };
     pause.entered.store(true, Ordering::Release);
