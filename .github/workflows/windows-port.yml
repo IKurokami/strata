@@ -7,10 +7,12 @@ on:
     paths:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
+      - '.gitattributes'
   pull_request:
     paths:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
+      - '.gitattributes'
   workflow_dispatch:
 
 permissions:
