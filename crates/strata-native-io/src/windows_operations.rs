@@ -478,6 +478,10 @@ fn stage_and_publish(
 }
 
 #[cfg(test)]
+#[path = "windows_operations/drive_tests.rs"]
+mod drive_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::{
