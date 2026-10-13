@@ -305,26 +305,31 @@ impl PreviewService {
     pub fn new() -> Self {
         let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
         let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
-        let worker = Arc::clone(&mailbox);
-        thread::Builder::new()
-            .name("strata-preview-io".into())
-            .spawn(move || {
-                while let Some((generation, task)) = worker.next() {
-                    let result = load_preview(&task, &worker, generation);
-                    if let Some(result) = result {
-                        let _ = send_current(
-                            &sender,
-                            &worker,
-                            generation,
-                            PreviewEvent {
+        // A second worker can service a new selection while a stale file
+        // open/read is stuck in an uncancellable OS or network call.
+        for index in 0..2 {
+            let worker = Arc::clone(&mailbox);
+            let sender = sender.clone();
+            thread::Builder::new()
+                .name(format!("strata-preview-{index}"))
+                .spawn(move || {
+                    while let Some((generation, task)) = worker.next() {
+                        let result = load_preview(&task, &worker, generation);
+                        if let Some(result) = result {
+                            let _ = send_current(
+                                &sender,
+                                &worker,
                                 generation,
-                                result: result.map_err(|error| error.to_string()),
-                            },
-                        );
+                                PreviewEvent {
+                                    generation,
+                                    result: result.map_err(|error| error.to_string()),
+                                },
+                            );
+                        }
                     }
-                }
-            })
-            .expect("failed to start the preview I/O worker");
+                })
+                .expect("failed to start the preview I/O worker");
+        }
         Self { mailbox, updates }
     }
 
