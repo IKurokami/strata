@@ -38,7 +38,7 @@ mod storage;
 #[cfg(windows)]
 #[path = "storage_windows.rs"]
 mod storage;
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod test_support;
 mod trusted_command;
 mod ui;
