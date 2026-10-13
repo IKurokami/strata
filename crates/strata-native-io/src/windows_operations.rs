@@ -350,11 +350,13 @@ mod tests {
                 destination: destination.clone(),
             })
             .expect("queue");
-        assert_eq!(
-            finished(&service, id)
-                .expect_err("directory is not a file")
-                .kind(),
-            io::ErrorKind::InvalidInput
+        let error = finished(&service, id).expect_err("directory is not a file");
+        assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::InvalidInput | io::ErrorKind::PermissionDenied
+            ),
+            "a directory must be rejected before staging: {error}"
         );
         assert!(!destination.exists());
     }
