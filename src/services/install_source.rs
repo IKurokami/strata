@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+#[cfg(unix)]
 use std::{
     ffi::OsStr,
-    io,
     os::unix::{ffi::OsStrExt as _, fs::PermissionsExt},
+};
+use std::{
+    io,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -193,6 +196,7 @@ pub(crate) fn installed_executable() -> io::Result<PathBuf> {
 }
 
 // Linux appends " (deleted)" to /proc/self/exe after the installed binary is replaced.
+#[cfg(unix)]
 fn replaced_executable_path(executable: &Path) -> PathBuf {
     if !executable.exists()
         && let Some(original) = executable
@@ -207,6 +211,20 @@ fn replaced_executable_path(executable: &Path) -> PathBuf {
     executable.to_path_buf()
 }
 
+#[cfg(windows)]
+fn replaced_executable_path(executable: &Path) -> PathBuf {
+    // No /proc suffix, no probing a replacement or asking for elevated access.
+    executable.to_path_buf()
+}
+
+// Linux managed-install manifests and AUR/Pacman helpers do not apply to a
+// native Windows binary. Avoid all disk and PATH probes at startup.
+#[cfg(windows)]
+fn marker_path() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
 fn marker_path() -> Option<PathBuf> {
     installed_executable()
         .ok()
@@ -215,6 +233,12 @@ fn marker_path() -> Option<PathBuf> {
         .filter(|path| path.is_file())
 }
 
+#[cfg(windows)]
+fn on_path(_program: &str) -> bool {
+    false
+}
+
+#[cfg(unix)]
 fn on_path(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
