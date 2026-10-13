@@ -60,3 +60,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - In the application's `src/model/mod.rs`, Unix-only GVfs trash filename decoding now uses conditional compilation, and native Windows child names are checked against path traversal, device names and NTFS alternate data streams without I/O.
 - No native Windows GUI build, running `strata.exe`, full GTK smoke test, Windows sandbox or measurable first-frame latency yet. None of these should be labeled complete.
 - At this stage, the Windows classifier does not auto-resolve drive-relative (`C:foo`), root-relative (`\\foo`) or special device namespace paths; a future user-facing path handler must resolve/reject them intentionally.
+
+## Phase 6: real Windows GTK compile diagnostics (experimental)
+
+- `.github/workflows/windows-gui-build.yml` sets up a native UCRT64 Windows GNU Rust toolchain and installs GTK4, GtkSourceView5, GStreamer, Poppler GLib and Fontconfig from MSYS2. It invokes `cargo check --locked --no-default-features --bin strata` for the **whole application**, not just `strata-native-io`.
+- The compiler diagnostic is intentionally non-blocking while the GTK build still fails; **a green workflow does not mean `strata.exe` exists**. Examine the `Compile entire GTK application for native Windows` step and its log artifact. Once the app compiles, convert this into a mandatory, fail-closed compile gate and add a native startup smoke test.
+- Windows launch dispatch skips Linux-only FileChooser portal installation, GVfs probe, X11 program-class setup, and udiskie command hooks. No hidden UAC/shell elevation or Linux subprocess should be called for Windows cold startup.
+- The native I/O benchmark now prints worker-construction overhead and first visible batch size plus 100 warm samples (p50/p95/p99). Neither benchmark measures GTK first paint or preview decoding; these need explicit UI instrumentation after GUI integration.
+- Linux E2E had multiple sandbox/preview failures on PR #5 despite passing native I/O and Linux build/tests; rerun's attempt-scoped artifacts were unavailable. Do not label full Linux E2E as green, disable sandboxing, or skip these cases to satisfy the Windows port.
