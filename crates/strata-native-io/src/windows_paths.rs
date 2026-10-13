@@ -42,8 +42,10 @@ pub fn classify(path: &Path) -> PathKind {
 /// Avoid path traversal, alternate data streams, reserved Win32 device names
 /// and names requiring verbatim Win32 semantics. No path normalization cost.
 pub fn valid_child_name(name: &OsStr) -> bool {
-    if !matches!(Path::new(name).components().next(), Some(Component::Normal(_)))
-        || Path::new(name).components().count() != 1
+    if !matches!(
+        Path::new(name).components().next(),
+        Some(Component::Normal(_))
+    ) || Path::new(name).components().count() != 1
     {
         return false;
     }
@@ -98,8 +100,14 @@ mod tests {
 
     #[test]
     fn classify_drive_unc_and_relative_without_disk_access() {
-        assert_eq!(classify(Path::new(r"C:\Windows\System32")), PathKind::LocalAbsolute);
-        assert_eq!(classify(Path::new(r"\\server\share\item")), PathKind::NetworkAbsolute);
+        assert_eq!(
+            classify(Path::new(r"C:\Windows\System32")),
+            PathKind::LocalAbsolute
+        );
+        assert_eq!(
+            classify(Path::new(r"\\server\share\item")),
+            PathKind::NetworkAbsolute
+        );
         assert_eq!(classify(Path::new(r"C:relative")), PathKind::DriveRelative);
         assert_eq!(classify(Path::new(r"\relative")), PathKind::RootRelative);
         assert_eq!(classify(Path::new(r"relative\item")), PathKind::Relative);
@@ -108,13 +116,33 @@ mod tests {
     #[test]
     fn reject_windows_filename_escapes_and_device_names() {
         for name in [
-            "", ".", "..", r"a\b", "a/b", "C:relative", "evil:stream",
-            "report.", "report ", "file?", "CON", "nul.txt", "COM1.log",
-            "LPT9", "PRN", "AUX.ini", "file\u{0001}",
+            "",
+            ".",
+            "..",
+            r"a\b",
+            "a/b",
+            "C:relative",
+            "evil:stream",
+            "report.",
+            "report ",
+            "file?",
+            "CON",
+            "nul.txt",
+            "COM1.log",
+            "LPT9",
+            "PRN",
+            "AUX.ini",
+            "file\u{0001}",
         ] {
             assert!(!valid_child_name(OsStr::new(name)), "must reject {name:?}");
         }
-        for name in ["test", "a.txt", ".gitignore", "file with spaces.txt", "COnsole"] {
+        for name in [
+            "test",
+            "a.txt",
+            ".gitignore",
+            "file with spaces.txt",
+            "COnsole",
+        ] {
             assert!(valid_child_name(OsStr::new(name)), "should allow {name:?}");
         }
     }
