@@ -48,15 +48,22 @@ jobs:
           if reference="$(python3 scripts/e2e_images.py environment)"; then
             docker pull --platform=linux/amd64 "${reference#environment_image=}"
           else
-            git cat-file -e "$BASE_REF^{commit}"
-            if git diff --quiet "$BASE_REF" HEAD -- tests/e2e/Dockerfile tests/e2e/requirements.txt tests/e2e/install-packages.sh tests/e2e/gtk; then
-              echo 'The unchanged environment is unavailable. Restore public access; ordinary quality runs do not bootstrap distribution packages.' >&2
-              exit 1
+            # Forks cannot assume access to LGSE's pinned GHCR environment.
+            # Build an isolated, unpublished candidate instead of weakening
+            # quality checks or silently accepting missing dependencies.
+            if [[ "$GITHUB_REPOSITORY" != "lgse/strata" ]]; then
+              echo 'Fork CI: building a disposable environment because the upstream image is unavailable.'
             else
-              status=$?
-              if [[ "$status" != 1 ]]; then exit "$status"; fi
+              git cat-file -e "$BASE_REF^{commit}"
+              if git diff --quiet "$BASE_REF" HEAD -- tests/e2e/Dockerfile tests/e2e/requirements.txt tests/e2e/install-packages.sh tests/e2e/gtk; then
+                echo 'The unchanged environment is unavailable. Restore public access; ordinary quality runs do not bootstrap distribution packages.' >&2
+                exit 1
+              else
+                status=$?
+                if [[ "$status" != 1 ]]; then exit "$status"; fi
+              fi
+              echo 'Environment inputs changed: explicitly building this unpublished candidate without publishing it.'
             fi
-            echo 'Environment inputs changed: explicitly building this unpublished candidate without publishing it.'
             reference="environment_image=$(python3 scripts/e2e_base.py build --engine docker)"
             echo 'candidate=true' >> "$GITHUB_OUTPUT"
           fi
