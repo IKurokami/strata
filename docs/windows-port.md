@@ -68,3 +68,10 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Windows launch dispatch skips Linux-only FileChooser portal installation, GVfs probe, X11 program-class setup, and udiskie command hooks. No hidden UAC/shell elevation or Linux subprocess should be called for Windows cold startup.
 - The native I/O benchmark now prints worker-construction overhead and first visible batch size plus 100 warm samples (p50/p95/p99). Neither benchmark measures GTK first paint or preview decoding; these need explicit UI instrumentation after GUI integration.
 - Linux E2E had multiple sandbox/preview failures on PR #5 despite passing native I/O and Linux build/tests; rerun's attempt-scoped artifacts were unavailable. Do not label full Linux E2E as green, disable sandboxing, or skip these cases to satisfy the Windows port.
+
+## Phase 7: Unix-only ashpd dependency isolation
+
+- The first complete native Windows GTK compilation (phase 6) stopped at `ashpd = 0.13.13`, which imports `std::os::unix` and file-descriptor types that are not available for Win32. This was a **real compiler error**; the experimental workflow's overall green status must not be treated as a successful `cargo check`.
+- `ashpd` is now a Linux-only Cargo dependency. The XDG portal server, D-Bus portal installer and Unix-specific GTK file chooser modules are compiled only on Linux. Settings already hide desktop integration controls on Windows.
+- This does **not** remove the normal Windows file manager views, and does not implement native Windows file-open/save chooser integration yet. A Windows-specific chooser can be added later without XDG/Unix APIs. Linux retains the existing backend.
+- Re-run the native GUI compile diagnostic and inspect its *compile step*, then address the next blocking dependency or platform-specific module. Avoid enabling unsandboxed document/media preview as a shortcut.
