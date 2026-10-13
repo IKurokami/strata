@@ -154,11 +154,11 @@ fn copy_no_clobber(source: PathBuf, destination: PathBuf) -> io::Result<()> {
         }
     })();
     drop(writer);
-    if result.is_err() {
-        // Best-effort cleanup of a partial new file. The destination did not
-        // exist before the exclusive create, so no original content is lost.
-        let _ = fs::remove_file(destination);
-    }
+    // Do not unlink the destination by pathname after a failed write.
+    // Another process may have renamed/replaced it while this worker ran,
+    // and a path-based cleanup could delete that process's unrelated file.
+    // A failed copy may leave a partial *new* file; the caller must report
+    // this and offer an explicit cleanup/retry, not silently delete by path.
     result
 }
 
