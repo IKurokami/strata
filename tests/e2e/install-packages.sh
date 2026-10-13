@@ -19,6 +19,7 @@ grep -Eq '^[[:space:]]*SigLevel[[:space:]]*=[[:space:]]*Required([[:space:]]+Dat
     "$configuration" || fail 'pacman must require package signatures'
 
 server="Server = https://archive.archlinux.org/repos/$snapshot/\$repo/os/\$arch"
+
 case "${1:-}" in
     indexes)
         [ "$#" -eq 1 ] || fail 'indexes takes no package names'

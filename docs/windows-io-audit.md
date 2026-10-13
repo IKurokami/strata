@@ -46,6 +46,16 @@ The Windows native I/O crate has executable regression cases for:
 
 These tests validate the worker and filesystem publication guarantees, not a sandboxed GTK renderer. The Windows preview worker remains a **raw-byte reader only**; untrusted document/media parsing must remain disabled until out-of-process isolation is available.
 
+## Phase 4: independent network mutation queue and explicit cancellation
+
+- `LocalOperationService` now has distinct bounded local and UNC mutation queues. Direct UNC sources **or** destinations route to the remote worker, so a stuck copy on an offline share does not delay local create-directory/copy requests. Accepted tasks remain FIFO **within each queue**; cross-queue completion order is not guaranteed.
+- The remote mutation queue holds at most 8 pending requests. No retry thread is spawned when a UNC kernel call hangs; existing operations report `Busy` if their queue is saturated. Mapped network drive letters still cannot be classified from path syntax alone.
+- `cancel(id)` cooperatively interrupts a queued or active file operation. Active copy checks the atomic cancellation flag before each 128-KiB read and immediately before atomic no-overwrite publication. A kernel read or create-directory syscall already in progress **cannot** be forcibly cancelled. There is no guarantee an operation can be rolled back after final publication.
+- The bounded outstanding-operation map contains only accepted requests and is cleared on worker completion or queue rejection. This adds an allocation and a short mutex lock per file mutation, not to the hot filename-enumeration path.
+- Cancellation unit tests use a deterministic reader to set the flag mid-stream and assert that no final destination name is ever published.
+
+**Security boundary:** cancellation and raw-byte prefetch are not a decoder sandbox. No PDF, media, image, or executable parser may be enabled in-process on Windows merely because these file-operation safeguards are present.
+
 ## Verification
 
 The standalone native crate's CI runs Windows Server 2025 and Ubuntu 24.04 matrices: Cargo metadata, Rustfmt (including application source), Clippy with warnings denied, unit tests, and release build. Full application Linux CI / Windows GUI CI have independent outstanding blockers.
