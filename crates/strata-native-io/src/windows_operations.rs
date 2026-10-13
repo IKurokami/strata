@@ -18,6 +18,7 @@ use std::{
 };
 
 const MAX_QUEUED_OPERATIONS: usize = 32;
+const MAX_QUEUED_REMOTE_OPERATIONS: usize = 8;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
@@ -48,10 +49,12 @@ pub enum SubmitError {
     Closed,
 }
 
-/// One worker preserves operation ordering. Neither submitting an operation
-/// nor polling its completion performs filesystem I/O on the GTK thread.
+/// One worker per backend preserves submission ordering within that backend.
+/// UNC shares are isolated: a hung network copy cannot block a local mkdir.
+/// Neither submission nor polling performs filesystem I/O on GTK's thread.
 pub struct LocalOperationService {
     sender: SyncSender<(u64, LocalOperation)>,
+    remote_sender: SyncSender<(u64, LocalOperation)>,
     updates: Receiver<OperationCompletion>,
     next_id: AtomicU64,
 }
@@ -59,22 +62,13 @@ pub struct LocalOperationService {
 impl LocalOperationService {
     pub fn new() -> io::Result<Self> {
         let (sender, requests) = mpsc::sync_channel(MAX_QUEUED_OPERATIONS);
+        let (remote_sender, remote_requests) = mpsc::sync_channel(MAX_QUEUED_REMOTE_OPERATIONS);
         let (completions, updates) = mpsc::sync_channel(MAX_QUEUED_COMPLETIONS);
-        thread::Builder::new()
-            .name("strata-windows-file-ops".into())
-            .spawn(move || {
-                while let Ok((id, operation)) = requests.recv() {
-                    let result = execute(operation);
-                    if completions
-                        .send(OperationCompletion { id, result })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            })?;
+        spawn_operation_worker("strata-windows-file-ops", requests, completions.clone())?;
+        spawn_operation_worker("strata-windows-unc-ops", remote_requests, completions)?;
         Ok(Self {
             sender,
+            remote_sender,
             updates,
             next_id: AtomicU64::new(1),
         })
@@ -83,7 +77,12 @@ impl LocalOperationService {
     /// Fails fast when busy. Never retries or waits on GTK's UI thread.
     pub fn submit(&self, operation: LocalOperation) -> Result<u64, SubmitError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        match self.sender.try_send((id, operation)) {
+        let queue = if operation_uses_unc(&operation) {
+            &self.remote_sender
+        } else {
+            &self.sender
+        };
+        match queue.try_send((id, operation)) {
             Ok(()) => Ok(id),
             Err(TrySendError::Full(_)) => Err(SubmitError::Busy),
             Err(TrySendError::Disconnected(_)) => Err(SubmitError::Closed),
@@ -93,6 +92,34 @@ impl LocalOperationService {
     pub fn try_recv(&self) -> Result<OperationCompletion, TryRecvError> {
         self.updates.try_recv()
     }
+}
+
+fn operation_uses_unc(operation: &LocalOperation) -> bool {
+    use crate::windows_paths::{PathKind, classify};
+    let remote = |path: &Path| classify(path) == PathKind::NetworkAbsolute;
+    match operation {
+        LocalOperation::CreateDirectory(path) => remote(path),
+        LocalOperation::CopyFile {
+            source,
+            destination,
+        } => remote(source) || remote(destination),
+    }
+}
+
+fn spawn_operation_worker(
+    name: &str,
+    requests: Receiver<(u64, LocalOperation)>,
+    completions: SyncSender<OperationCompletion>,
+) -> io::Result<()> {
+    thread::Builder::new().name(name.into()).spawn(move || {
+        while let Ok((id, operation)) = requests.recv() {
+            let result = execute(operation);
+            if completions.send(OperationCompletion { id, result }).is_err() {
+                break;
+            }
+        }
+    })?;
+    Ok(())
 }
 
 /// Refuse working-directory-relative and Windows device namespace paths.
@@ -268,6 +295,24 @@ mod tests {
                 Err(TryRecvError::Disconnected) => panic!("worker channel closed"),
             }
         }
+    }
+
+    #[test]
+    fn direct_unc_mutations_route_only_to_the_network_worker() {
+        assert!(operation_uses_unc(&LocalOperation::CreateDirectory(
+            PathBuf::from(r"\\server\share\new-folder")
+        )));
+        assert!(!operation_uses_unc(&LocalOperation::CreateDirectory(
+            PathBuf::from(r"C:\Users\Public\new-folder")
+        )));
+        assert!(operation_uses_unc(&LocalOperation::CopyFile {
+            source: PathBuf::from(r"\\server\share\remote.txt"),
+            destination: PathBuf::from(r"C:\Users\Public\local.txt"),
+        }));
+        assert!(operation_uses_unc(&LocalOperation::CopyFile {
+            source: PathBuf::from(r"C:\Users\Public\local.txt"),
+            destination: PathBuf::from(r"\\server\share\remote.txt"),
+        }));
     }
 
     #[test]
