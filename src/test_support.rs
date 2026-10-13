@@ -197,6 +197,7 @@ pub(crate) fn serve_http_once(response: Vec<u8>) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+#[cfg(unix)]
 pub(crate) fn distinct_device_dirs(name: &str) -> Option<(tempfile::TempDir, tempfile::TempDir)> {
     use std::os::unix::fs::MetadataExt;
     let dirs = (|| {
@@ -218,4 +219,17 @@ pub(crate) fn distinct_device_dirs(name: &str) -> Option<(tempfile::TempDir, tem
         eprintln!("Skipping {name}: /dev/shm is not a distinct device from the temp dir");
     }
     dirs
+}
+
+#[cfg(windows)]
+pub(crate) fn distinct_device_dirs(name: &str) -> Option<(tempfile::TempDir, tempfile::TempDir)> {
+    // The Linux /dev/shm and inode/device checks are not Windows volume
+    // semantics. Keep the test contract without probing removable or network
+    // drives, running a shell, or requesting elevated permissions.
+    assert!(
+        std::env::var_os("STRATA_REQUIRE_DEVICE_TESTS").is_none(),
+        "{name} requires two verified independent Windows volumes"
+    );
+    eprintln!("Skipping {name}: native Windows cross-volume fixture is unavailable");
+    None
 }
