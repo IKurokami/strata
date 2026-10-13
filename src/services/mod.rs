@@ -27,6 +27,10 @@ mod search;
 pub(crate) mod table;
 mod transfer_action;
 mod update_check;
+#[cfg(not(windows))]
+mod update_install;
+#[cfg(windows)]
+#[path = "update_install_windows.rs"]
 mod update_install;
 
 pub use actions::{
