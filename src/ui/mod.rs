@@ -5,6 +5,7 @@ mod actions;
 mod blur;
 mod browser;
 mod browser_modes;
+#[cfg(target_os = "linux")]
 mod chooser;
 mod close_guard;
 mod collection_edit;
@@ -32,6 +33,7 @@ mod motion;
 mod notice;
 mod open_with;
 mod pointer;
+#[cfg(target_os = "linux")]
 mod portal_preferences;
 pub(crate) mod preferences;
 mod preview;
@@ -53,10 +55,12 @@ mod theme;
 mod thumbnail;
 pub(crate) mod thumbnail_cache;
 mod top_bar_navigation;
+#[cfg(target_os = "linux")]
 mod udiskie_preferences;
 mod virtual_preview;
 mod window;
 
+#[cfg(target_os = "linux")]
 pub(crate) use chooser::{cancel_chooser, present_chooser};
 pub(crate) use settings::schedule_rollback_cleanup;
 pub(crate) use window::default_save_folder;
