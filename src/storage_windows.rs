@@ -4,7 +4,10 @@
 //! Linux's owner-aware Unix symlink/permission rules do not apply to Win32.
 //! Keep the API shape while delegating actual writes to the tested native
 //! backend. Windows config symlinks are intentionally not followed.
-use std::{io, path::{Path, PathBuf}};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 pub(crate) fn config_directory() -> PathBuf {
     gtk::glib::user_config_dir().join("strata")
