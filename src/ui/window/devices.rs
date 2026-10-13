@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-use std::{collections::HashMap, path::{Path, PathBuf}};
 #[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStringExt;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use gtk::{gio, prelude::*};
 
