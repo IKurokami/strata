@@ -5,6 +5,10 @@ pub(crate) mod camera_preview;
 mod document;
 pub(crate) mod document_media;
 pub(crate) mod docx;
+#[cfg(not(windows))]
+pub(crate) mod file_providers;
+#[cfg(windows)]
+#[path = "file_providers_windows.rs"]
 pub(crate) mod file_providers;
 mod file_source;
 pub(crate) mod image_conversion;

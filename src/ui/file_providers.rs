@@ -62,10 +62,19 @@ fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
     HUB.with(|cell| {
         if cell.borrow().is_none() {
             let (tx, discovery) = mpsc::channel();
-            let root = protocol::config_root();
-            std::thread::spawn(move || {
-                let _ = tx.send(root.map_or_else(Vec::new, |p| protocol::discover(&p)));
-            });
+            #[cfg(not(windows))]
+            {
+                let root = protocol::config_root();
+                std::thread::spawn(move || {
+                    let _ = tx.send(root.map_or_else(Vec::new, |p| protocol::discover(&p)));
+                });
+            }
+            #[cfg(windows)]
+            {
+                // No Windows provider transport exists yet. Avoid both a
+                // startup worker and periodic external-provider polling.
+                let _ = tx.send(Vec::new());
+            }
             cell.replace(Some(Hub {
                 discovery,
                 providers: Vec::new(),
@@ -73,6 +82,7 @@ fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
                 pending: HashMap::new(),
                 serial: 0,
             }));
+            #[cfg(not(windows))]
             glib::timeout_add_local(Duration::from_millis(100), || {
                 with_hub(Hub::tick);
                 glib::ControlFlow::Continue
