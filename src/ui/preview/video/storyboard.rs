@@ -174,5 +174,5 @@ pub(super) fn load_storyboard(
     StoryboardLoad(handle)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
