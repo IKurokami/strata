@@ -97,3 +97,9 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Unix restart helpers (`sh`, `sleep`, `mv`, `/proc/PID/stat`) compile only on Linux. Windows **must not** spawn them or incorrectly restart an updated executable while the old process still holds the binary.
 - The Linux inode-based rollback cleanup is disabled on Windows instead of deleting an uncertain file by pathname; Windows self-update/restart must wait for a native, verified helper protocol. This temporarily means no automated rollback cleanup/restart on Windows.
 - Neither settings load nor the normal startup path should request UAC elevation, invoke a shell or perform a Windows volume permission preflight.
+
+## Phase 10: zero-allocation action extensions and font asset paths
+
+- File-action extension matching no longer imports Unix `OsStrExt`. It uses the portable borrowed `OsStr::as_encoded_bytes()` (no lossy conversion, heap allocation or filesystem probe in the menu hot path).
+- Bundled Fontconfig font registration retains Linux's byte-safe paths and uses an explicit validated UTF-8 path on Windows. Invalid paths fail with an error rather than substituting a different font path.
+- These changes remove more Win32 compiler blockers. The full GTK app remains blocked by Unix-specific sandbox, file operations and job runners; no unsafe preview fallback or unwanted elevation is enabled.
