@@ -1,22 +1,12 @@
 name: Windows GTK linked executable smoke
 
+# No paths filter: build.rs, data/**, .cargo/** and toolchain inputs can
+# change Win32 compilation or linking even when src/** is untouched.
 on:
   pull_request:
-    paths:
-      - 'src/**'
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/windows-gui-linked-smoke.yml'
   push:
     branches:
       - main
-    paths:
-      - 'src/**'
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/windows-gui-linked-smoke.yml'
   workflow_dispatch:
 
 permissions:
@@ -99,6 +89,34 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked --no-default-features --bin strata --no-run
+
+      - name: Run Windows-only safety and filesystem tests
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo test --locked --no-default-features --bin strata -- --list > target/windows-test-inventory.txt
+          # Each case must really exist. A 0-tests result is not a pass.
+          for name in \
+            windows_keeps_saved_action_but_never_executes_a_process_tree \
+            windows_refuses_reparse_action_roots_without_following_them \
+            windows_directory_index_obeys_hidden_attribute_not_dot_prefix \
+            cannot_install_or_launch_untrusted_archive \
+            cancellation_precedes_any_installation \
+            root_confinement_rejects_sibling_and_missing_paths \
+            refuses_linux_trash_metadata_in_windows_recycle_bin \
+            untrusted_parse_refused_without_touching_path \
+            no_external_provider_can_be_discovered_on_windows \
+            rejects_provider_requests_without_executing_helpers \
+            private_preview_helper_rejects_execution; do
+            if ! grep -Fq "${name}: test" target/windows-test-inventory.txt; then
+              echo "Windows-only regression test missing: ${name}" >&2
+              exit 1
+            fi
+            cargo test --locked --no-default-features --bin strata "${name}" -- --test-threads=1
+          done
 
       - name: Label executable as developer-only until runtime bundling
         if: success()
