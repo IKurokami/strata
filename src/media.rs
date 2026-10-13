@@ -2,11 +2,14 @@
 
 use std::{
     io::{self, Read, Write},
-    os::fd::AsFd,
-    time::{Duration, Instant},
+    time::Duration,
 };
+#[cfg(unix)]
+use std::{os::fd::AsFd, time::Instant};
 
-use crate::{sandbox::Cancellation, services::MediaPreviewSize};
+#[cfg(unix)]
+use crate::sandbox::Cancellation;
+use crate::services::MediaPreviewSize;
 
 pub(crate) const FPS: u32 = 30;
 // The terminal tick must fit the wire format; this also denotes unknown duration.
@@ -250,12 +253,14 @@ pub(crate) fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+#[cfg(unix)]
 pub(crate) struct TimedReader<'a, F> {
     pub fd: &'a F,
     pub deadline: Instant,
     pub cancellation: &'a Cancellation,
 }
 
+#[cfg(unix)]
 impl<F: AsFd> Read for TimedReader<'_, F> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
@@ -288,5 +293,5 @@ impl<F: AsFd> Read for TimedReader<'_, F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
