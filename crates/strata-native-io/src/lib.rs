@@ -30,7 +30,9 @@ pub const LISTING_BATCH_SIZE: usize = 256;
 // Bound stale batches to 8 * 256 names, not 16,384 names.
 // New navigation can drain abandoned generations promptly.
 const LISTING_CHANNEL_CAPACITY: usize = 8;
-const PREVIEW_CHANNEL_CAPACITY: usize = 8;
+// Only the newest selection is useful; cap buffered raw bytes to 2 MiB
+// instead of retaining up to 8 MiB of stale 1-MiB previews.
+const PREVIEW_CHANNEL_CAPACITY: usize = 2;
 /// A raw prefetch bound, not a limit on the final parser-backed preview.
 pub const MAX_RAW_PREVIEW_BYTES: usize = 1024 * 1024;
 
