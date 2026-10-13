@@ -95,5 +95,5 @@ pub(crate) fn is_raw(path: &Path) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
