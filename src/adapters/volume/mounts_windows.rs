@@ -39,10 +39,7 @@ impl MountTable {
         // onto GIO's asynchronous route instead of probing GTK's UI thread.
         // This is deliberately conservative until a cached, background Win32
         // drive classifier is available. Ordinary filename listing is unaffected.
-        matches!(
-            classify(path),
-            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
-        )
+        strata_native_io::windows_paths::volume_query_may_block(path)
     }
 
     pub(crate) fn is_mount_point(&self, path: &Path) -> bool {

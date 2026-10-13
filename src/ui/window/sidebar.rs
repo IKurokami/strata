@@ -55,7 +55,7 @@ pub(in crate::ui) fn build_sidebar(
         update_label: shell.update_label,
         update_version: shell.update_version,
         handlers: RefCell::new(handlers),
-        mount_handler: RefCell::new(Some(mount_handler)),
+        mount_handler: RefCell::new(mount_handler),
         recent_setting_handler: RefCell::new(recent_setting_handler),
         release_watch,
         bookmark_watch: RefCell::new(Some(bookmark_watch)),
@@ -169,6 +169,7 @@ impl SidebarState {
             browser: view.browser(),
             view,
             volume_monitor,
+            #[cfg(target_os = "linux")]
             mount_monitor: gio_unix::MountMonitor::get(),
             preference_manager,
             place_order: RefCell::new(place_order),
@@ -288,7 +289,7 @@ pub(super) enum PlaceNavigation {
 
 fn connect_device_changes(
     state: &Rc<SidebarState>,
-) -> (Vec<glib::SignalHandlerId>, glib::SignalHandlerId) {
+) -> (Vec<glib::SignalHandlerId>, Option<glib::SignalHandlerId>) {
     let monitor = &state.volume_monitor;
     let handlers = vec![
         monitor.connect_mount_added(rebuild_on_change(state)),
@@ -301,12 +302,17 @@ fn connect_device_changes(
         monitor.connect_drive_disconnected(rebuild_on_change(state)),
         monitor.connect_drive_changed(rebuild_on_change(state)),
     ];
-    let weak = Rc::downgrade(state);
-    let mount_handler = state.mount_monitor.connect_mounts_changed(move |_| {
-        if let Some(state) = weak.upgrade() {
-            state.queue_rebuild();
-        }
-    });
+    #[cfg(target_os = "linux")]
+    let mount_handler = {
+        let weak = Rc::downgrade(state);
+        Some(state.mount_monitor.connect_mounts_changed(move |_| {
+            if let Some(state) = weak.upgrade() {
+                state.queue_rebuild();
+            }
+        }))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let mount_handler = None;
     (handlers, mount_handler)
 }
 

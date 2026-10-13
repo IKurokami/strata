@@ -1046,6 +1046,7 @@ pub(super) struct SidebarState {
     view: BrowserView,
     browser: Rc<Browser>,
     volume_monitor: gio::VolumeMonitor,
+    #[cfg(target_os = "linux")]
     mount_monitor: gio_unix::MountMonitor,
     preference_manager: Rc<super::preferences::PreferenceManager>,
     place_order: RefCell<Vec<&'static str>>,
@@ -1201,6 +1202,7 @@ impl SidebarView {
         for handler in self.handlers.take() {
             self.state.volume_monitor.disconnect(handler);
         }
+        #[cfg(target_os = "linux")]
         if let Some(handler) = self.mount_handler.take() {
             self.state.mount_monitor.disconnect(handler);
         }
