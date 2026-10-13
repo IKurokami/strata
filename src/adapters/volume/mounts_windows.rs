@@ -39,8 +39,10 @@ impl MountTable {
     }
 
     pub(crate) fn is_mount_point(&self, path: &Path) -> bool {
-        matches!(classify(path), PathKind::LocalAbsolute | PathKind::NetworkAbsolute)
-            && path.parent().is_none()
+        matches!(
+            classify(path),
+            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+        ) && path.parent().is_none()
     }
 
     pub(crate) fn mount_point_for(&self, _path: &Path) -> Option<&Path> {
