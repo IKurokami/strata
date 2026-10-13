@@ -34,13 +34,11 @@ pub(crate) use local_operations::{
     INVALID_ARCHIVE, MAX_ARCHIVE_PASSWORD_BYTES, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED,
     archive_payload_valid, encode_archive_result, flush_filesystem, list_archive_entries_direct,
 };
+#[cfg(all(test, windows))]
+pub(crate) use local_operations::{ArchiveListing, ArchiveListingStatus, decode_archive_listing};
 #[cfg(all(test, not(windows)))]
 pub(crate) use local_operations::{
     ArchiveListing, ArchiveListingStatus, decode_archive_listing, write_compression_fixture,
-};
-#[cfg(all(test, windows))]
-pub(crate) use local_operations::{
-    ArchiveListing, ArchiveListingStatus, decode_archive_listing,
 };
 #[cfg(all(test, not(windows)))]
 pub(crate) use local_operations::{
