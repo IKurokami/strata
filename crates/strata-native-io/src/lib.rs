@@ -149,7 +149,7 @@ pub struct ListingService {
 
 impl ListingService {
     pub fn new() -> Self {
-        let mailbox = Arc::new(Mailbox::new());
+        let mailbox: Arc<Mailbox<PathBuf>> = Arc::new(Mailbox::new());
         let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
         for index in 0..2 {
             let mailbox = Arc::clone(&mailbox);
@@ -303,7 +303,7 @@ pub struct PreviewService {
 
 impl PreviewService {
     pub fn new() -> Self {
-        let mailbox = Arc::new(Mailbox::new());
+        let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
         let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
         let worker = Arc::clone(&mailbox);
         thread::Builder::new()
