@@ -175,3 +175,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - `--preview-helper` and `--browser-worker` cannot be used on Windows to bypass isolation. A future implementation requires a Job Object (kill-on-close), bounded I/O and memory, restricted launch token/AppContainer when appropriate, pipe identity verification, and cancellation of all descendants.
 - The shared decoded-media wire structures remain compiled on Windows; only the Linux FD/poll-based timed reader is excluded.
 - **Functionality trade-off:** advanced thumbnail/preview decoders are temporarily unavailable on Windows. Core file navigation, listing and safe file actions remain separate and should continue to work as they are integrated. This is not full feature parity, and no untrusted parser should be enabled without equivalent containment.
+
+## Phase 21: reproducible Windows developer distribution
+
+- `scripts/windows-bundle-ucrt64.sh` recursively inspects PE imports with `objdump`, resolves only trusted build-time UCRT64 runtime DLLs from `/ucrt64/bin`, and stages GTK/GLib icon, schema, MIME and optional native plugin resources. It deliberately never copies the MSYS2 POSIX runtime, Cargo, Rust toolchains or arbitrary PATH binaries.
+- `Run-Strata.cmd` sets application-local library/schema paths without installation, registry modification, UAC, shell extension registration or any application startup drive scanning.
+- A new **blocking Windows Server 2025 CI** builds the GTK executable, assembles the folder, then launches both the bundled binary and launcher in PowerShell with MSYS2 removed from PATH. It uploads an experimental developer artifact **only when the isolated runtime check passes**.
+- Passing `--version` proves that the Windows loader can resolve PE runtime imports outside MSYS2's PATH; it does *not* verify first GUI paint, GStreamer plug-in coverage, Explorer integration or feature parity. The README explicitly discloses missing features and no publisher code-signing.
+- This is a staging step toward a tested portable zip. After successful CI, add an interactive Windows desktop startup test, measured cold folder navigation and checks for loader/icon plug-ins before considering a public release.
