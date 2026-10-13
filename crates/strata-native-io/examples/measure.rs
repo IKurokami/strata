@@ -9,11 +9,13 @@ use std::{
 
 use strata_native_io::{ListingEvent, ListingService};
 
-const RUNS: usize = 12;
+// Enough warm samples for a meaningful observed p99 instead of a single-digit estimate.
+const RUNS: usize = 100;
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 struct Measurement {
     first_batch_ms: f64,
+    first_batch_items: usize,
     complete_ms: f64,
     item_count: usize,
 }
@@ -22,6 +24,7 @@ fn scan_once(service: &ListingService, path: &Path) -> io::Result<Measurement> {
     let start = Instant::now();
     let generation = service.request(path);
     let mut first_batch_ms = None;
+    let mut first_batch_items = 0;
     let mut item_count = 0;
 
     loop {
@@ -30,7 +33,10 @@ fn scan_once(service: &ListingService, path: &Path) -> io::Result<Measurement> {
                 generation: current,
                 entries,
             }) if current == generation => {
-                first_batch_ms.get_or_insert_with(|| start.elapsed().as_secs_f64() * 1_000.0);
+                if first_batch_ms.is_none() {
+                    first_batch_ms = Some(start.elapsed().as_secs_f64() * 1_000.0);
+                    first_batch_items = entries.len();
+                }
                 item_count += entries.len();
             }
             Ok(ListingEvent::Finished {
@@ -43,6 +49,7 @@ fn scan_once(service: &ListingService, path: &Path) -> io::Result<Measurement> {
                 let complete_ms = start.elapsed().as_secs_f64() * 1_000.0;
                 return Ok(Measurement {
                     first_batch_ms: first_batch_ms.unwrap_or(complete_ms),
+                    first_batch_items,
                     complete_ms,
                     item_count,
                 });
@@ -77,7 +84,9 @@ fn main() -> io::Result<()> {
         .map(std::path::PathBuf::from)
         .unwrap_or(env::current_dir()?);
 
+    let worker_start = Instant::now();
     let service = ListingService::new();
+    let worker_setup_ms = worker_start.elapsed().as_secs_f64() * 1_000.0;
     let mut first_times = Vec::with_capacity(RUNS);
     let mut full_times = Vec::with_capacity(RUNS);
     let mut last_count = 0;
@@ -86,8 +95,8 @@ fn main() -> io::Result<()> {
     // represent warm local listing performance, not cold-boot performance.
     let first = scan_once(&service, &path)?;
     println!(
-        "Initial pass: {:.2}ms first batch; {:.2}ms complete; {} entries",
-        first.first_batch_ms, first.complete_ms, first.item_count
+        "Initial pass: {:.2}ms first {} entries; {:.2}ms complete; {} entries",
+        first.first_batch_ms, first.first_batch_items, first.complete_ms, first.item_count
     );
 
     for _ in 0..RUNS {
@@ -98,16 +107,19 @@ fn main() -> io::Result<()> {
     }
 
     println!("Path: {}", path.display());
+    println!("Native listing worker setup: {worker_setup_ms:.2}ms (not GTK startup)");
     println!("Warm samples: {RUNS}; last item count: {last_count}");
     println!(
-        "First batch: p50 {:.2}ms / p95 {:.2}ms",
+        "First batch: p50 {:.2}ms / p95 {:.2}ms / p99 {:.2}ms",
         percentile(&mut first_times.clone(), 50),
-        percentile(&mut first_times, 95)
+        percentile(&mut first_times.clone(), 95),
+        percentile(&mut first_times, 99)
     );
     println!(
-        "All names:   p50 {:.2}ms / p95 {:.2}ms",
+        "All names:   p50 {:.2}ms / p95 {:.2}ms / p99 {:.2}ms",
         percentile(&mut full_times.clone(), 50),
-        percentile(&mut full_times, 95)
+        percentile(&mut full_times.clone(), 95),
+        percentile(&mut full_times, 99)
     );
     Ok(())
 }
