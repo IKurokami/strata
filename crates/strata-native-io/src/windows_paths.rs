@@ -53,6 +53,7 @@ pub fn valid_child_name(name: &OsStr) -> bool {
     // device stems never exceed seven UTF-16 code units (CONOUT$).
     let mut stem = [0u16; 7];
     let mut stem_len = 0usize;
+    let mut meaningful_stem_len = 0usize;
     let mut in_stem = true;
     let mut last = None;
     for unit in name.encode_wide() {
@@ -84,6 +85,9 @@ pub fn valid_child_name(name: &OsStr) -> bool {
                     };
                 }
                 stem_len = stem_len.saturating_add(1);
+                if unit != 0x20 {
+                    meaningful_stem_len = stem_len;
+                }
             }
         }
     }
@@ -91,15 +95,10 @@ pub fn valid_child_name(name: &OsStr) -> bool {
         return false;
     }
 
-    // The DOS device alias is the pre-extension stem with spaces stripped
-    // from the end, such as "CON .txt". Stems longer than seven units cannot
-    // equal any of the listed reserved names.
-    let base = if stem_len <= stem.len() {
-        let mut end = stem_len;
-        while end > 0 && stem[end - 1] == 0x20 {
-            end -= 1;
-        }
-        &stem[..end]
+    // Keep the last non-space position so arbitrarily many trailing spaces
+    // cannot bypass reserved aliases such as "CON           .txt".
+    let base = if meaningful_stem_len <= stem.len() {
+        &stem[..meaningful_stem_len]
     } else {
         &stem[..0]
     };
@@ -159,6 +158,7 @@ mod tests {
             "CONIN$.ini",
             "CONOUT$",
             "CON .txt",
+            "CON          .txt",
             "conout$.cfg",
             "COM3 .bak",
             "LPT9",
