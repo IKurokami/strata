@@ -357,6 +357,8 @@ fn validate_native_file_path(path: &Path) -> io::Result<()> {
 }
 
 fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
+    #[cfg(test)]
+    drive_tests::pause_if_simulated_offline(&operation);
     match operation {
         LocalOperation::CreateDirectory(path) => {
             validate_native_file_path(&path)?;
