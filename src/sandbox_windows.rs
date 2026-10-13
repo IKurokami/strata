@@ -277,7 +277,8 @@ mod tests {
             MediaPreviewBackend::Software,
             &c,
         )
-        .expect_err("cancellation wins");
+        .err()
+        .expect("cancellation wins");
         assert!(error.contains("cancelled"));
     }
 }
