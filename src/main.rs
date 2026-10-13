@@ -55,14 +55,20 @@ enum LaunchMode {
     BrowserWorker,
     #[cfg(target_os = "linux")]
     GvfsProbe,
+    #[cfg(target_os = "linux")]
     Portal,
+    #[cfg(target_os = "linux")]
     InstallPortal,
+    #[cfg(target_os = "linux")]
     DismissPortalPrompt,
+    #[cfg(target_os = "linux")]
     UninstallPortal,
     Version,
     #[cfg(target_os = "linux")]
     UdiskieHook,
+    #[cfg(target_os = "linux")]
     InstallUdiskie,
+    #[cfg(target_os = "linux")]
     UninstallUdiskie,
     Application,
 }
@@ -75,14 +81,20 @@ fn launch_mode(arguments: &[OsString]) -> LaunchMode {
         Some("--browser-worker") => LaunchMode::BrowserWorker,
         #[cfg(target_os = "linux")]
         Some(GVFS_PROBE_ARGUMENT) => LaunchMode::GvfsProbe,
+        #[cfg(target_os = "linux")]
         Some("--portal") => LaunchMode::Portal,
+        #[cfg(target_os = "linux")]
         Some("--install-portal") => LaunchMode::InstallPortal,
+        #[cfg(target_os = "linux")]
         Some("--dismiss-portal-prompt") => LaunchMode::DismissPortalPrompt,
+        #[cfg(target_os = "linux")]
         Some("--uninstall-portal") => LaunchMode::UninstallPortal,
         Some("--version") => LaunchMode::Version,
         #[cfg(target_os = "linux")]
         Some("--udiskie-hook") => LaunchMode::UdiskieHook,
+        #[cfg(target_os = "linux")]
         Some("--install-udiskie-unlock") => LaunchMode::InstallUdiskie,
+        #[cfg(target_os = "linux")]
         Some("--uninstall-udiskie-unlock") => LaunchMode::UninstallUdiskie,
         _ => LaunchMode::Application,
     }
@@ -168,15 +180,19 @@ fn main() -> gtk::glib::ExitCode {
             let _volumes = gio::VolumeMonitor::get();
             return gtk::glib::ExitCode::SUCCESS;
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::Portal => {
             #[cfg(target_os = "linux")]
             restart_with_local_vfs_if_gvfs_is_unresponsive();
             return portal::run();
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::InstallPortal => return finish_portal_setup(portal_setup::install()),
+        #[cfg(target_os = "linux")]
         LaunchMode::DismissPortalPrompt => {
             return finish_portal_setup(portal_setup::dismiss_prompt());
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::UninstallPortal => return finish_portal_setup(portal_setup::uninstall()),
         LaunchMode::Version => {
             println!("{}", version_line());
@@ -184,9 +200,11 @@ fn main() -> gtk::glib::ExitCode {
         }
         #[cfg(target_os = "linux")]
         LaunchMode::UdiskieHook => return run_udiskie_hook(&arguments[2..]),
+        #[cfg(target_os = "linux")]
         LaunchMode::InstallUdiskie => {
             return finish_portal_setup(portal_setup::udiskie::install());
         }
+        #[cfg(target_os = "linux")]
         LaunchMode::UninstallUdiskie => {
             return finish_portal_setup(portal_setup::udiskie::uninstall());
         }
@@ -404,6 +422,7 @@ fn run_preview_helper(arguments: &[OsString]) -> Result<(), String> {
     sandbox_helper::run(&arguments)
 }
 
+#[cfg(target_os = "linux")]
 fn finish_portal_setup(result: Result<String, String>) -> gtk::glib::ExitCode {
     match result {
         Ok(message) => {

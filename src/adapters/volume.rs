@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: MIT
 
+#[cfg(not(windows))]
 mod mount_snapshot;
+#[cfg(windows)]
+#[path = "volume/mount_snapshot_windows.rs"]
+mod mount_snapshot;
+#[cfg(not(windows))]
 mod mounts;
-#[cfg(test)]
+#[cfg(windows)]
+#[path = "volume/mounts_windows.rs"]
+mod mounts;
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 use std::{
