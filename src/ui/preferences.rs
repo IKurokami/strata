@@ -10,9 +10,6 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
-
 use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -1540,11 +1537,12 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
         // Windows creation/write FILETIME values have 100ns resolution.
         // Include attributes and size so same-name atomic replacement and
         // external edits invalidate settings without an extra filesystem probe.
+        let stamp = strata_native_io::windows_file_stamp::from_metadata(&metadata);
         Some((
-            metadata.creation_time(),
-            i64::try_from(metadata.last_write_time()).ok()?,
-            i64::from(metadata.file_attributes()),
-            metadata.len(),
+            stamp.creation_time,
+            i64::try_from(stamp.last_write_time).ok()?,
+            i64::from(stamp.attributes),
+            stamp.size,
         ))
     }
 }
