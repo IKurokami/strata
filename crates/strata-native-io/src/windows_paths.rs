@@ -37,6 +37,17 @@ pub fn classify(path: &Path) -> PathKind {
     }
 }
 
+/// Determine whether volume identity lookups must be asynchronous.
+/// A drive-letter path may be an offline mapped network drive even when it
+/// looks local. This deliberately avoids any GetDriveType, GIO or ACL probe on
+/// GTK's UI thread; it is not the same as classifying a path as network storage.
+pub fn volume_query_may_block(path: &Path) -> bool {
+    matches!(
+        classify(path),
+        PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+    )
+}
+
 /// Validate a single ordinary child component without touching the filesystem.
 ///
 /// Avoid path traversal, alternate data streams, reserved Win32 device names
@@ -135,6 +146,20 @@ mod tests {
         assert_eq!(classify(Path::new(r"C:relative")), PathKind::DriveRelative);
         assert_eq!(classify(Path::new(r"\relative")), PathKind::RootRelative);
         assert_eq!(classify(Path::new(r"relative\item")), PathKind::Relative);
+    }
+
+    #[test]
+    fn unknown_mapped_drives_never_enter_sync_volume_probe() {
+        for path in [
+            Path::new(r"Z:\\offline\\folder"),
+            Path::new(r"C:\\Windows\\System32"),
+            Path::new(r"\\\\server\\share\\file"),
+        ] {
+            assert!(volume_query_may_block(path), "must defer volume lookup: {path:?}");
+        }
+        for path in [Path::new(r"C:relative"), Path::new(r"relative\\file")] {
+            assert!(!volume_query_may_block(path));
+        }
     }
 
     #[test]
