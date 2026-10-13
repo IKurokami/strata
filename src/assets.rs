@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     ffi::CString,
     fs, io,
-    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
 };
 
@@ -982,7 +983,13 @@ fn register_application_fonts(
     }
 
     for path in paths {
+        #[cfg(unix)]
         let path = CString::new(path.as_os_str().as_bytes())?;
+        #[cfg(windows)]
+        let path = CString::new(
+            path.to_str()
+                .ok_or("Fontconfig requires a UTF-8 font path on Windows")?,
+        )?;
 
         // SAFETY: `config` was checked above. `path` is a valid, NUL-terminated C string
         // that remains alive for the call, and Fontconfig copies rather than retains it.
