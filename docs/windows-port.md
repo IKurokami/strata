@@ -34,7 +34,7 @@ Status: **foundation only**, not a bootable Windows edition of Strata. Keep the 
 
 ## Native I/O service limitations
 
-The foundation library uses only the Rust standard library and can be built and unit-tested natively on Windows. It intentionally **does not** claim to be a complete Windows filesystem backend. It lists names only (metadata is lazy), reads bounded *raw bytes* without parsing untrusted formats, does no permission escalation, and uses a bounded channel. Network I/O can still block a worker inside an OS call; two listing workers provide limited isolation, not a guarantee. Windows-native I/O and GUI integration need further implementation and profiling.
+The foundation library uses only the Rust standard library and can be built and unit-tested natively on Windows. It intentionally **does not** claim to be a complete Windows filesystem backend. It lists names only (metadata is lazy), reads bounded *raw bytes* without parsing untrusted formats, does no permission escalation, and uses a bounded channel. Network I/O can still block a worker inside an OS call; two listing workers and two preview workers provide limited isolation, not a guarantee. Windows-native I/O and GUI integration need further implementation and profiling.
 
 Run locally on Windows:
 
@@ -42,3 +42,11 @@ Run locally on Windows:
 cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked
 cargo clippy --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets -- -D warnings
 ```
+
+To profile local directory listing on a real Windows filesystem (no privilege elevation required):
+
+```powershell
+cargo run --release --manifest-path crates/strata-native-io/Cargo.toml --example measure -- "C:\\Windows\\System32"
+```
+
+The example reports initial-pass and warm p50/p95 times for the first batch and full enumeration. This is **not** an application-startup measurement or an Everything-like indexed search. Measure on the target workstation and profile GTK integration separately.
