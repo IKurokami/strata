@@ -31,6 +31,15 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | BitLocker | Leave to Windows, do not request elevation merely for file listing | Native integration pending |
 | Startup/update/release | Skip Linux GVfs health checks, portal refresh, X11 and D-Bus launch hooks on Windows; implement native updater and installer separately | Linux startup probes now target-gated; Windows app and installer not yet built |
 
+## Phase 3: platform-specific fast paths
+
+- Recursive filename search skips Unix mode bit checks on Windows rather than issuing one metadata request per file. It retains the bounded walker and index behavior.
+- Icon details cache timestamps use Windows FILETIME / basic file attributes; this does not trigger any Shell/COM permission check. Cache refresh is still performed on the application side and must be profiled for UI-thread blocking after GTK integration.
+- Ordinary Windows PE executables are recognized from `.exe` / `.com` extensions without checking Unix permissions. Batch scripts are not launched implicitly.
+- Enumeration exposes `hidden_hint` from `DirEntry::metadata` on Windows, where this data is supplied by the directory enumeration result; Linux leaves this hint unset.
+- Windows native folder inode-identity recovery is temporarily disabled because portable stable Rust does not provide a reliable Windows per-file identity. Rename notification recovery needs a dedicated Windows file-ID implementation; never infer identity solely from filenames or creation timestamps.
+- The complete GTK GUI is still not compiled or tested on Windows. No end-to-end performance figures are claimed.
+
 ## CI and blockers
 
 - Independent crate CI runs formatting, Clippy, tests and release compilation on Windows Server 2025 and Ubuntu.
