@@ -125,10 +125,21 @@ fn send_current<T, U>(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FastFileKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListingEntry {
     /// Preserve native platform names (including non-Unicode names on Unix).
     pub file_name: OsString,
+    /// Windows FindFirst/FindNext supplies type with the enumeration result;
+    /// Linux leaves it lazy to avoid a potential stat on unusual filesystems.
+    pub fast_kind: Option<FastFileKind>,
 }
 
 #[derive(Debug)]
@@ -222,8 +233,23 @@ fn run_listing(
         match entry {
             Ok(entry) => {
                 // Avoid per-item stat, thumbnail, icon lookup or ACL probes.
+                #[cfg(windows)]
+                let fast_kind = entry.file_type().ok().map(|file_type| {
+                    if file_type.is_dir() {
+                        FastFileKind::Directory
+                    } else if file_type.is_file() {
+                        FastFileKind::File
+                    } else if file_type.is_symlink() {
+                        FastFileKind::Symlink
+                    } else {
+                        FastFileKind::Other
+                    }
+                });
+                #[cfg(not(windows))]
+                let fast_kind = None;
                 batch.push(ListingEntry {
                     file_name: entry.file_name(),
+                    fast_kind,
                 });
                 if batch.len() == LISTING_BATCH_SIZE
                     && !send_current(
