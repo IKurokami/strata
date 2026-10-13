@@ -9,11 +9,17 @@ on:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
       - '.gitattributes'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/model/**'
   pull_request:
     paths:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
       - '.gitattributes'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/model/**'
   workflow_dispatch:
 
 permissions:
@@ -42,6 +48,9 @@ jobs:
         run: |
           rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.98.0
+
+      - name: Check root Cargo lockfile and native crate integration
+        run: cargo metadata --manifest-path Cargo.toml --locked --no-deps --format-version 1
 
       - name: Check formatting
         run: cargo fmt --manifest-path crates/strata-native-io/Cargo.toml --all -- --check
