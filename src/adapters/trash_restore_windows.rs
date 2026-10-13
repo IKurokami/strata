@@ -86,13 +86,15 @@ mod tests {
     #[test]
     fn refuses_linux_trash_metadata_in_windows_recycle_bin() {
         assert!(decode_trashinfo_path("file:///C:/private/test").is_none());
-        assert!(plan_restore_from_known_paths(
-            Path::new("C:\\$Recycle.Bin\\file"),
-            Path::new("C:\\test"),
-            Path::new("C:\\$Recycle.Bin"),
-            None,
-            &RestoreContext::current(),
-        )
-        .is_err());
+        assert!(
+            plan_restore_from_known_paths(
+                Path::new("C:\\$Recycle.Bin\\file"),
+                Path::new("C:\\test"),
+                Path::new("C:\\$Recycle.Bin"),
+                None,
+                &RestoreContext::current(),
+            )
+            .is_err()
+        );
     }
 }
