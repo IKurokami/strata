@@ -174,9 +174,9 @@ impl Drop for StagingFile {
 }
 
 fn new_staging_file(destination: &Path) -> io::Result<StagingFile> {
-    let directory = destination.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent")
-    })?;
+    let directory = destination
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent"))?;
     // Per-process monotonic ID plus time is a collision-resistant scratch
     // filename; CREATE_NEW remains the authority for concurrent processes.
     let seed = SystemTime::now()
@@ -377,7 +377,10 @@ mod tests {
         let err = stage_and_publish(&mut FailAfterFirstRead(false), &dest)
             .expect_err("injected copy must fail");
         assert_eq!(err.kind(), io::ErrorKind::Other);
-        assert!(!dest.exists(), "failed staging must not publish a partial file");
+        assert!(
+            !dest.exists(),
+            "failed staging must not publish a partial file"
+        );
         assert_eq!(
             fs::read_dir(&dir.0).expect("list scratch").count(),
             0,
@@ -411,8 +414,14 @@ mod tests {
             },
             &dest,
         );
-        assert_eq!(result.expect_err("destination collision").kind(), io::ErrorKind::AlreadyExists);
-        assert_eq!(fs::read(&dest).expect("read concurrent file"), b"created concurrently");
+        assert_eq!(
+            result.expect_err("destination collision").kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(
+            fs::read(&dest).expect("read concurrent file"),
+            b"created concurrently"
+        );
         assert_eq!(fs::read_dir(&dir.0).expect("list").count(), 1);
     }
 
