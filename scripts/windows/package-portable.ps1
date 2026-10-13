@@ -13,6 +13,7 @@ Set-StrictMode -Version Latest
 
 $exe = (Resolve-Path -LiteralPath $Executable).Path
 $prefix = (Resolve-Path -LiteralPath $UcrtRoot).Path
+$Destination = [System.IO.Path]::GetFullPath($Destination)
 $runtimeBin = Join-Path $prefix "bin"
 $objdump = Join-Path $runtimeBin "objdump.exe"
 if (-not (Test-Path -LiteralPath $objdump)) {
@@ -20,7 +21,7 @@ if (-not (Test-Path -LiteralPath $objdump)) {
 }
 
 if (Test-Path -LiteralPath $Destination) {
-    Remove-Item -LiteralPath $Destination -Recurse -Force
+    throw "Destination already exists. Choose a new staging directory: $Destination"
 }
 $stageBin = Join-Path $Destination "bin"
 New-Item -ItemType Directory -Path $stageBin -Force | Out-Null
@@ -142,7 +143,7 @@ $cacheEntries = 0
 $relocatableCache = @(
     foreach ($item in $cacheLines) {
         $line = [string]$item
-        if ($line -match '^"([^\"]+\.dll)"') {
+        if ($line -match '^"([^"]+\.dll)"') {
             $name = [System.IO.Path]::GetFileName($Matches[1])
             $cacheEntries++
             '"lib/gdk-pixbuf-2.0/2.10.0/loaders/' + $name + '"'
