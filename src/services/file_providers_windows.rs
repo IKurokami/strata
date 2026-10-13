@@ -2,8 +2,11 @@
 //! Win32 opt-in external file providers — disabled pending a contained native
 //! provider process protocol. Do not reuse UnixStream, setsid, PATH lookup or
 //! spawn an uncontained helper from a background selection refresh.
-use std::{collections::BTreeMap, path::{Path, PathBuf}};
 use serde::Deserialize;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 #[path = "file_providers/protocol.rs"]
 mod protocol;
@@ -38,7 +41,9 @@ pub(crate) struct Registration {
 fn slug(text: &str) -> bool {
     !text.is_empty()
         && text.len() <= 64
-        && text.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
+        && text
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
 }
 
 /// No startup disk enumeration, symlink/ACL preflight, socket or process.
