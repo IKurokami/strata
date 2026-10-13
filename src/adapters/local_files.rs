@@ -2204,12 +2204,20 @@ fn flush_monitor_changes(
             PendingMonitorChange::Remove(location) => {
                 notify(DirectoryChange::Remove(location));
             }
-            PendingMonitorChange::Upsert(location) => {
-                query_monitored_entry(location, None, notify.clone(), cancelled.clone(), include_hidden)
-            }
-            PendingMonitorChange::Move { from, to } => {
-                query_monitored_entry(to, Some(from), notify.clone(), cancelled.clone(), include_hidden)
-            }
+            PendingMonitorChange::Upsert(location) => query_monitored_entry(
+                location,
+                None,
+                notify.clone(),
+                cancelled.clone(),
+                include_hidden,
+            ),
+            PendingMonitorChange::Move { from, to } => query_monitored_entry(
+                to,
+                Some(from),
+                notify.clone(),
+                cancelled.clone(),
+                include_hidden,
+            ),
             PendingMonitorChange::Rescan => {}
         }
     }
