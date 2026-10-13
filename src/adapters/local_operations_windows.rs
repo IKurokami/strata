@@ -11,6 +11,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
+    ffi::OsStr,
     io,
     path::{Path, PathBuf},
     rc::{Rc, Weak},
@@ -224,7 +225,7 @@ impl OperationProvider for LocalOperationProvider {
             return rejected(request.id, emit, "Windows native folder creation requires a local path");
         };
         let destination = parent.join(&request.name);
-        if !strata_native_io::windows_paths::valid_child_name(request.name.as_ref()) {
+        if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&request.name)) {
             return rejected(request.id, emit, "Invalid Windows folder name");
         }
         self.state.submit(
@@ -333,7 +334,7 @@ fn async_create_file(
             } else {
                 format!("{} ({suffix})", request.name)
             };
-            if !strata_native_io::windows_paths::valid_child_name(candidate.as_ref()) {
+            if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&candidate)) {
                 emit(OperationEvent::Failed {
                     request_id: request.id,
                     message: "Invalid Windows filename".to_owned(),
@@ -342,9 +343,18 @@ fn async_create_file(
                 return;
             }
             let target = directory.child(&candidate);
-            let result = target
-                .create_future(gio::FileCreateFlags::NONE, glib::Priority::DEFAULT)
-                .await;
+            let result = gio::GioFuture::new(&target, {
+                let task_cancel = task_cancel.clone();
+                move |file, _, result| {
+                    file.create_async(
+                        gio::FileCreateFlags::NONE,
+                        glib::Priority::DEFAULT,
+                        Some(&task_cancel),
+                        move |output| result.resolve(output),
+                    );
+                }
+            })
+            .await;
             match result {
                 Ok(stream) => {
                     if let Err(error) = stream.close_future(glib::Priority::DEFAULT).await {
@@ -367,7 +377,11 @@ fn async_create_file(
                     });
                     return;
                 }
-                Err(error) if request.unique_name && error.matches(gio::IOErrorEnum::Exists) => {
+                Err(error)
+                    if request.unique_name
+                        && suffix < u64::MAX
+                        && error.matches(gio::IOErrorEnum::Exists) =>
+                {
                     suffix += 1;
                 }
                 Err(error) => {
