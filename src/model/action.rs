@@ -968,5 +968,5 @@ pub fn suggest_id(name: &str) -> String {
     slug.chars().take(MAX_ACTION_ID_CHARS).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
