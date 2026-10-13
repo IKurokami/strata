@@ -189,3 +189,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Linux-only `#[cfg(test)]` suites using POSIX permissions, Unix paths, the freedesktop Trash protocol and Unix preview sandbox are isolated from Windows test compilation; Linux continues to run these unchanged.
 - Shared test-support utilities remain available on both platforms. Only the `/dev/shm` fixture is platform-gated; it does not probe arbitrary Windows disks.
 - Besides `cargo test --no-run`, the linked Win32 job now **discovers and executes** the Windows-specific non-GUI security/operation tests (action execution refusal, hidden-file indexing, updater refusal, junction containment, Trash refusal and sandbox/helper refusal). A named test missing from the executable fails CI rather than silently running zero tests. GUI-interaction tests still require a desktop session to validate first paint.
+
+## Phase 21: developer-only relocatable UCRT64 runtime bundle
+
+- The blocking Windows CI now stages `Strata-Windows-Developer/bin/strata.exe` with a **recursive imported-DLL closure**, preserving relevant GTK/GIO/GdkPixbuf/GStreamer runtime modules and GSettings schema, icons, MIME, gtksourceview and fontconfig data directories.
+- It refuses an unknown import rather than uploading a knowingly incomplete package. Third-party runtime license files are copied under `share/licenses`, and a SHA-256 manifest is generated for verification.
+- **Portability check:** execute the staged `strata.exe --version` with the OS/system DLL path and the staged bundle only, deliberately excluding MSYS2's `ucrt64/bin` from the child's PATH. An omitted DLL now fails the CI before packaging succeeds.
+- A `Start-Strata.cmd` launcher configures only **process-local** GTK/GIO/GStreamer/fontconfig lookup paths (no global PATH edits, registry changes or UAC), with an explicit developer-only warning and downloadable ZIP artifact.
+- This tests the binary's runtime dependency closure and startup of its version command; it **does not yet prove that the GTK window opens, menu icons/media plugins work, or that the ZIP has been tested on a clean user PC**. These are separate release gates. Secure preview, Recycle Bin, action scripts and native auto-update still need full implementations.
