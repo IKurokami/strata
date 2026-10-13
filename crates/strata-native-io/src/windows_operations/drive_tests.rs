@@ -128,10 +128,15 @@ fn simulated_offline_mapped_drive_cannot_stall_another_drive_worker() {
     completion(&service, healthy).expect("local mkdir succeeds while another drive is blocked");
     assert!(healthy_path.is_dir());
 
-    assert!(service.cancel(stalled), "cancel stalled work before any filesystem call");
+    assert!(
+        service.cancel(stalled),
+        "cancel stalled work before any filesystem call"
+    );
     pause.release();
     assert_eq!(
-        completion(&service, stalled).expect_err("cancelled operation").kind(),
+        completion(&service, stalled)
+            .expect_err("cancelled operation")
+            .kind(),
         io::ErrorKind::Interrupted
     );
 }
