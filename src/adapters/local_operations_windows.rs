@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     io,
-    path::{Path, PathBuf},
+    path::Path,
     rc::{Rc, Weak},
     time::Duration,
 };
