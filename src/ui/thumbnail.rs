@@ -858,9 +858,22 @@ async fn run_thumbnail_job(mut job: ThumbnailJob) {
         None
     } else {
         let lookup = background::cache(move || {
-            use std::os::unix::fs::MetadataExt;
             if let Ok(metadata) = std::fs::metadata(&key.path) {
-                key.modified = Some(metadata.mtime());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    key.modified = Some(metadata.mtime());
+                }
+                #[cfg(windows)]
+                {
+                    // A Windows FILETIME is 100ns since 1601, while cache
+                    // metadata uses Unix seconds. No additional file probe.
+                    key.modified = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok());
+                }
                 key.file_size = Some(metadata.len());
             }
             let png = key

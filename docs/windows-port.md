@@ -82,3 +82,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Native I/O now exercises `volume_query_may_block` in the actual Windows test matrix: explicit UNC **and every absolute drive-letter path** must use the asynchronous volume-identity path, because a letter can be an offline mapped SMB drive. UI listing itself remains on its established local/UNC workers; this change governs volume identity lookups.
 - GTK sidebar mount event wiring now retains portable `gio::VolumeMonitor` events on Windows without registering `gio_unix::MountMonitor`; Linux keeps both subscriptions.
 - The Freedesktop XDG thumbnail cache has a deliberately **disabled Windows stub**. Windows must not use the Unix 0700/O_NOFOLLOW cache path or parse disk thumbnail content in-process. This does not provide Windows persistent thumbnail caching; implement one behind a secure native cache and sandbox boundary before claiming preview speed or feature parity.
+
+## Phase 8: Windows UI metadata and drive boundaries
+
+- Thumbnail metadata now uses the platform's file modification time in the existing background reader, rather than importing Unix `MetadataExt` on Win32. The persistent shared thumbnail cache remains disabled on Windows until there is a trusted native cache and isolated renderer.
+- Audio cover-art versioning uses Windows creation/write timestamps and file attributes so same-size cover replacements invalidate the in-memory cache without additional probes.
+- Linux device mount parsing and global-search mount discovery are compiled only for Linux. Windows global-search roots currently contain just the home folder; a future asynchronous Win32 volume enumerator can publish more roots without freezing GTK on mapped drives.
+- Windows removable destinations and formatting stay unavailable until native removable-volume verification is implemented; `mkfs`, `lsblk`, UDisks and `statvfs` are not invoked on Win32. No permanent deletion is substituted for Recycle Bin.
+- These changes remove several Windows compiler blockers and synchronous startup risks, but **do not** make the full Windows GTK app compile or provide Windows preview sandbox parity.

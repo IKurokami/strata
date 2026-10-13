@@ -61,6 +61,7 @@ impl FilesystemType {
     }
 
     /// Candidate executables, in preference order.
+    #[cfg(target_os = "linux")]
     fn mkfs_candidates(self) -> &'static [&'static str] {
         match self {
             Self::Fat32 => &["mkfs.fat"],
@@ -69,6 +70,7 @@ impl FilesystemType {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn format_options(self, label: &str, quick: bool) -> glib::Variant {
         let options = glib::VariantDict::new(None);
         options.insert("update-partition-type", true);
@@ -84,6 +86,7 @@ impl FilesystemType {
         options.end()
     }
 
+    #[cfg(target_os = "linux")]
     fn udisks_type(self) -> &'static str {
         match self {
             Self::Fat32 => "vfat",
@@ -92,6 +95,7 @@ impl FilesystemType {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn resolve_mkfs(self) -> Option<PathBuf> {
         self.mkfs_candidates().iter().find_map(|cmd| tool_path(cmd))
     }
@@ -105,7 +109,15 @@ impl FilesystemType {
     }
 
     pub(super) fn available(self) -> bool {
-        self.resolve_mkfs().is_some()
+        #[cfg(target_os = "linux")]
+        {
+            self.resolve_mkfs().is_some()
+        }
+        #[cfg(windows)]
+        {
+            // No mkfs/UDisks subprocesses and no UAC prompts on Windows.
+            false
+        }
     }
 }
 
@@ -187,6 +199,7 @@ impl From<glib::Error> for DriveOpError {
 }
 
 /// Locate an executable through `PATH` plus the usual sbin directories.
+#[cfg(target_os = "linux")]
 fn tool_path(cmd: &str) -> Option<PathBuf> {
     if cmd.contains('/') {
         let path = PathBuf::from(cmd);
@@ -209,6 +222,7 @@ fn tool_path(cmd: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "linux")]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.is_file()
@@ -227,6 +241,7 @@ pub(super) fn block_device_for_volume(volume: &gio::Volume) -> Option<PathBuf> {
 
 /// Total and available bytes for a mounted path, or `None` when the
 /// filesystem does not report capacity.
+#[cfg(target_os = "linux")]
 pub(super) fn usage_for_path(path: &Path) -> Option<(u64, u64)> {
     let stat = rustix::fs::statvfs(path).ok()?;
     if stat.f_blocks == 0 {
@@ -243,17 +258,20 @@ pub(super) fn usage_for_path(path: &Path) -> Option<(u64, u64)> {
     ))
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn block_device_for_path(path: &Path) -> Option<PathBuf> {
     let table = std::fs::read("/proc/self/mountinfo").ok()?;
     super::devices::block_device_from_mount_table(&table, path)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn mounted_path_for_device(device: &Path) -> Option<PathBuf> {
     let table = std::fs::read("/proc/self/mountinfo").ok()?;
     super::devices::mounted_path_from_table(&table, device)
 }
 
 /// Human-readable filesystem name for a block device.
+#[cfg(target_os = "linux")]
 pub(super) fn filesystem_label_for_device(device: &Path) -> Option<String> {
     let fstype = tool_path("lsblk").and_then(|exe| {
         Command::new(exe)
@@ -276,6 +294,7 @@ pub(super) fn filesystem_label_for_device(device: &Path) -> Option<String> {
 
 /// Total size in bytes for a block device, via `lsblk`. Works whether or
 /// not the volume is mounted.
+#[cfg(target_os = "linux")]
 pub(super) fn device_size_bytes(device: &Path) -> Option<u64> {
     let exe = tool_path("lsblk")?;
     let output = Command::new(exe)
@@ -292,8 +311,33 @@ pub(super) fn device_size_bytes(device: &Path) -> Option<u64> {
         .ok()
 }
 
+// Linux block-device tools and UDisks2 have no Windows equivalent. These
+// optional metadata values remain unknown until a background Win32 worker
+// supplies verified, nonblocking volume facts. Never query drive letters here.
+#[cfg(windows)]
+pub(super) fn usage_for_path(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+#[cfg(windows)]
+pub(super) fn block_device_for_path(_path: &Path) -> Option<PathBuf> {
+    None
+}
+#[cfg(windows)]
+pub(super) fn mounted_path_for_device(_device: &Path) -> Option<PathBuf> {
+    None
+}
+#[cfg(windows)]
+pub(super) fn filesystem_label_for_device(_device: &Path) -> Option<String> {
+    None
+}
+#[cfg(windows)]
+pub(super) fn device_size_bytes(_device: &Path) -> Option<u64> {
+    None
+}
+
 /// Unmount the volume when mounted: the label/format tools need exclusive
 /// access to the block device.
+#[cfg(target_os = "linux")]
 async fn unmount_for_exclusive_access(
     parent: &gtk::Widget,
     volume: &gio::Volume,
@@ -312,6 +356,7 @@ async fn unmount_for_exclusive_access(
 }
 
 /// Format the volume's block device.
+#[cfg(target_os = "linux")]
 pub(super) async fn format_volume(
     parent: gtk::Widget,
     volume: gio::Volume,
@@ -359,6 +404,20 @@ pub(super) async fn format_volume(
     .map_err(|_| DriveOpError::CommandFailed(crate::i18n::tr("Formatting task did not complete")))?
 }
 
+#[cfg(windows)]
+pub(super) async fn format_volume(
+    _parent: gtk::Widget,
+    _volume: gio::Volume,
+    _fs_type: FilesystemType,
+    _label: String,
+    _quick: bool,
+) -> Result<(), DriveOpError> {
+    // No filesystem format on Windows until explicit native opt-in and
+    // confirmed removable-volume identity. Never invoke D-Bus or mkfs.
+    Err(DriveOpError::DeviceNotFound)
+}
+
+#[cfg(target_os = "linux")]
 fn format_device(
     device: &Path,
     fs_type: FilesystemType,
