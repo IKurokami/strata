@@ -27,7 +27,9 @@ pub mod windows_paths;
 /// Maximum names per listing event, without eager metadata I/O.
 pub const LISTING_BATCH_SIZE: usize = 256;
 /// Prevent unread UI events from consuming unbounded memory.
-const LISTING_CHANNEL_CAPACITY: usize = 64;
+// Bound stale batches to 8 * 256 names, not 16,384 names.
+// New navigation can drain abandoned generations promptly.
+const LISTING_CHANNEL_CAPACITY: usize = 8;
 const PREVIEW_CHANNEL_CAPACITY: usize = 8;
 /// A raw prefetch bound, not a limit on the final parser-backed preview.
 pub const MAX_RAW_PREVIEW_BYTES: usize = 1024 * 1024;
@@ -66,10 +68,11 @@ impl<T> Mailbox<T> {
         let mut state = lock(&self.state);
         // The public API is thread-safe: an older submitter cannot overwrite
         // a newer pending request if their mutex acquisition is reordered.
-        if state
-            .pending
-            .as_ref()
-            .is_none_or(|(queued, _)| *queued < generation)
+        if self.is_current(generation)
+            && state
+                .pending
+                .as_ref()
+                .is_none_or(|(queued, _)| *queued < generation)
         {
             state.pending = Some((generation, task));
         }
@@ -83,8 +86,12 @@ impl<T> Mailbox<T> {
             if state.stopping {
                 return None;
             }
-            if let Some(task) = state.pending.take() {
-                return Some(task);
+            if let Some((generation, task)) = state.pending.take() {
+                if self.is_current(generation) {
+                    return Some((generation, task));
+                }
+                // A racing submitter must not resurrect superseded work.
+                continue;
             }
             state = self
                 .ready
@@ -191,7 +198,18 @@ impl ListingService {
     }
 
     pub fn try_recv(&self) -> Result<ListingEvent, TryRecvError> {
-        self.updates.try_recv()
+        // Never surface a stale folder batch to callers. Drain bounded old
+        // events so the current navigation does not sit behind them.
+        loop {
+            let event = self.updates.try_recv()?;
+            let generation = match &event {
+                ListingEvent::Batch { generation, .. }
+                | ListingEvent::Finished { generation, .. } => *generation,
+            };
+            if self.mailbox.is_current(generation) {
+                return Ok(event);
+            }
+        }
     }
 }
 
@@ -215,6 +233,11 @@ fn run_listing(
     mailbox: &Mailbox<PathBuf>,
     sender: &SyncSender<ListingEvent>,
 ) {
+    // Do not open a stale, potentially unresponsive UNC path if superseded
+    // before this worker started processing it.
+    if !mailbox.is_current(generation) {
+        return;
+    }
     let listing = match fs::read_dir(path) {
         Ok(listing) => listing,
         Err(error) => {
@@ -389,7 +412,12 @@ impl PreviewService {
     }
 
     pub fn try_recv(&self) -> Result<PreviewEvent, TryRecvError> {
-        self.updates.try_recv()
+        loop {
+            let event = self.updates.try_recv()?;
+            if self.mailbox.is_current(event.generation) {
+                return Ok(event);
+            }
+        }
     }
 }
 
@@ -411,6 +439,10 @@ fn load_preview(
     generation: u64,
 ) -> Option<io::Result<RawPreview>> {
     let result = (|| {
+        // A superseded request must not open a file or touch a network share.
+        if !mailbox.is_current(generation) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "superseded"));
+        }
         let mut file = File::open(&task.path)?;
         let mut bytes = Vec::with_capacity(task.max_bytes.min(8192));
         let mut buffer = [0u8; 8192];
@@ -428,6 +460,10 @@ fn load_preview(
                 });
             }
             bytes.extend_from_slice(&buffer[..read]);
+        }
+        // Avoid even one extra network read after a selection changed.
+        if !mailbox.is_current(generation) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "superseded"));
         }
         // One extra byte distinguishes exact-size files from truncated reads.
         let mut extra = [0u8; 1];
