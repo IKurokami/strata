@@ -28,7 +28,8 @@ Status: **foundation only**, not a bootable Windows edition of Strata. Keep the 
 - [x] Introduce Windows-only zero-I/O path classification and safe ordinary filename validation in `strata-native-io::windows_paths`; wire native child name validation into `src/model/mod.rs` and isolate Unix-specific GVfs trash filename parsing.
 - [ ] Complete OS-neutral location/URI handling throughout `src/model`, including drive/UNC, extended-length paths and remote URI edge cases; preserve non-UTF-8 Unix paths.
 - [x] Add `strata-native-io` as a path dependency in root `Cargo.toml` and lockfile; validate root metadata in Linux/Windows CI.
-- [ ] Split the remaining application dependencies and implementation modules using per-target `cfg`, while preserving the supported Linux build.
+- [x] Move Linux-specific `gdk4-wayland`, `gdk4-x11`, `gio-unix`, `landlock`, `seccompiler` and `rustix` Cargo dependencies into the Linux target section.
+- [ ] Guard/adapt all remaining Linux-specific source uses with per-target implementations and prove the full GTK app compiles on Windows (not yet achieved).
 - [ ] Use native Windows drive/volume enumeration, Recycle Bin, change notification and Shell integration; keep calls asynchronous.
 - [ ] Integrate the native listing and preview services with existing GTK list models and verify actual first-frame behavior on Windows.
 - [ ] Replace Linux-only preview isolation with a Windows restricted-token/AppContainer strategy and validate attack surface.
