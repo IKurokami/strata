@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
@@ -7,8 +9,6 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
 
 use gtk::{gdk, gio, glib, prelude::*};
 
