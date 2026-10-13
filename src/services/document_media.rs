@@ -2,9 +2,9 @@
 
 #[cfg(unix)]
 use std::fs::File;
-use std::{io::Write, path::Path};
 #[cfg(unix)]
 use std::io::Read;
+use std::{io::Write, path::Path};
 
 #[cfg(unix)]
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
