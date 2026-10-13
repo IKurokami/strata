@@ -11,8 +11,6 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
 
 use gtk::{gdk, gio, glib};
 
@@ -202,13 +200,14 @@ impl FileVersion {
             // Cache invalidation must include a high-resolution write time:
             // same-size cover replacement must not reuse a stale texture.
             // All fields come from the one metadata read above.
+            let stamp = strata_native_io::windows_file_stamp::from_metadata(&info);
             Some(Self(
-                u64::from(info.file_attributes()),
-                info.creation_time(),
-                info.len(),
-                i64::try_from(info.last_write_time()).ok()?,
+                u64::from(stamp.attributes),
+                stamp.creation_time,
+                stamp.size,
+                i64::try_from(stamp.last_write_time).ok()?,
                 0,
-                i64::try_from(info.creation_time()).ok()?,
+                i64::try_from(stamp.creation_time).ok()?,
                 0,
             ))
         }
