@@ -44,6 +44,9 @@ jobs:
         id: environment
         env:
           BASE_REF: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
+          # Explicit fork-only opt-in. The upstream quality policy and the
+          # unit-test fixture must keep rejecting unavailable unchanged images.
+          STRATA_FORK_CI_CANDIDATE: ${{ github.repository != 'lgse/strata' && '1' || '' }}
         run: |
           if reference="$(python3 scripts/e2e_images.py environment)"; then
             docker pull --platform=linux/amd64 "${reference#environment_image=}"
@@ -51,7 +54,7 @@ jobs:
             # Forks cannot assume access to LGSE's pinned GHCR environment.
             # Build an isolated, unpublished candidate instead of weakening
             # quality checks or silently accepting missing dependencies.
-            if [[ "$GITHUB_REPOSITORY" != "lgse/strata" ]]; then
+            if [[ "$GITHUB_REPOSITORY" != "lgse/strata" && "${STRATA_FORK_CI_CANDIDATE:-}" == "1" ]]; then
               echo 'Fork CI: building a disposable environment because the upstream image is unavailable.'
             else
               git cat-file -e "$BASE_REF^{commit}"
