@@ -111,3 +111,10 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Unlike Linux's user-owned dotfile symlinks, Windows **rejects final-component symlinks and reparse-point destinations** for both state and configuration until a verified native owner/reparse policy is implemented. Windows file ACLs come from the parent directory; the backend does not claim to have applied a private ACL. Parent junctions and ACL auditing need a separate security review before promising hardened arbitrary-path writing.
 - Native Windows CI covers create/replace, refusal to replace a directory, missing parent behavior, staging cleanup and (where the runner permits creating them) symlink rejection. The full GTK Windows build and sandbox remain unresolved; the native I/O backend success is not a GUI success.
 - Durable writes still involve disk I/O; use a background worker for large data or potentially remote configuration paths rather than blocking GTK. No permission preflights or Windows elevation are introduced.
+
+## Phase 12: correct and low-latency Windows directory search
+
+- The shallow search index uses **Windows FILE_ATTRIBUTE_HIDDEN** from `DirEntry::metadata()` (already cached by Windows FindFirstFile/FindNextFile) rather than assuming Unix dotfile naming or reading a Linux `.hidden` manifest. Dot-prefixed Windows filenames therefore remain visible unless marked hidden, matching Windows semantics.
+- Windows shallow indexing no longer fetches POSIX executable modes (which have no Windows equivalent). This matches the existing deep-index worker and avoids per-file metadata probes on the path to first visible search results.
+- `strata-native-io::windows_paths::is_hidden_attributes` is pure and covered by native Windows tests. The GTK application must still pass its complete Windows build and integration tests before this can be considered release parity.
+- Search remains on existing background workers with cancellation and entry/time budgets; this change adds no permission prompts, shell extension calls, or foreground drive scanning.
