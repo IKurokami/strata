@@ -2,8 +2,11 @@
 
 use super::*;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;
+#[cfg(all(test, windows))]
+#[path = "directory/tests_windows.rs"]
+mod tests_windows;
 
 pub(super) fn build_index(
     index: &SharedIndex,
@@ -54,14 +57,7 @@ pub(super) fn build_index(
                 continue;
             }
             #[cfg(windows)]
-            if !show_hidden
-                && entry.metadata().ok().is_some_and(|metadata| {
-                    use std::os::windows::fs::MetadataExt;
-                    strata_native_io::windows_paths::is_hidden_attributes(
-                        metadata.file_attributes(),
-                    )
-                })
-            {
+            if strata_native_io::windows_paths::should_skip_hidden_entry(&entry, show_hidden) {
                 continue;
             }
             if count >= max_entries {
