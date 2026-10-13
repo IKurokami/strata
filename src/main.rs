@@ -16,7 +16,9 @@ mod logging;
 mod media;
 mod metrics;
 mod model;
+#[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
 mod portal_setup;
 #[cfg(feature = "rar")]
 mod rar_extraction;
