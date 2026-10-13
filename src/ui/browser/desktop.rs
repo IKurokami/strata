@@ -169,9 +169,9 @@ pub(super) fn is_regular_executable(path: &Path) -> bool {
     // Keep the fast context-menu path entirely lexical: no ACL or antivirus
     // preflight per file. Windows starts PE executables without a Unix mode bit.
     // Batch files require an explicit shell handler and are not direct programs.
-    path.extension().and_then(std::ffi::OsStr::to_str).is_some_and(|ext| {
-        ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("com")
-    })
+    path.extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("com"))
 }
 
 #[cfg(unix)]
@@ -186,7 +186,10 @@ pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
 
 #[cfg(windows)]
 pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
-    entry.location.native_path().is_some_and(is_regular_executable)
+    entry
+        .location
+        .native_path()
+        .is_some_and(is_regular_executable)
         && matches!(
             entry.kind,
             crate::model::EntryKind::File | crate::model::EntryKind::FileSymbolicLink
