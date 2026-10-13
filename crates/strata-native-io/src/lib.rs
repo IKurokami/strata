@@ -44,7 +44,7 @@ struct MailboxState<T> {
 /// One pending request per service; new requests replace stale pending work.
 /// An OS call already in flight may finish, but its result cannot be published.
 struct Mailbox<T> {
-    latest: AtomicU64,
+    latest: Arc<AtomicU64>,
     state: Mutex<MailboxState<T>>,
     ready: Condvar,
 }
@@ -55,8 +55,12 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl<T> Mailbox<T> {
     fn new() -> Self {
+        Self::with_generation(Arc::new(AtomicU64::new(0)))
+    }
+
+    fn with_generation(latest: Arc<AtomicU64>) -> Self {
         Self {
-            latest: AtomicU64::new(0),
+            latest,
             state: Mutex::new(MailboxState {
                 pending: None,
                 stopping: false,
@@ -172,12 +176,17 @@ pub enum ListingEvent {
 /// inside an unresponsive network filesystem call. No worker can block GTK.
 pub struct ListingService {
     mailbox: Arc<Mailbox<PathBuf>>,
+    #[cfg(windows)]
+    remote_mailbox: Arc<Mailbox<PathBuf>>,
     updates: Receiver<ListingEvent>,
 }
 
 impl ListingService {
     pub fn new() -> Self {
         let mailbox: Arc<Mailbox<PathBuf>> = Arc::new(Mailbox::new());
+        #[cfg(windows)]
+        let remote_mailbox: Arc<Mailbox<PathBuf>> =
+            Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest)));
         let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
         for index in 0..2 {
             let mailbox = Arc::clone(&mailbox);
@@ -191,12 +200,41 @@ impl ListingService {
                 })
                 .expect("failed to start the filesystem listing worker");
         }
-        Self { mailbox, updates }
+        #[cfg(windows)]
+        {
+            // UNC paths get a distinct, bounded worker. A stalled remote
+            // filesystem call must not consume either of the two local workers.
+            // Mapped drives cannot be recognized lexically and still require
+            // an OS-specific volume classification in a later phase.
+            let worker = Arc::clone(&remote_mailbox);
+            thread::Builder::new()
+                .name("strata-listing-unc".into())
+                .spawn(move || {
+                    while let Some((generation, path)) = worker.next() {
+                        run_listing(&path, generation, &worker, &sender);
+                    }
+                })
+                .expect("failed to start UNC listing worker");
+        }
+        Self {
+            mailbox,
+            #[cfg(windows)]
+            remote_mailbox,
+            updates,
+        }
     }
 
     /// Return immediately without probing existence, permissions or metadata.
     pub fn request(&self, path: impl Into<PathBuf>) -> u64 {
-        self.mailbox.submit(path.into())
+        let path = path.into();
+        #[cfg(windows)]
+        if matches!(
+            windows_paths::classify(&path),
+            windows_paths::PathKind::NetworkAbsolute
+        ) {
+            return self.remote_mailbox.submit(path);
+        }
+        self.mailbox.submit(path)
     }
 
     pub fn try_recv(&self) -> Result<ListingEvent, TryRecvError> {
@@ -226,6 +264,8 @@ impl Drop for ListingService {
         // Never join workers on the UI thread: network I/O cannot always be
         // cancelled while the kernel is executing the underlying call.
         self.mailbox.shutdown();
+        #[cfg(windows)]
+        self.remote_mailbox.shutdown();
     }
 }
 
@@ -370,12 +410,17 @@ pub struct PreviewEvent {
 /// preview parser runs here: untrusted formats require a separate sandbox.
 pub struct PreviewService {
     mailbox: Arc<Mailbox<PreviewTask>>,
+    #[cfg(windows)]
+    remote_mailbox: Arc<Mailbox<PreviewTask>>,
     updates: Receiver<PreviewEvent>,
 }
 
 impl PreviewService {
     pub fn new() -> Self {
         let mailbox: Arc<Mailbox<PreviewTask>> = Arc::new(Mailbox::new());
+        #[cfg(windows)]
+        let remote_mailbox: Arc<Mailbox<PreviewTask>> =
+            Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest)));
         let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
         // A second worker can service a new selection while a stale file
         // open/read is stuck in an uncancellable OS or network call.
@@ -402,15 +447,51 @@ impl PreviewService {
                 })
                 .expect("failed to start the preview I/O worker");
         }
-        Self { mailbox, updates }
+        #[cfg(windows)]
+        {
+            let worker = Arc::clone(&remote_mailbox);
+            thread::Builder::new()
+                .name("strata-preview-unc".into())
+                .spawn(move || {
+                    while let Some((generation, task)) = worker.next() {
+                        let result = load_preview(&task, &worker, generation);
+                        if let Some(result) = result {
+                            let _ = send_current(
+                                &sender,
+                                &worker,
+                                generation,
+                                PreviewEvent {
+                                    generation,
+                                    result: result.map_err(|error| error.to_string()),
+                                },
+                            );
+                        }
+                    }
+                })
+                .expect("failed to start UNC preview worker");
+        }
+        Self {
+            mailbox,
+            #[cfg(windows)]
+            remote_mailbox,
+            updates,
+        }
     }
 
     /// Latest request wins. Zero-length requests are permitted.
     pub fn request(&self, path: impl Into<PathBuf>, max_bytes: usize) -> u64 {
-        self.mailbox.submit(PreviewTask {
+        let task = PreviewTask {
             path: path.into(),
             max_bytes: max_bytes.min(MAX_RAW_PREVIEW_BYTES),
-        })
+        };
+        #[cfg(windows)]
+        if matches!(
+            windows_paths::classify(&task.path),
+            windows_paths::PathKind::NetworkAbsolute
+        ) {
+            return self.remote_mailbox.submit(task);
+        }
+        self.mailbox.submit(task)
     }
 
     pub fn try_recv(&self) -> Result<PreviewEvent, TryRecvError> {
@@ -432,6 +513,8 @@ impl Default for PreviewService {
 impl Drop for PreviewService {
     fn drop(&mut self) {
         self.mailbox.shutdown();
+        #[cfg(windows)]
+        self.remote_mailbox.shutdown();
     }
 }
 
@@ -445,6 +528,9 @@ fn load_preview(
         if !mailbox.is_current(generation) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "superseded"));
         }
+        #[cfg(windows)]
+        let mut file = windows_operations::open_regular_source(&task.path)?;
+        #[cfg(not(windows))]
         let mut file = File::open(&task.path)?;
         let mut bytes = Vec::with_capacity(task.max_bytes.min(8192));
         let mut buffer = [0u8; 8192];
@@ -594,6 +680,8 @@ mod tests {
         let (sender, updates) = mpsc::sync_channel(LISTING_CHANNEL_CAPACITY);
         let service = ListingService {
             mailbox: Arc::clone(&mailbox),
+            #[cfg(windows)]
+            remote_mailbox: Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest))),
             updates,
         };
         let old = mailbox.submit(PathBuf::from("old-folder"));
@@ -632,6 +720,8 @@ mod tests {
         let (sender, updates) = mpsc::sync_channel(PREVIEW_CHANNEL_CAPACITY);
         let service = PreviewService {
             mailbox: Arc::clone(&mailbox),
+            #[cfg(windows)]
+            remote_mailbox: Arc::new(Mailbox::with_generation(Arc::clone(&mailbox.latest))),
             updates,
         };
         let old = mailbox.submit(PreviewTask {
@@ -664,6 +754,20 @@ mod tests {
         assert_eq!(event.generation, current);
         assert_eq!(event.result.expect("preview").bytes, b"new");
         assert!(matches!(service.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_and_unc_workers_share_the_latest_generation() {
+        let local: Mailbox<PathBuf> = Mailbox::new();
+        let remote: Mailbox<PathBuf> =
+            Mailbox::with_generation(Arc::clone(&local.latest));
+        let prior = remote.submit(PathBuf::from(r"\\server\share\stalled"));
+        let current = local.submit(PathBuf::from(r"C:\fast-local"));
+        assert!(current > prior);
+        assert!(!remote.is_current(prior));
+        assert!(local.is_current(current));
+        assert_eq!(lock(&remote.state).pending.as_ref().map(|task| task.0), Some(prior));
     }
 
     #[test]
