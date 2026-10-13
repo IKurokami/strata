@@ -116,6 +116,7 @@ pub struct TrashedOriginal {
 
 impl TrashedOriginal {
     /// The identity of whatever is at `path` now, without following a final symlink.
+    #[cfg(unix)]
     pub fn at_path(path: &std::path::Path) -> Option<Self> {
         use std::os::unix::fs::MetadataExt;
         let metadata = std::fs::symlink_metadata(path).ok()?;
@@ -123,6 +124,13 @@ impl TrashedOriginal {
             device: metadata.dev(),
             inode: metadata.ino(),
         })
+    }
+
+    /// Windows Recycle Bin identities are not POSIX device/inode pairs.
+    /// Do not forge an identity and risk restoring/deleting an unrelated item.
+    #[cfg(windows)]
+    pub fn at_path(_path: &std::path::Path) -> Option<Self> {
+        None
     }
 }
 
