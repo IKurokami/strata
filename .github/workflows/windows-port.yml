@@ -1,0 +1,53 @@
+name: Windows port (native I/O)
+
+on:
+  push:
+    branches:
+      - feat/windows-native-port
+    paths:
+      - 'crates/strata-native-io/**'
+      - '.github/workflows/windows-port.yml'
+  pull_request:
+    paths:
+      - 'crates/strata-native-io/**'
+      - '.github/workflows/windows-port.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-port-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-io:
+    name: Native I/O / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned Rust and components
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.98.0
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path crates/strata-native-io/Cargo.toml --all -- --check
+
+      - name: Compile and lint
+        run: cargo clippy --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Run native I/O tests
+        run: cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets
+
+      - name: Compile release mode
+        run: cargo build --manifest-path crates/strata-native-io/Cargo.toml --locked --release
