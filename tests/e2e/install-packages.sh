@@ -19,19 +19,33 @@ grep -Eq '^[[:space:]]*SigLevel[[:space:]]*=[[:space:]]*Required([[:space:]]+Dat
     "$configuration" || fail 'pacman must require package signatures'
 
 server="Server = https://archive.archlinux.org/repos/$snapshot/\$repo/os/\$arch"
+
+# Dated ALA mirrors can intermittently time out while fetching archive
+# packages. Retry the same signed snapshot without changing the repository,
+# package versions, signature policy or any hashes.
+retry_pacman() {
+    attempt=1
+    while ! pacman "$@"; do
+        [ "$attempt" -lt 3 ] || return 1
+        attempt=$((attempt + 1))
+        printf 'E2E packages: transient pacman failure; retry %s/3\n' "$attempt" >&2
+        sleep 5
+    done
+}
+
 case "${1:-}" in
     indexes)
         [ "$#" -eq 1 ] || fail 'indexes takes no package names'
         mkdir -p "$(dirname "$mirrorlist")"
         printf '%s\n' "$server" > "$mirrorlist"
-        pacman -Syy --noconfirm
+        retry_pacman -Syy --noconfirm
         ;;
     install)
         shift
         [ "$#" -gt 0 ] || fail 'install requires package names'
         [ "$(cat "$mirrorlist" 2>/dev/null)" = "$server" ] || fail 'mirror does not use the dated snapshot'
         [ -f "$sync/core.db" ] && [ -f "$sync/extra.db" ] || fail 'fetch signed snapshot indexes before installing packages'
-        pacman -Su --noconfirm --needed "$@"
+        retry_pacman -Su --noconfirm --needed "$@"
         ;;
     *) fail 'usage: install-packages.sh indexes|install [packages...]' ;;
 esac
