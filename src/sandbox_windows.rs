@@ -12,9 +12,7 @@ use std::{
     },
 };
 
-use crate::services::{
-    ArchiveFormat, MediaPreviewSize, ModelFormat, ModelRender, SecretString,
-};
+use crate::services::{ArchiveFormat, MediaPreviewSize, ModelFormat, ModelRender, SecretString};
 
 #[path = "sandbox/browser_windows.rs"]
 pub(crate) mod browser;
@@ -187,7 +185,6 @@ pub(crate) struct ParseOutput {
     pub(crate) text_layer: Option<crate::services::PdfTextLayer>,
 }
 
-
 const UNSUPPORTED: &str =
     "Secure preview sandbox on Windows is not implemented; no untrusted decoder was started";
 
@@ -262,16 +259,25 @@ mod tests {
     fn untrusted_parse_refused_without_touching_path() {
         let c = Cancellation::default();
         let file = Path::new("Z:\\offline-not-accessible\\data.pdf");
-        assert!(parse(
+        assert!(
+            parse(
+                file,
+                ParseOperation::ThumbnailPdf,
+                0,
+                MediaPreviewBackend::Software,
+                &c
+            )
+            .is_err()
+        );
+        c.cancel();
+        let error = parse(
             file,
             ParseOperation::ThumbnailPdf,
             0,
             MediaPreviewBackend::Software,
-            &c
-        ).is_err());
-        c.cancel();
-        let error = parse(file, ParseOperation::ThumbnailPdf, 0, MediaPreviewBackend::Software, &c)
-            .expect_err("cancellation wins");
+            &c,
+        )
+        .expect_err("cancellation wins");
         assert!(error.contains("cancelled"));
     }
 }
