@@ -75,3 +75,10 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - `ashpd` is now a Linux-only Cargo dependency. The XDG portal server, D-Bus portal installer and Unix-specific GTK file chooser modules are compiled only on Linux. Settings already hide desktop integration controls on Windows.
 - This does **not** remove the normal Windows file manager views, and does not implement native Windows file-open/save chooser integration yet. A Windows-specific chooser can be added later without XDG/Unix APIs. Linux retains the existing backend.
 - Re-run the native GUI compile diagnostic and inspect its *compile step*, then address the next blocking dependency or platform-specific module. Avoid enabling unsandboxed document/media preview as a shortcut.
+
+### Phase 7 compiler follow-up and native regression coverage
+
+- The first Windows compile with `ashpd` excluded advanced to the application source and enumerated hundreds of remaining Unix-only call sites (notably `rustix`, `landlock`, `seccompiler`, `std::os::unix`, and GTK device handling). The observed error count on that compiler run was **556**; it is not an estimate of distinct root causes.
+- Native I/O now exercises `volume_query_may_block` in the actual Windows test matrix: explicit UNC **and every absolute drive-letter path** must use the asynchronous volume-identity path, because a letter can be an offline mapped SMB drive. UI listing itself remains on its established local/UNC workers; this change governs volume identity lookups.
+- GTK sidebar mount event wiring now retains portable `gio::VolumeMonitor` events on Windows without registering `gio_unix::MountMonitor`; Linux keeps both subscriptions.
+- The Freedesktop XDG thumbnail cache has a deliberately **disabled Windows stub**. Windows must not use the Unix 0700/O_NOFOLLOW cache path or parse disk thumbnail content in-process. This does not provide Windows persistent thumbnail caching; implement one behind a secure native cache and sandbox boundary before claiming preview speed or feature parity.
