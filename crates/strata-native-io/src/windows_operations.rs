@@ -269,11 +269,7 @@ pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
 /// Publishing is an atomic no-overwrite NTFS hardlink, never an unsafe rename.
 /// On volumes without compatible hardlinks, this operation fails without
 /// touching the final destination (a slow fallback must be explicit).
-fn copy_no_clobber(
-    source: PathBuf,
-    destination: PathBuf,
-    cancelled: &AtomicU8,
-) -> io::Result<()> {
+fn copy_no_clobber(source: PathBuf, destination: PathBuf, cancelled: &AtomicU8) -> io::Result<()> {
     let mut reader = open_regular_source(&source)?;
     stage_and_publish(&mut reader, &destination, cancelled)
 }
