@@ -635,7 +635,7 @@ impl DecodedMedia {
         } else {
             PcmOutput::new(self.is_muted(), self.volume(), AUDIO_LOOKAHEAD)?
         };
-        #[cfg(not(test))]
+        #[cfg(any(not(test), windows))]
         let output = PcmOutput::new(self.is_muted(), self.volume(), AUDIO_LOOKAHEAD)?;
         if let Some(fade) = self.imp().fade.get() {
             output.set_fade(fade);
@@ -721,7 +721,7 @@ impl DecodedMedia {
                 Some(loader) => loader(source, tick),
                 None => Session::start(source, tick),
             };
-            #[cfg(not(test))]
+            #[cfg(any(not(test), windows))]
             let started = Session::start(source, tick);
             match started {
                 Ok(session) => {
