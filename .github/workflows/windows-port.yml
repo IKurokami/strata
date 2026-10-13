@@ -52,6 +52,9 @@ jobs:
       - name: Check root Cargo lockfile and native crate integration
         run: cargo metadata --manifest-path Cargo.toml --locked --no-deps --format-version 1
 
+      - name: Check Strata application formatting
+        run: cargo fmt --manifest-path Cargo.toml --all -- --check
+
       - name: Check formatting
         run: cargo fmt --manifest-path crates/strata-native-io/Cargo.toml --all -- --check
 
