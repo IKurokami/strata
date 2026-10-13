@@ -760,14 +760,16 @@ mod tests {
     #[test]
     fn local_and_unc_workers_share_the_latest_generation() {
         let local: Mailbox<PathBuf> = Mailbox::new();
-        let remote: Mailbox<PathBuf> =
-            Mailbox::with_generation(Arc::clone(&local.latest));
+        let remote: Mailbox<PathBuf> = Mailbox::with_generation(Arc::clone(&local.latest));
         let prior = remote.submit(PathBuf::from(r"\\server\share\stalled"));
         let current = local.submit(PathBuf::from(r"C:\fast-local"));
         assert!(current > prior);
         assert!(!remote.is_current(prior));
         assert!(local.is_current(current));
-        assert_eq!(lock(&remote.state).pending.as_ref().map(|task| task.0), Some(prior));
+        assert_eq!(
+            lock(&remote.state).pending.as_ref().map(|task| task.0),
+            Some(prior)
+        );
     }
 
     #[test]
