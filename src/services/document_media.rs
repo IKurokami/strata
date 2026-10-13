@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-use std::{
-    fs::File,
-    io::{Read, Write},
-    path::Path,
-};
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::io::Read;
+use std::{io::Write, path::Path};
 
+#[cfg(unix)]
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
 
 use super::DocumentMedia;
@@ -69,6 +70,14 @@ pub(crate) fn render(
     .map(|output| output.data)
 }
 
+#[cfg(windows)]
+fn read_image(_parent: &Path, _destination: &str) -> Result<(Vec<u8>, String), String> {
+    // Never follow a document-provided relative path without an atomic
+    // open-beneath equivalent: Windows junctions can escape lexical parents.
+    Err("Document images need a contained Windows file resolver".to_owned())
+}
+
+#[cfg(unix)]
 fn read_image(parent: &Path, destination: &str) -> Result<(Vec<u8>, String), String> {
     if destination.contains(':') || destination.starts_with('/') {
         return Err(
