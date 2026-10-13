@@ -161,7 +161,11 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let error = atomic_write(&directory, b"not a file").expect_err("reject directory");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        assert!(error.get_ref().is_some_and(|inner| inner.is::<DestinationError>()));
+        assert!(
+            error
+                .get_ref()
+                .is_some_and(|inner| inner.is::<DestinationError>())
+        );
         assert!(directory.is_dir());
         assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
     }
