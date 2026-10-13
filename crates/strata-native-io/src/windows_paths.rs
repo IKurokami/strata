@@ -71,7 +71,7 @@ pub fn valid_child_name(name: &OsStr) -> bool {
         return false;
     }
     // Win32 resolves reserved device names even with file extensions.
-    let base: Vec<u16> = units
+    let mut base: Vec<u16> = units
         .iter()
         .copied()
         .take_while(|&unit| unit != b'.' as u16)
@@ -80,14 +80,21 @@ pub fn valid_child_name(name: &OsStr) -> bool {
             _ => unit,
         })
         .collect();
+    // Win32 trims spaces before an extension when resolving device names,
+    // e.g. "CON .txt". Reject these spellings without hitting the disk.
+    while base.last() == Some(&0x20) {
+        base.pop();
+    }
     if matches!(
         base.as_slice(),
         [67, 79, 78] // CON
             | [80, 82, 78] // PRN
             | [65, 85, 88] // AUX
             | [78, 85, 76] // NUL
-            | [67, 79, 77, 49..=57] // COM1 through COM9
-            | [76, 80, 84, 49..=57] // LPT1 through LPT9
+            | [67, 79, 78, 73, 78, 36] // CONIN$
+            | [67, 79, 78, 79, 85, 84, 36] // CONOUT$
+            | [67, 79, 77, 49..=57 | 0x00B9 | 0x00B2 | 0x00B3] // COM1-9 + superscript
+            | [76, 80, 84, 49..=57 | 0x00B9 | 0x00B2 | 0x00B3] // LPT1-9 + superscript
     ) {
         return false;
     }
@@ -129,6 +136,11 @@ mod tests {
             "CON",
             "nul.txt",
             "COM1.log",
+            "COM¹.txt",
+            "LPT².txt",
+            "CONIN$.ini",
+            "CONOUT$",
+            "CON .txt",
             "LPT9",
             "PRN",
             "AUX.ini",
