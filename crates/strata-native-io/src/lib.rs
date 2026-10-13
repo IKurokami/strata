@@ -29,6 +29,8 @@ pub mod windows_paths;
 
 /// Maximum names per listing event, without eager metadata I/O.
 pub const LISTING_BATCH_SIZE: usize = 256;
+/// Emit the first visible names sooner; subsequent batches stay throughput-oriented.
+const FIRST_LISTING_BATCH_SIZE: usize = 32;
 /// Prevent unread UI events from consuming unbounded memory.
 // Bound stale batches to 8 * 256 names, not 16,384 names.
 // New navigation can drain abandoned generations promptly.
@@ -298,7 +300,8 @@ fn run_listing(
             return;
         }
     };
-    let mut batch = Vec::with_capacity(LISTING_BATCH_SIZE);
+    let mut batch = Vec::with_capacity(FIRST_LISTING_BATCH_SIZE);
+    let mut flush_at = FIRST_LISTING_BATCH_SIZE;
     for entry in listing {
         if !mailbox.is_current(generation) {
             return;
@@ -337,7 +340,7 @@ fn run_listing(
                     fast_kind,
                     hidden_hint,
                 });
-                if batch.len() == LISTING_BATCH_SIZE
+                if batch.len() == flush_at
                     && !send_current(
                         sender,
                         mailbox,
@@ -352,6 +355,10 @@ fn run_listing(
                     )
                 {
                     return;
+                }
+                // Only the first batch is small. Keep all later sends at 256 names.
+                if batch.is_empty() {
+                    flush_at = LISTING_BATCH_SIZE;
                 }
             }
             Err(error) => {
@@ -614,12 +621,14 @@ mod tests {
         let service = ListingService::new();
         let generation = service.request(fixture.0.clone());
         let mut all_names = Vec::new();
+        let mut batch_sizes = Vec::new();
         wait_for(|| match service.try_recv() {
             Ok(ListingEvent::Batch {
                 generation: id,
                 entries,
             }) if id == generation => {
                 assert!(entries.len() <= LISTING_BATCH_SIZE);
+                batch_sizes.push(entries.len());
                 all_names.extend(entries.into_iter().map(|entry| entry.file_name));
                 None
             }
@@ -633,6 +642,15 @@ mod tests {
             _ => None,
         });
         assert_eq!(all_names.len(), 600);
+        assert_eq!(
+            batch_sizes,
+            [
+                FIRST_LISTING_BATCH_SIZE,
+                LISTING_BATCH_SIZE,
+                LISTING_BATCH_SIZE,
+                56,
+            ]
+        );
     }
 
     #[test]
