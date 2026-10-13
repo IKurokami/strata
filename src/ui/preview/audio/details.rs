@@ -3,12 +3,16 @@
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Mutex, OnceLock},
     time::Duration,
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 
 use gtk::{gdk, gio, glib};
 
@@ -181,15 +185,33 @@ struct FileVersion(u64, u64, u64, i64, i64, i64, i64);
 impl FileVersion {
     fn read(path: &Path) -> Option<Self> {
         let info = std::fs::metadata(path).ok()?;
-        Some(Self(
-            info.dev(),
-            info.ino(),
-            info.len(),
-            info.mtime(),
-            info.mtime_nsec(),
-            info.ctime(),
-            info.ctime_nsec(),
-        ))
+        #[cfg(unix)]
+        {
+            Some(Self(
+                info.dev(),
+                info.ino(),
+                info.len(),
+                info.mtime(),
+                info.mtime_nsec(),
+                info.ctime(),
+                info.ctime_nsec(),
+            ))
+        }
+        #[cfg(windows)]
+        {
+            // Cache invalidation must include a high-resolution write time:
+            // same-size cover replacement must not reuse a stale texture.
+            // All fields come from the one metadata read above.
+            Some(Self(
+                u64::from(info.file_attributes()),
+                info.creation_time(),
+                info.len(),
+                i64::try_from(info.last_write_time()).ok()?,
+                0,
+                i64::try_from(info.creation_time()).ok()?,
+                0,
+            ))
+        }
     }
 }
 
