@@ -142,6 +142,9 @@ pub struct ListingEntry {
     /// Windows FindFirst/FindNext supplies type with the enumeration result;
     /// Linux leaves it lazy to avoid a potential stat on unusual filesystems.
     pub fast_kind: Option<FastFileKind>,
+    /// Windows hidden attribute from the already-fetched directory entry.
+    /// None on Unix, where asking for metadata could cause an extra stat.
+    pub hidden_hint: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -249,9 +252,22 @@ fn run_listing(
                 });
                 #[cfg(not(windows))]
                 let fast_kind = None;
+                #[cfg(windows)]
+                let hidden_hint = {
+                    use std::os::windows::fs::MetadataExt;
+                    // std::fs::DirEntry::metadata() on Windows reuses data
+                    // from FindFirstFile / FindNextFile: no additional syscall.
+                    entry
+                        .metadata()
+                        .ok()
+                        .map(|metadata| metadata.file_attributes() & 0x0000_0002 != 0)
+                };
+                #[cfg(not(windows))]
+                let hidden_hint = None;
                 batch.push(ListingEntry {
                     file_name: entry.file_name(),
                     fast_kind,
+                    hidden_hint,
                 });
                 if batch.len() == LISTING_BATCH_SIZE
                     && !send_current(
@@ -508,6 +524,28 @@ mod tests {
             }) if generation == newest => Some(()),
             _ => None,
         });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_listing_reuses_hidden_attribute_without_extra_stat() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("ordinary.txt"), b"x").expect("create entry");
+        let service = ListingService::new();
+        let generation = service.request(&fixture.0);
+        let entries = wait_for(|| match service.try_recv() {
+            Ok(ListingEvent::Batch {
+                generation: current,
+                entries,
+            }) if current == generation => Some(entries),
+            _ => None,
+        });
+        let file = entries
+            .iter()
+            .find(|entry| entry.file_name == "ordinary.txt")
+            .expect("ordinary entry");
+        assert_eq!(file.fast_kind, Some(FastFileKind::File));
+        assert_eq!(file.hidden_hint, Some(false));
     }
 
     #[test]
