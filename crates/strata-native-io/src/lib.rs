@@ -430,8 +430,7 @@ mod tests {
     fn enumerates_names_in_bounded_batches_without_metadata() {
         let fixture = Fixture::new();
         for index in 0..600 {
-            fs::write(fixture.0.join(format!("item-{index:04}")), b"x")
-                .expect("create test file");
+            fs::write(fixture.0.join(format!("item-{index:04}")), b"x").expect("create test file");
         }
         let service = ListingService::new();
         let generation = service.request(fixture.0.clone());
