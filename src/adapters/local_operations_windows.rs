@@ -384,7 +384,7 @@ fn async_create_file(
     if let Err(message) = validate_basename(&request.name) {
         return rejected(request.id, emit, crate::i18n::tr(message));
     }
-    if !strata_native_io::windows_paths::valid_child_name(request.name.as_ref()) {
+    if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&request.name)) {
         return rejected(request.id, emit, "Invalid Windows filename");
     }
     let Some(parent) = request.parent.native_path() else {
