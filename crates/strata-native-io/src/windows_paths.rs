@@ -54,6 +54,19 @@ pub const fn is_hidden_attributes(attributes: u32) -> bool {
     attributes & 0x0000_0002 != 0
 }
 
+/// The Windows DirEntry already carries file attributes from directory
+/// enumeration. Do not inspect a dot prefix or issue a fresh ACL query.
+pub fn should_skip_hidden_entry(entry: &std::fs::DirEntry, show_hidden: bool) -> bool {
+    if show_hidden {
+        return false;
+    }
+    use std::os::windows::fs::MetadataExt;
+    entry
+        .metadata()
+        .ok()
+        .is_some_and(|info| is_hidden_attributes(info.file_attributes()))
+}
+
 /// Validate a single ordinary child component without touching the filesystem.
 ///
 /// Avoid path traversal, alternate data streams, reserved Win32 device names
@@ -136,6 +149,9 @@ pub fn valid_child_name(name: &OsStr) -> bool {
 }
 
 #[cfg(test)]
+mod search_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -169,14 +185,6 @@ mod tests {
         for path in [Path::new(r"C:relative"), Path::new(r"relative\file")] {
             assert!(!volume_query_may_block(path));
         }
-    }
-
-    #[test]
-    fn hidden_flag_is_not_inferred_from_unix_dot_names() {
-        assert!(is_hidden_attributes(0x0000_0002));
-        assert!(is_hidden_attributes(0x0000_0002 | 0x0000_0020));
-        assert!(!is_hidden_attributes(0));
-        assert!(!is_hidden_attributes(0x0000_0004));
     }
 
     #[test]
