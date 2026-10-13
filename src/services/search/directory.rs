@@ -28,6 +28,7 @@ pub(super) fn build_index(
                 continue;
             }
         };
+        #[cfg(unix)]
         let hidden_names = native_hidden_names(&root);
         for entry in entries {
             if index.indexing_cancelled() {
@@ -44,7 +45,23 @@ pub(super) fn build_index(
                     continue;
                 }
             };
+            // Dot-prefixed filenames are hidden by convention on Unix, but
+            // *not* on Windows. Win32 hidden state comes from attributes that
+            // DirEntry already caches from FindFirstFile/FindNextFile; no ACL,
+            // shell, or extra filesystem probe is needed here.
+            #[cfg(unix)]
             if !show_hidden && is_hidden_name(&entry.file_name(), &hidden_names) {
+                continue;
+            }
+            #[cfg(windows)]
+            if !show_hidden
+                && entry.metadata().ok().is_some_and(|metadata| {
+                    use std::os::windows::fs::MetadataExt;
+                    strata_native_io::windows_paths::is_hidden_attributes(
+                        metadata.file_attributes(),
+                    )
+                })
+            {
                 continue;
             }
             if count >= max_entries {
@@ -69,6 +86,11 @@ pub(super) fn build_index(
             if exclusions.is_excluded(&path, &name, is_directory) {
                 continue;
             }
+            // Windows has no POSIX executable mode; like the deep walker,
+            // do not stat every filename just to guess executability.
+            #[cfg(windows)]
+            let mode = MetadataValue::Unknown;
+            #[cfg(unix)]
             let mode = if is_directory {
                 MetadataValue::Unknown
             } else {
