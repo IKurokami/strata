@@ -262,6 +262,9 @@ pub(in crate::ui) fn launch_at(
             } else {
                 gio::AppInfoCreateFlags::NONE
             };
+            // StartupNotify is freedesktop-only; Windows uses the native
+            // application association supplied by GAppInfo without probing it.
+            #[cfg(target_os = "linux")]
             if app
                 .downcast_ref::<gio_unix::DesktopAppInfo>()
                 .is_some_and(|desktop| desktop.boolean("StartupNotify"))
