@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU8, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
     thread,
@@ -23,8 +23,35 @@ const MAX_QUEUED_OPERATIONS: usize = 32;
 const MAX_QUEUED_REMOTE_OPERATIONS: usize = 8;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
-type QueuedOperation = (u64, LocalOperation, Arc<AtomicBool>);
-type OutstandingOperations = Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>;
+// An accepted cancellation must win the same CAS as final publication.
+const OP_PENDING: u8 = 0;
+const OP_CANCELLED: u8 = 1;
+const OP_COMMITTING: u8 = 2;
+type QueuedOperation = (u64, LocalOperation, Arc<AtomicU8>);
+type OutstandingOperations = Arc<Mutex<HashMap<u64, Arc<AtomicU8>>>>;
+
+fn request_cancel(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(
+            OP_PENDING,
+            OP_CANCELLED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_ok()
+}
+
+fn start_irreversible_step(state: &AtomicU8) -> io::Result<()> {
+    state
+        .compare_exchange(
+            OP_PENDING,
+            OP_COMMITTING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .map(|_| ())
+        .map_err(|_| io::Error::new(io::ErrorKind::Interrupted, "operation cancelled"))
+}
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 static NEXT_STAGING_ID: AtomicU64 = AtomicU64::new(0);
@@ -99,7 +126,7 @@ impl LocalOperationService {
         } else {
             &self.sender
         };
-        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled = Arc::new(AtomicU8::new(OP_PENDING));
         self.outstanding
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -128,8 +155,7 @@ impl LocalOperationService {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(cancelled) = entries.get(&id) {
-            cancelled.store(true, Ordering::Release);
-            true
+            request_cancel(cancelled)
         } else {
             false
         }
@@ -160,7 +186,7 @@ fn spawn_operation_worker(
 ) -> io::Result<()> {
     thread::Builder::new().name(name.into()).spawn(move || {
         while let Ok((id, operation, cancelled)) = requests.recv() {
-            let result = if cancelled.load(Ordering::Acquire) {
+            let result = if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
                 Err(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "operation cancelled",
@@ -202,10 +228,11 @@ fn validate_native_file_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn execute(operation: LocalOperation, cancelled: &AtomicBool) -> io::Result<()> {
+fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
     match operation {
         LocalOperation::CreateDirectory(path) => {
             validate_native_file_path(&path)?;
+            start_irreversible_step(cancelled)?;
             fs::create_dir(path)
         }
         LocalOperation::CopyFile {
@@ -245,7 +272,7 @@ pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
 fn copy_no_clobber(
     source: PathBuf,
     destination: PathBuf,
-    cancelled: &AtomicBool,
+    cancelled: &AtomicU8,
 ) -> io::Result<()> {
     let mut reader = open_regular_source(&source)?;
     stage_and_publish(&mut reader, &destination, cancelled)
@@ -301,13 +328,13 @@ fn new_staging_file(destination: &Path) -> io::Result<StagingFile> {
 fn stage_and_publish(
     reader: &mut impl Read,
     destination: &Path,
-    cancelled: &AtomicBool,
+    cancelled: &AtomicU8,
 ) -> io::Result<()> {
     let mut staging = new_staging_file(destination)?;
     let file = staging.file.as_mut().expect("staging writer exists");
     let mut buffer = [0u8; COPY_BUFFER_BYTES];
     loop {
-        if cancelled.load(Ordering::Acquire) {
+        if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
         }
         let read = reader.read(&mut buffer)?;
@@ -317,9 +344,9 @@ fn stage_and_publish(
         file.write_all(&buffer[..read])?;
     }
     file.flush()?;
-    if cancelled.load(Ordering::Acquire) {
-        return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
-    }
+    // Publish and cancel both use one CAS: cancel(id) can no longer claim
+    // success once the worker has entered irreversible NTFS publication.
+    start_irreversible_step(cancelled)?;
     // Atomic publication, only once the entire source was read successfully.
     // Hard-link creation fails with AlreadyExists if the destination is
     // concurrently created, and never replaces an existing file.
@@ -388,6 +415,18 @@ mod tests {
             source: PathBuf::from(r"C:\Users\Public\local.txt"),
             destination: PathBuf::from(r"\\server\share\remote.txt"),
         }));
+    }
+
+    #[test]
+    fn cancellation_cannot_claim_success_after_publication_begins() {
+        let before_commit = AtomicU8::new(OP_PENDING);
+        assert!(request_cancel(&before_commit));
+        assert!(start_irreversible_step(&before_commit).is_err());
+
+        let after_commit = AtomicU8::new(OP_PENDING);
+        start_irreversible_step(&after_commit).expect("start commit");
+        assert!(!request_cancel(&after_commit));
+        assert_eq!(after_commit.load(Ordering::Acquire), OP_COMMITTING);
     }
 
     #[test]
@@ -499,7 +538,7 @@ mod tests {
         let err = stage_and_publish(
             &mut FailAfterFirstRead(false),
             &dest,
-            &AtomicBool::new(false),
+            &AtomicU8::new(OP_PENDING),
         )
         .expect_err("injected copy must fail");
         assert_eq!(err.kind(), io::ErrorKind::Other);
@@ -539,7 +578,7 @@ mod tests {
                 sent: false,
             },
             &dest,
-            &AtomicBool::new(false),
+            &AtomicU8::new(OP_PENDING),
         );
         assert_eq!(
             result.expect_err("destination collision").kind(),
@@ -554,7 +593,7 @@ mod tests {
 
     #[test]
     fn explicit_cancel_stops_before_any_final_filename_is_published() {
-        struct CancelAfterFirstRead<'a>(&'a AtomicBool, bool);
+        struct CancelAfterFirstRead<'a>(&'a AtomicU8, bool);
         impl Read for CancelAfterFirstRead<'_> {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 if self.1 {
@@ -562,13 +601,13 @@ mod tests {
                 }
                 self.1 = true;
                 buf[0] = 99;
-                self.0.store(true, Ordering::Release);
+                self.0.store(OP_CANCELLED, Ordering::Release);
                 Ok(1)
             }
         }
         let dir = TempDir::new();
         let destination = dir.file("not-published");
-        let cancelled = AtomicBool::new(false);
+        let cancelled = AtomicU8::new(OP_PENDING);
         let error = stage_and_publish(
             &mut CancelAfterFirstRead(&cancelled, false),
             &destination,
