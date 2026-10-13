@@ -19,14 +19,13 @@ const MAX_QUEUED_OPERATIONS: usize = 32;
 const MAX_QUEUED_COMPLETIONS: usize = 64;
 const COPY_BUFFER_BYTES: usize = 128 * 1024;
 
-/// A non-destructive local operation that Windows can execute without Shell
-/// callbacks or an elevation request. Cross-volume move is intentionally not
-/// hidden behind rename; the caller must decide how to handle that case.
+/// Non-destructive local operations that Windows can execute without Shell
+/// callbacks or elevation. Rename/move and Recycle Bin remain in the
+/// full operation provider until no-clobber semantics are implemented.
 #[derive(Debug)]
 pub enum LocalOperation {
     CreateDirectory(PathBuf),
     CopyFile { source: PathBuf, destination: PathBuf },
-    Rename { source: PathBuf, destination: PathBuf },
 }
 
 #[derive(Debug)]
@@ -92,14 +91,6 @@ fn execute(operation: LocalOperation) -> io::Result<()> {
             source,
             destination,
         } => copy_no_clobber(source, destination),
-        LocalOperation::Rename {
-            source,
-            destination,
-        } => {
-            // Native Windows rename does not silently fall back to a potentially
-            // expensive cross-volume copy or escalate rights via Shell APIs.
-            fs::rename(source, destination)
-        }
     }
 }
 
