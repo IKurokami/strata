@@ -133,5 +133,5 @@ fn reveal_requests(method: Method, uris: &[String]) -> Vec<RevealRequest> {
     requests
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

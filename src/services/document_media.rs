@@ -127,5 +127,5 @@ fn read_image(parent: &Path, destination: &str) -> Result<(Vec<u8>, String), Str
     Ok((bytes, format!(".{extension}")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

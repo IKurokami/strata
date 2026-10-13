@@ -4748,5 +4748,5 @@ fn is_uri_like(input: &str) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

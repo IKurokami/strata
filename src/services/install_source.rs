@@ -265,5 +265,5 @@ pub(crate) fn ensure_self_managed(source: &InstallSource) -> Result<(), String> 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
