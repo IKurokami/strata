@@ -10,7 +10,7 @@ on:
       - '.github/workflows/windows-gui-build.yml'
   push:
     branches:
-      - 'feat/windows-*'
+      - main
     paths:
       - 'src/**'
       - 'crates/**'
