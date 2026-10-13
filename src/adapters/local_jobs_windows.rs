@@ -28,12 +28,9 @@ impl LocalActionRunner {
 
 impl ActionRunner for LocalActionRunner {
     fn run(&self, request: &ActionRunRequest, sink: ActionEventSink) -> CancelHandle {
-        let detail = request
-            .action
-            .unavailable_reason()
-            .unwrap_or(
-                "Custom actions on Windows require native process-tree isolation before they can run",
-            );
+        let detail = request.action.unavailable_reason().unwrap_or(
+            "Custom actions on Windows require native process-tree isolation before they can run",
+        );
         // Completion is explicit. Do not report Exited(0) or leave a hanging
         // cancellable job when execution is unavailable.
         sink(ActionRunEvent::Failed(detail.to_owned()));
