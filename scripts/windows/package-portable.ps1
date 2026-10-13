@@ -92,7 +92,7 @@ while ($queue.Count -gt 0) {
     foreach ($line in $imports) {
         if ($line -notmatch '^\s*DLL Name:\s*(\S+)\s*$') { continue }
         $dll = $Matches[1]
-        if ($dll -notmatch '^[\w.+-]+\.dll$') {
+        if ($dll -notmatch '^[\w.+-]+\.(dll|drv|ocx|cpl)$') {
             throw "Suspicious DLL import name '$dll' in $binary"
         }
         $importCount++
