@@ -3,9 +3,7 @@
 use super::*;
 use std::sync::{Arc, Mutex};
 
-use crate::services::{
-    ActionRunEvent, ActionRunRequest, ActionRunner, InvocationSource,
-};
+use crate::services::{ActionRunEvent, ActionRunRequest, ActionRunner, InvocationSource};
 
 const MANIFEST: &str = r#"
 schema_version = 1
@@ -36,7 +34,10 @@ fn windows_keeps_saved_action_but_never_executes_a_process_tree() {
     let catalog = store.load();
     assert!(catalog.failures().is_empty(), "{:?}", catalog.failures());
     let action = catalog.get("preview-task").expect("saved action visible");
-    assert!(!action.is_available(), "Windows process-tree isolation is required");
+    assert!(
+        !action.is_available(),
+        "Windows process-tree isolation is required"
+    );
     assert!(action.unavailable_reason().unwrap().contains("isolation"));
     assert!(store.read_script("preview-task").unwrap().is_some());
 
