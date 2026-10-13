@@ -151,16 +151,16 @@ mod tests {
     #[test]
     fn unknown_mapped_drives_never_enter_sync_volume_probe() {
         for path in [
-            Path::new(r"Z:\\offline\\folder"),
-            Path::new(r"C:\\Windows\\System32"),
-            Path::new(r"\\\\server\\share\\file"),
+            Path::new(r"Z:\offline\folder"),
+            Path::new(r"C:\Windows\System32"),
+            Path::new(r"\\server\share\file"),
         ] {
             assert!(
                 volume_query_may_block(path),
                 "must defer volume lookup: {path:?}"
             );
         }
-        for path in [Path::new(r"C:relative"), Path::new(r"relative\\file")] {
+        for path in [Path::new(r"C:relative"), Path::new(r"relative\file")] {
             assert!(!volume_query_may_block(path));
         }
     }
