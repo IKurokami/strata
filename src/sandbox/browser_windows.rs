@@ -4,8 +4,8 @@
 //! an unsandboxed process or decode arbitrary files in the GTK process.
 use std::path::Path;
 
-use super::{Cancellation, ParseOperation};
 use super::metadata::MediaMetadata;
+use super::{Cancellation, ParseOperation};
 
 pub(crate) const MAX_WORKERS: usize = 16;
 
