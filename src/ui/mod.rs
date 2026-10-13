@@ -53,6 +53,10 @@ mod tenxer_mode;
 mod terminal;
 mod theme;
 mod thumbnail;
+#[cfg(not(windows))]
+pub(crate) mod thumbnail_cache;
+#[cfg(windows)]
+#[path = "thumbnail_cache_windows.rs"]
 pub(crate) mod thumbnail_cache;
 mod top_bar_navigation;
 #[cfg(target_os = "linux")]
