@@ -72,6 +72,7 @@ FROM toolchain AS dependencies
 WORKDIR /build
 ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0
 COPY Cargo.toml Cargo.lock ./
+COPY crates/strata-native-io ./crates/strata-native-io
 RUN mkdir src && printf 'fn main() {}\n' > src/main.rs \
     && printf 'fn main() {}\n' > build.rs \
     && cargo build --locked --bin strata \
@@ -82,6 +83,7 @@ FROM ${E2E_RUNTIME_IMAGE} AS ci-runtime
 
 FROM ${E2E_DEPENDENCIES_IMAGE} AS application
 COPY Cargo.toml Cargo.lock /tmp/strata-e2e-manifests/
+COPY crates/strata-native-io ./crates/strata-native-io
 RUN cmp Cargo.toml /tmp/strata-e2e-manifests/Cargo.toml \
     && cmp Cargo.lock /tmp/strata-e2e-manifests/Cargo.lock
 COPY src ./src
