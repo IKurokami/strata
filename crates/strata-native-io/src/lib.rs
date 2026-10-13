@@ -22,6 +22,8 @@ use std::{
 /// Names per event; file type and metadata are fetched lazily by the caller.
 #[cfg(windows)]
 pub mod windows_paths;
+#[cfg(windows)]
+pub mod windows_operations;
 
 pub const LISTING_BATCH_SIZE: usize = 256;
 /// Prevent unread UI events from consuming unbounded memory.
