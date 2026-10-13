@@ -49,7 +49,10 @@ fn enumerates_real_windows_hidden_files_and_dotfiles_without_extra_probes() {
 
     let mut shown = Vec::new();
     let mut hidden_results = Vec::new();
-    for entry in fs::read_dir(&scratch.0).expect("enumerate").map(Result::unwrap) {
+    for entry in fs::read_dir(&scratch.0)
+        .expect("enumerate")
+        .map(Result::unwrap)
+    {
         let name = entry.file_name().to_string_lossy().into_owned();
         if should_skip_hidden_entry(&entry, false) {
             hidden_results.push(name.clone());
