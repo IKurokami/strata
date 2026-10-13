@@ -48,6 +48,12 @@ pub fn volume_query_may_block(path: &Path) -> bool {
     )
 }
 
+/// Windows FILE_ATTRIBUTE_HIDDEN is provided with FindFirstFile/FindNextFile.
+/// This is a bit test, not a metadata probe or a rule about dot-prefixed names.
+pub const fn is_hidden_attributes(attributes: u32) -> bool {
+    attributes & 0x0000_0002 != 0
+}
+
 /// Validate a single ordinary child component without touching the filesystem.
 ///
 /// Avoid path traversal, alternate data streams, reserved Win32 device names
@@ -163,6 +169,14 @@ mod tests {
         for path in [Path::new(r"C:relative"), Path::new(r"relative\file")] {
             assert!(!volume_query_may_block(path));
         }
+    }
+
+    #[test]
+    fn hidden_flag_is_not_inferred_from_unix_dot_names() {
+        assert!(is_hidden_attributes(0x0000_0002));
+        assert!(is_hidden_attributes(0x0000_0002 | 0x0000_0020));
+        assert!(!is_hidden_attributes(0));
+        assert!(!is_hidden_attributes(0x0000_0004));
     }
 
     #[test]
