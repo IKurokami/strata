@@ -494,8 +494,9 @@ fn one_item() -> usize {
 }
 
 fn extension_bytes(name: &OsStr) -> Option<&[u8]> {
-    use std::os::unix::ffi::OsStrExt;
-    let bytes = name.as_bytes();
+    // This is a borrowed platform-preserving encoded view, with no UTF-8
+    // conversion, shell lookup or allocation for each menu action match.
+    let bytes = name.as_encoded_bytes();
     let dot = bytes.iter().rposition(|byte| *byte == b'.')?;
     // A leading dot alone is a hidden file name, not an extension.
     let extension = bytes.get(dot + 1..)?;
