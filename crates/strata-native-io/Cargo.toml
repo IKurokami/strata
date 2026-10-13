@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
+license = "MIT"
 description = "Portable, bounded off-UI-thread filesystem I/O for the Strata Windows port"
 
 [dependencies]
