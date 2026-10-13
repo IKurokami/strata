@@ -14,7 +14,6 @@ default = ["rar"]
 rar = ["dep:unrar", "dep:unrar_sys"]
 
 [dependencies]
-ashpd = { version = "=0.13.13", default-features = false, features = ["backend", "file_chooser", "async-io", "tracing"] }
 async-io = "2.6.0"
 cairo-rs = { version = "0.22.9", features = ["pdf", "png"] }
 calamine = "0.36.1"
@@ -70,6 +69,8 @@ frizbee = "0.13"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # These APIs are not available to the Windows GTK/Win32 backend.
+# XDG D-Bus file chooser backend uses Unix file descriptors; never build on Win32.
+ashpd = { version = "=0.13.13", default-features = false, features = ["backend", "file_chooser", "async-io", "tracing"] }
 gdk4-wayland = { version = "0.11.4", features = ["v4_12"] }
 gdk4-x11 = { version = "0.11.4", features = ["v4_10"] }
 gio-unix = "0.22.8"
