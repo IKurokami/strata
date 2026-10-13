@@ -287,7 +287,11 @@ fn spawn_drive_dispatcher(
                     }
                     slot.insert(sender);
                 }
-                if let Err(error) = lanes.get(&letter).expect("worker was inserted").try_send(task) {
+                if let Err(error) = lanes
+                    .get(&letter)
+                    .expect("worker was inserted")
+                    .try_send(task)
+                {
                     let (task, message) = match error {
                         TrySendError::Full(task) => (task, "drive operation queue is full"),
                         TrySendError::Disconnected(task) => (task, "drive worker stopped"),
