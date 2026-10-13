@@ -620,7 +620,14 @@ fn scan_native_directory(
             }
         };
         let native_name = child.file_name();
+        #[cfg(unix)]
         let is_hidden = is_hidden_name(&native_name, &hidden_names);
+        #[cfg(windows)]
+        let is_hidden = child
+            .metadata()
+            .ok()
+            .map(|metadata| metadata.file_attributes() & 0x0000_0002 != 0)
+            .unwrap_or_else(|| is_hidden_name(&native_name, &hidden_names));
         if entries.len() == request.max_entries {
             truncated = true;
             break;
@@ -1483,7 +1490,7 @@ impl FileSource for LocalFileSource {
                 let cancelled = cancelled_for_change.clone();
                 let source = glib::timeout_add_local_once(Duration::from_millis(100), move || {
                     timeout.take();
-                    flush_monitor_changes(&pending, &notify, &cancelled);
+                    flush_monitor_changes(&pending, &notify, &cancelled, include_hidden);
                 });
                 timeout_for_change.replace(Some(source));
             }
@@ -2177,6 +2184,7 @@ fn flush_monitor_changes(
     pending: &RefCell<HashMap<PendingMonitorKey, PendingMonitorChange>>,
     notify: &Rc<dyn Fn(DirectoryChange)>,
     cancelled: &Rc<Cell<bool>>,
+    include_hidden: bool,
 ) {
     let changes: Vec<_> = pending
         .borrow_mut()
@@ -2197,10 +2205,10 @@ fn flush_monitor_changes(
                 notify(DirectoryChange::Remove(location));
             }
             PendingMonitorChange::Upsert(location) => {
-                query_monitored_entry(location, None, notify.clone(), cancelled.clone())
+                query_monitored_entry(location, None, notify.clone(), cancelled.clone(), include_hidden)
             }
             PendingMonitorChange::Move { from, to } => {
-                query_monitored_entry(to, Some(from), notify.clone(), cancelled.clone())
+                query_monitored_entry(to, Some(from), notify.clone(), cancelled.clone(), include_hidden)
             }
             PendingMonitorChange::Rescan => {}
         }
@@ -2220,6 +2228,7 @@ fn query_monitored_entry(
     moved_from: Option<Location>,
     notify: Rc<dyn Fn(DirectoryChange)>,
     cancelled: Rc<Cell<bool>>,
+    include_hidden: bool,
 ) {
     glib::MainContext::default().spawn_local(async move {
         let file = gio_file_for_location(&location);
@@ -2236,6 +2245,16 @@ fn query_monitored_entry(
         match result {
             Ok(info) => {
                 let entry = entry_from_info(location, info);
+                if !include_hidden && entry.is_hidden {
+                    // A newly hidden file (or rename into a hidden name)
+                    // must disappear from the visible list. The query ran
+                    // asynchronously; no metadata I/O happened in the
+                    // monitor callback or on the GTK event loop.
+                    notify(DirectoryChange::Remove(
+                        moved_from.unwrap_or_else(|| entry.location.clone()),
+                    ));
+                    return;
+                }
                 if let Some(from) = moved_from {
                     notify(DirectoryChange::Move { from, entry });
                 } else {
