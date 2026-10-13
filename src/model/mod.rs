@@ -282,8 +282,7 @@ impl Location {
         // syntax, device names or NTFS alternate data streams as a child.
         // Pure lexical validation: no ACL, shell or filesystem probe.
         #[cfg(windows)]
-        if self.native_path().is_some()
-            && !strata_native_io::windows_paths::valid_child_name(name)
+        if self.native_path().is_some() && !strata_native_io::windows_paths::valid_child_name(name)
         {
             return None;
         }
