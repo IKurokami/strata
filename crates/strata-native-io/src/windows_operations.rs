@@ -25,7 +25,10 @@ const COPY_BUFFER_BYTES: usize = 128 * 1024;
 #[derive(Debug)]
 pub enum LocalOperation {
     CreateDirectory(PathBuf),
-    CopyFile { source: PathBuf, destination: PathBuf },
+    CopyFile {
+        source: PathBuf,
+        destination: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -57,7 +60,10 @@ impl LocalOperationService {
             .spawn(move || {
                 while let Ok((id, operation)) = requests.recv() {
                     let result = execute(operation);
-                    if completions.send(OperationCompletion { id, result }).is_err() {
+                    if completions
+                        .send(OperationCompletion { id, result })
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -203,7 +209,9 @@ mod tests {
             })
             .expect("queue");
         assert_eq!(
-            finished(&service, id).expect_err("exclusive create must fail").kind(),
+            finished(&service, id)
+                .expect_err("exclusive create must fail")
+                .kind(),
             io::ErrorKind::AlreadyExists
         );
         assert_eq!(fs::read(dest).expect("original destination"), b"keep me");
