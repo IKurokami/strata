@@ -89,6 +89,7 @@ const RESTART_GRACE_SECONDS: u64 = 20;
 // Must outlast the restart waiter's recovery window.
 const ROLLBACK_RETENTION: Duration = Duration::from_secs(60);
 
+#[cfg(target_os = "linux")]
 pub(crate) fn schedule_rollback_cleanup() {
     let Ok(current_exe) = services::installed_executable() else {
         return;
@@ -115,6 +116,12 @@ pub(crate) fn schedule_rollback_cleanup() {
         }
     });
 }
+
+/// Windows update/restart currently has no verified rollback identity or
+/// native wait-and-relaunch protocol. Never delete an executable backup based
+/// on a pathname alone, and never launch Unix shell helpers.
+#[cfg(windows)]
+pub(crate) fn schedule_rollback_cleanup() {}
 
 thread_local! {
     static INSTALL_GUARD: InstallGuard = Rc::new(Cell::new(false));
@@ -2228,6 +2235,7 @@ fn restart_application(button: &gtk::Button) {
     restart(application.as_ref());
 }
 
+#[cfg(target_os = "linux")]
 fn process_start_time(pid: u32) -> Option<String> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // comm (field 2) may contain spaces or parentheses; the remaining fields
@@ -2239,6 +2247,7 @@ fn process_start_time(pid: u32) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[cfg(target_os = "linux")]
 fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Command> {
     use std::{os::unix::process::CommandExt, process::Stdio};
 
@@ -2275,6 +2284,14 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
         command.env_remove(crate::CAIRO_SELECTED_BY_STRATA);
     }
     Some(command)
+}
+
+// Fail closed: a Windows self-update cannot reuse the Linux shell waiter.
+// A future native helper must wait for this process to exit before relaunching
+// and must verify the replacement image without UAC or PATH-based executables.
+#[cfg(windows)]
+fn restart_waiter(_current_exe: &std::path::Path, _parent_pid: u32) -> Option<Command> {
+    None
 }
 
 /// A closed window may no longer have an application; never exit the process in that case.

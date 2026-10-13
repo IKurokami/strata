@@ -90,3 +90,10 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Linux device mount parsing and global-search mount discovery are compiled only for Linux. Windows global-search roots currently contain just the home folder; a future asynchronous Win32 volume enumerator can publish more roots without freezing GTK on mapped drives.
 - Windows removable destinations and formatting stay unavailable until native removable-volume verification is implemented; `mkfs`, `lsblk`, UDisks and `statvfs` are not invoked on Win32. No permanent deletion is substituted for Recycle Bin.
 - These changes remove several Windows compiler blockers and synchronous startup risks, but **do not** make the full Windows GTK app compile or provide Windows preview sandbox parity.
+
+## Phase 9: Windows settings and self-update safety
+
+- Settings change detection uses native Windows creation/write FILETIME values and file attributes (no Unix inode access), still from the existing one metadata read.
+- Unix restart helpers (`sh`, `sleep`, `mv`, `/proc/PID/stat`) compile only on Linux. Windows **must not** spawn them or incorrectly restart an updated executable while the old process still holds the binary.
+- The Linux inode-based rollback cleanup is disabled on Windows instead of deleting an uncertain file by pathname; Windows self-update/restart must wait for a native, verified helper protocol. This temporarily means no automated rollback cleanup/restart on Windows.
+- Neither settings load nor the normal startup path should request UAC elevation, invoke a shell or perform a Windows volume permission preflight.

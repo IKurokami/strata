@@ -4,13 +4,14 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     fs, io,
-    os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
     rc::Rc,
 };
 
 use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 use crate::{
     model::{FolderColorValue, SortDirection, SortKey, ViewPreferences},
@@ -1522,12 +1523,28 @@ type FileStamp = (u64, i64, i64, u64);
 /// process's later write.
 fn file_stamp(path: &Path) -> Option<FileStamp> {
     let metadata = fs::metadata(path).ok()?;
-    Some((
-        metadata.ino(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.len(),
-    ))
+    #[cfg(unix)]
+    {
+        Some((
+            metadata.ino(),
+            metadata.mtime(),
+            metadata.mtime_nsec(),
+            metadata.len(),
+        ))
+    }
+    #[cfg(windows)]
+    {
+        // Windows creation/write FILETIME values have 100ns resolution.
+        // Include attributes and size so same-name atomic replacement and
+        // external edits invalidate settings without an extra filesystem probe.
+        let stamp = strata_native_io::windows_file_stamp::from_metadata(&metadata);
+        Some((
+            stamp.creation_time,
+            i64::try_from(stamp.last_write_time).ok()?,
+            i64::from(stamp.attributes),
+            stamp.size,
+        ))
+    }
 }
 
 fn read_state_file(path: &Path) -> io::Result<Option<String>> {
