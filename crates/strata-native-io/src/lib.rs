@@ -28,6 +28,8 @@ pub mod windows_file_stamp;
 pub mod windows_operations;
 #[cfg(windows)]
 pub mod windows_paths;
+#[cfg(windows)]
+pub mod windows_storage;
 
 /// Maximum names per listing event, without eager metadata I/O.
 pub const LISTING_BATCH_SIZE: usize = 256;
