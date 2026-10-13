@@ -315,7 +315,7 @@ fn recent_monitor_events_rescan_without_querying_virtual_children() {
     let collected = notified.clone();
     let notify: Rc<dyn Fn(DirectoryChange)> =
         Rc::new(move |change| collected.borrow_mut().push(change));
-    flush_monitor_changes(&RefCell::new(pending), &notify, &Rc::new(Cell::new(false)));
+    flush_monitor_changes(&RefCell::new(pending), &notify, &Rc::new(Cell::new(false)), true);
 
     assert!(matches!(
         notified.borrow().as_slice(),
@@ -425,7 +425,7 @@ fn uri_monitor_changes_keep_their_uri_locations() {
     let collected = notified.clone();
     let notify: Rc<dyn Fn(DirectoryChange)> =
         Rc::new(move |change| collected.borrow_mut().push(change));
-    flush_monitor_changes(&RefCell::new(pending), &notify, &Rc::new(Cell::new(false)));
+    flush_monitor_changes(&RefCell::new(pending), &notify, &Rc::new(Cell::new(false)), true);
 
     let changes = notified.borrow();
     assert!(
