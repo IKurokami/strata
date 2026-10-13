@@ -18,7 +18,11 @@ pub(crate) struct DestinationError {
 
 impl std::fmt::Display for DestinationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "refusing to replace non-regular destination {}", self.path.display())
+        write!(
+            formatter,
+            "refusing to replace non-regular destination {}",
+            self.path.display()
+        )
     }
 }
 
@@ -35,9 +39,10 @@ impl DestinationError {
 }
 
 fn translate_error(path: &Path, error: io::Error) -> io::Error {
-    if error.get_ref().is_some_and(|inner| {
-        inner.is::<strata_native_io::windows_storage::DestinationError>()
-    }) {
+    if error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<strata_native_io::windows_storage::DestinationError>())
+    {
         io::Error::new(
             error.kind(),
             DestinationError {
