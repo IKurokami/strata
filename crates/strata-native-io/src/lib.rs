@@ -7,7 +7,7 @@
 
 use std::{
     ffi::OsString,
-    fs::{self, File},
+    fs,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::{
@@ -18,6 +18,9 @@ use std::{
     thread,
     time::Duration,
 };
+
+#[cfg(not(windows))]
+use std::fs::File;
 
 #[cfg(windows)]
 pub mod windows_operations;
