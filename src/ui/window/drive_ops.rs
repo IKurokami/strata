@@ -61,7 +61,7 @@ impl FilesystemType {
     }
 
     /// Candidate executables, in preference order.
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     fn mkfs_candidates(self) -> &'static [&'static str] {
         match self {
             Self::Fat32 => &["mkfs.fat"],
@@ -70,7 +70,7 @@ impl FilesystemType {
         }
     }
 
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     fn format_options(self, label: &str, quick: bool) -> glib::Variant {
         let options = glib::VariantDict::new(None);
         options.insert("update-partition-type", true);
@@ -86,7 +86,7 @@ impl FilesystemType {
         options.end()
     }
 
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     fn udisks_type(self) -> &'static str {
         match self {
             Self::Fat32 => "vfat",
@@ -95,7 +95,7 @@ impl FilesystemType {
         }
     }
 
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     fn resolve_mkfs(self) -> Option<PathBuf> {
         self.mkfs_candidates().iter().find_map(|cmd| tool_path(cmd))
     }
@@ -110,9 +110,14 @@ impl FilesystemType {
 
     pub(super) fn available(self) -> bool {
         #[cfg(target_os = "linux")]
-        { self.resolve_mkfs().is_some() }
+        {
+            self.resolve_mkfs().is_some()
+        }
         #[cfg(windows)]
-        { false } // Never launch Linux mkfs/udisks tools or prompt for elevation.
+        {
+            // No mkfs/UDisks subprocesses and no UAC prompts on Windows.
+            false
+        }
     }
 }
 
@@ -310,15 +315,25 @@ pub(super) fn device_size_bytes(device: &Path) -> Option<u64> {
 // optional metadata values remain unknown until a background Win32 worker
 // supplies verified, nonblocking volume facts. Never query drive letters here.
 #[cfg(windows)]
-pub(super) fn usage_for_path(_path: &Path) -> Option<(u64, u64)> { None }
+pub(super) fn usage_for_path(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
 #[cfg(windows)]
-pub(super) fn block_device_for_path(_path: &Path) -> Option<PathBuf> { None }
+pub(super) fn block_device_for_path(_path: &Path) -> Option<PathBuf> {
+    None
+}
 #[cfg(windows)]
-pub(super) fn mounted_path_for_device(_device: &Path) -> Option<PathBuf> { None }
+pub(super) fn mounted_path_for_device(_device: &Path) -> Option<PathBuf> {
+    None
+}
 #[cfg(windows)]
-pub(super) fn filesystem_label_for_device(_device: &Path) -> Option<String> { None }
+pub(super) fn filesystem_label_for_device(_device: &Path) -> Option<String> {
+    None
+}
 #[cfg(windows)]
-pub(super) fn device_size_bytes(_device: &Path) -> Option<u64> { None }
+pub(super) fn device_size_bytes(_device: &Path) -> Option<u64> {
+    None
+}
 
 /// Unmount the volume when mounted: the label/format tools need exclusive
 /// access to the block device.
