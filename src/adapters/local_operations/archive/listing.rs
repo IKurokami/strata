@@ -13,7 +13,9 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-#[cfg(test)]
+// Archive fixture tests depend on Linux's archive operation/fixture module.
+// Windows uses only the metadata wire parser; decoder execution is disabled.
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 pub(crate) const INVALID_ARCHIVE: &str = "This file is not a valid archive or is damaged.";

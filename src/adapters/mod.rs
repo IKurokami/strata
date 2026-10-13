@@ -11,6 +11,10 @@ mod local_jobs;
 #[cfg(windows)]
 #[path = "local_jobs_windows.rs"]
 mod local_jobs;
+#[cfg(not(windows))]
+mod local_operations;
+#[cfg(windows)]
+#[path = "local_operations_windows.rs"]
 mod local_operations;
 mod local_preview;
 pub(crate) mod trash;
@@ -30,11 +34,13 @@ pub(crate) use local_operations::{
     INVALID_ARCHIVE, MAX_ARCHIVE_PASSWORD_BYTES, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED,
     archive_payload_valid, encode_archive_result, flush_filesystem, list_archive_entries_direct,
 };
-#[cfg(test)]
+#[cfg(all(test, windows))]
+pub(crate) use local_operations::{ArchiveListing, ArchiveListingStatus, decode_archive_listing};
+#[cfg(all(test, not(windows)))]
 pub(crate) use local_operations::{
     ArchiveListing, ArchiveListingStatus, decode_archive_listing, write_compression_fixture,
 };
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(crate) use local_operations::{
     clear_sync_probe, install_sync_probe, release_sync_probe, sync_probe_is_blocked,
     sync_probe_len, sync_probe_observations,
