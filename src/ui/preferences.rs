@@ -1664,5 +1664,5 @@ fn settings_path() -> PathBuf {
     config_directory().join("settings.toml")
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

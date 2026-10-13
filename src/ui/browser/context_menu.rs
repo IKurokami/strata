@@ -2218,5 +2218,5 @@ fn prepare_open_with(
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

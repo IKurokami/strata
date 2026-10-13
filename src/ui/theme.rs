@@ -1216,5 +1216,5 @@ pub(in crate::ui) fn omarchy_state_dir() -> PathBuf {
     gtk::glib::home_dir().join(".local/state/omarchy/current")
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;

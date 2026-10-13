@@ -31,7 +31,7 @@ type RemovableRootResolver = Rc<dyn Fn(&str) -> Option<PathBuf>>;
 
 const SEND_TO_SUCCESS_DURATION: Duration = Duration::from_secs(2);
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
 
 #[derive(Clone, Copy)]

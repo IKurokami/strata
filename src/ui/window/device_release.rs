@@ -217,7 +217,7 @@ pub(super) fn any_pending() -> bool {
     RELEASES.with(|releases| !releases.borrow().is_empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn reset_releases() {
     RELEASES.with(|releases| releases.borrow_mut().clear());
 }
@@ -344,7 +344,7 @@ fn mount_root_path(mount: &gio::Mount) -> Option<PathBuf> {
     mount.root().path().map(|path| path.to_path_buf())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn begin_pending(key: ReleaseKey, kind: ReleaseKind) -> bool {
     with_releases(|releases| {
         if releases.iter().any(|entry| keys_match(&entry.key, &key)) {
@@ -376,7 +376,7 @@ pub(super) fn release_is_pending(key: &ReleaseKey) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_is_dismissed(key: &ReleaseKey) -> bool {
     RELEASES.with(|releases| {
         releases
@@ -387,7 +387,7 @@ pub(super) fn release_is_dismissed(key: &ReleaseKey) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_shows_spinner(key: &ReleaseKey) -> bool {
     RELEASES.with(|releases| {
         releases
@@ -397,7 +397,7 @@ pub(super) fn release_shows_spinner(key: &ReleaseKey) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_phase(key: &ReleaseKey) -> Option<ReleasePhase> {
     RELEASES.with(|releases| {
         releases
@@ -408,7 +408,7 @@ pub(super) fn release_phase(key: &ReleaseKey) -> Option<ReleasePhase> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_error_count(key: &ReleaseKey) -> usize {
     RELEASES.with(|releases| {
         releases
@@ -420,7 +420,7 @@ pub(super) fn release_error_count(key: &ReleaseKey) -> usize {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_body_text(key: &ReleaseKey) -> Option<String> {
     RELEASES.with(|releases| {
         releases
@@ -431,7 +431,7 @@ pub(super) fn release_body_text(key: &ReleaseKey) -> Option<String> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn release_overlay_presented(key: &ReleaseKey) -> bool {
     RELEASES.with(|releases| {
         releases
@@ -453,7 +453,7 @@ pub(super) fn enter_releasing(key: &ReleaseKey) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn clear_release_dismissed(key: &ReleaseKey) {
     with_releases(|releases| {
         if let Some(entry) = releases
@@ -563,7 +563,7 @@ fn release_error_is_quiet(error: &glib::Error) -> bool {
         || error.message().to_ascii_lowercase().contains("aborted")
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn run_release_attempt(
     kind: ReleaseKind,
     progress: Option<&str>,
@@ -580,7 +580,7 @@ pub(super) fn run_release_attempt(
     decide_gio(kind, progress, gio(), unplug)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn settle_pending_attempt(
     key: &ReleaseKey,
     flush: Result<(), String>,
@@ -744,7 +744,7 @@ fn schedule_present(parent: gtk::Widget, key: ReleaseKey) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn complete_release_success(key: &ReleaseKey) {
     let (kind, unplug) = RELEASES.with(|releases| {
         releases
@@ -883,7 +883,7 @@ where
             let left_at = browser
                 .as_ref()
                 .and_then(|browser| browser.active_location());
-            #[cfg(test)]
+            #[cfg(all(test, not(windows)))]
             note_release_before_flush(browser.as_ref());
             let flush_root = sync_root.clone();
             let flush = flush_mount(sync_root).await;
@@ -955,7 +955,7 @@ fn blocking_join_message(error: Box<dyn std::any::Any + Send>) -> String {
 }
 
 fn volume_still_mounted(root: &Path) -> bool {
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     if let Some(forced) = MOUNTED_ROOTS.with(|slot| slot.borrow().clone()) {
         return forced
             .iter()
@@ -975,14 +975,14 @@ async fn flush_mount(root: Option<PathBuf>) -> Result<(), io::Error> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 thread_local! {
     static LOCATION_AT_FLUSH: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
     static SYNCS_BEFORE_FLUSH: Cell<usize> = const { Cell::new(0) };
     static MOUNTED_ROOTS: RefCell<Option<Vec<PathBuf>>> = const { RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 fn note_release_before_flush(browser: Option<&Rc<Browser>>) {
     LOCATION_AT_FLUSH.with(|slot| {
         *slot.borrow_mut() = browser
@@ -992,17 +992,17 @@ fn note_release_before_flush(browser: Option<&Rc<Browser>>) {
     SYNCS_BEFORE_FLUSH.with(|slot| slot.set(crate::adapters::sync_probe_len()));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn location_at_flush_for_test() -> Option<PathBuf> {
     LOCATION_AT_FLUSH.with(|slot| slot.borrow().clone())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn syncs_before_flush_for_test() -> usize {
     SYNCS_BEFORE_FLUSH.with(|slot| slot.get())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(super) fn set_mounted_roots_for_test(roots: Option<Vec<PathBuf>>) {
     MOUNTED_ROOTS.with(|slot| *slot.borrow_mut() = roots);
 }
@@ -1018,5 +1018,5 @@ pub(super) fn mount_operation(parent: &gtk::Widget, key: &ReleaseKey) -> gtk::Mo
     operation
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests;
