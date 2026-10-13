@@ -89,7 +89,7 @@ pub(super) fn general_page(
     // Do not query or advertise them on Windows: status probes would add
     // needless startup latency and the actions cannot be applied there.
     #[cfg(target_os = "linux")]
-    {
+    let desktop_rows = {
         let desktop = super::settings_group(&preferences, "DESKTOP INTEGRATION");
         let portal_row = crate::ui::portal_preferences::settings_row();
         super::search::tag(&portal_row, "Desktop integration");
@@ -97,7 +97,10 @@ pub(super) fn general_page(
         let udiskie_row = crate::ui::udiskie_preferences::settings_row();
         super::search::tag(&udiskie_row, "Unlock encrypted volumes");
         desktop.append(&udiskie_row);
-    }
+        vec![portal_row, udiskie_row]
+    };
+    #[cfg(not(target_os = "linux"))]
+    let desktop_rows = Vec::new();
 
     let startup = super::settings_group(&preferences, "STARTUP");
     append_default_directory_option(&startup, &manager);
@@ -114,7 +117,7 @@ pub(super) fn general_page(
 
     (
         scrollable_page(&preferences, None),
-        vec![portal_row, udiskie_row],
+        desktop_rows,
         responsive_activation_rows,
     )
 }
