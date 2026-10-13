@@ -46,6 +46,13 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 - The `gdk4_x11::X11Display` helper is now Linux-only, matching the target-gated `gdk4-x11` dependency. Windows startup does not load X11 or run the Linux GVfs probe.
 - These guards remove *specific* Windows compilation blockers without changing Linux entry points. `portal_setup`, sandboxing, native volume support and the rest of the GTK application still need platform separation; this is not proof of a Windows GUI build.
 
+## Phase 6: Windows volume and mount snapshots
+
+- Linux retains `/proc/self/mountinfo` and `gio_unix::MountMonitor`; Windows now selects separate zero-I/O adapters so no Unix mount parsing or GIO mount-monitor setup occurs during ordinary Windows navigation.
+- Explicit UNC roots are recognized lexically as potentially blocking network paths. Remote volume queries are still delegated to the asynchronous path, not the hot UI thread.
+- Unknown drive types, mapped network letters, removable volumes and their stable identities are **not** guessed. The Windows snapshot intentionally has no removable entries until a real asynchronous Win32 enumerator exists; an empty snapshot must not be mistaken for proof that no removable disks exist.
+- Windows Recycle Bin remains disabled rather than using Linux's trash mount scan or silently substituting permanent deletion. Native volume APIs and mapped network drive classification remain necessary before feature parity.
+
 ## CI and blockers
 
 - Independent crate CI runs formatting, Clippy, tests and release compilation on Windows Server 2025 and Ubuntu.
