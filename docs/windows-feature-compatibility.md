@@ -29,10 +29,18 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | D-Bus / XDG portals / FileManager1 | Not applicable on Windows; use Windows shell integration separately | Linux-only Settings controls excluded from Windows |
 | Omarchy keybinds and `udiskie` | Linux-specific; do not ship on Windows | Windows settings excluded |
 | BitLocker | Leave to Windows, do not request elevation merely for file listing | Native integration pending |
-| Startup/update/release | Native no-probe startup; Windows installer and separate updater | Not yet implemented |
+| Startup/update/release | Skip Linux GVfs health checks, portal refresh, X11 and D-Bus launch hooks on Windows; implement native updater and installer separately | Linux startup probes now target-gated; Windows app and installer not yet built |
 
 ## CI and blockers
 
 - Independent crate CI runs formatting, Clippy, tests and release compilation on Windows Server 2025 and Ubuntu.
 - The upstream full-app E2E workflow depends on Linux image publishing to GHCR. For the fork, a future published fork image can be reused; when unavailable, `ci.yml` now explicitly builds an ephemeral test image rather than skipping validation.
 - Full GTK `strata.exe`, Windows previews, sandbox isolation, File Explorer integration, and first-frame benchmarks are still required before release.
+
+## Performance decisions implemented in phase 2
+
+- Startup: skip the Linux GVfs subprocess probe and XDG portal maintenance on Windows. Do **not** trigger those 2-second Linux health-check paths from a Win32 launch.
+- Settings: omit Linux-only portal and udiskie integration controls on Windows rather than probing unavailable services.
+- Native local operations: queue `CreateDirectory` and no-clobber `CopyFile` off the UI thread with a bounded FIFO; no privilege elevation or permanent-delete fallback.
+- Open With: rely on platform GIO AppInfo; no `gio_unix::DesktopAppInfo` lookup on Windows.
+- Full application integration is still pending, so none of these changes establish measured Windows startup/preview improvement yet.
