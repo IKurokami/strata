@@ -93,7 +93,7 @@ cat > "$output/Run-Strata.cmd" <<'CMD'
 @echo off
 setlocal
 set "STRATA_ROOT=%~dp0"
-set "PATH=%STRATA_ROOT%bin;%PATH%"
+set "PATH=%STRATA_ROOT%bin;%SystemRoot%\System32;%SystemRoot%"
 set "GSETTINGS_SCHEMA_DIR=%STRATA_ROOT%share\glib-2.0\schemas"
 set "XDG_DATA_DIRS=%STRATA_ROOT%share"
 set "GIO_EXTRA_MODULES=%STRATA_ROOT%lib\gio\modules"
