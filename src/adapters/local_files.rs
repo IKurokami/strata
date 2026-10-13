@@ -6,7 +6,6 @@ use std::{
     fs,
     future::Future,
     io::ErrorKind,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
     rc::Rc,
@@ -16,6 +15,11 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as WindowsMetadataExt;
 
 use gtk::{gio, glib, prelude::*};
 
@@ -49,6 +53,7 @@ struct IconDetailsFingerprint {
 }
 
 impl IconDetailsFingerprint {
+    #[cfg(unix)]
     fn read(path: &Path) -> Option<Self> {
         let metadata = fs::metadata(path).ok()?;
         Some(Self {
@@ -57,6 +62,22 @@ impl IconDetailsFingerprint {
             modified_nanoseconds: metadata.mtime_nsec(),
             changed_seconds: metadata.ctime(),
             changed_nanoseconds: metadata.ctime_nsec(),
+        })
+    }
+
+    #[cfg(windows)]
+    fn read(path: &Path) -> Option<Self> {
+        // Windows FILETIME values and attributes are available through std.
+        // Avoid ACL, Shell/COM, icon extractor or separate permission queries.
+        let metadata = fs::metadata(path).ok()?;
+        let modified = metadata.last_write_time();
+        Some(Self {
+            size: metadata.len(),
+            modified_seconds: (modified / 10_000_000) as i64,
+            modified_nanoseconds: ((modified % 10_000_000) * 100) as i64,
+            // These two fields are opaque cache-validation values on Windows.
+            changed_seconds: metadata.creation_time() as i64,
+            changed_nanoseconds: i64::from(metadata.file_attributes()),
         })
     }
 }
@@ -559,7 +580,16 @@ fn fill_native_entry_metadata(entry: &mut FileEntry) {
         .and_then(unix_seconds)
         .map(MetadataValue::Known)
         .unwrap_or(MetadataValue::Unavailable);
-    entry.mode = MetadataValue::Known(metadata.mode());
+    #[cfg(unix)]
+    {
+        entry.mode = MetadataValue::Known(metadata.mode());
+    }
+    #[cfg(windows)]
+    {
+        // Windows uses executable file extensions and OS associations.
+        // No expensive Unix-style mode/ACL probe is required here.
+        entry.mode = MetadataValue::Unknown;
+    }
 }
 
 fn scan_native_directory(
@@ -1951,6 +1981,7 @@ fn log_directory_load_started(request_id: RequestId, location: &Location) {
     );
 }
 
+#[cfg(unix)]
 fn folder_identity(metadata: &fs::Metadata) -> Option<LocationIdentity> {
     metadata.is_dir().then(|| LocationIdentity {
         device: metadata.dev(),
@@ -1959,6 +1990,7 @@ fn folder_identity(metadata: &fs::Metadata) -> Option<LocationIdentity> {
     })
 }
 
+#[cfg(unix)]
 fn native_entry_with_identity(directory: &Path, identity: LocationIdentity) -> Option<PathBuf> {
     use std::os::unix::fs::DirEntryExt;
     let entries: Vec<fs::DirEntry> = fs::read_dir(directory).ok()?.flatten().collect();
@@ -1983,10 +2015,32 @@ fn native_entry_with_identity(directory: &Path, identity: LocationIdentity) -> O
         .map(fs::DirEntry::path)
 }
 
+// Stable std::os::windows::fs does not expose by-handle file ID yet.
+// Do not guess identity from file names or timestamps after a rename;
+// disable this optimization until a native Windows file-ID adapter exists.
+#[cfg(windows)]
+fn folder_identity(_metadata: &fs::Metadata) -> Option<LocationIdentity> {
+    None
+}
+
+#[cfg(windows)]
+fn native_entry_with_identity(_directory: &Path, _identity: LocationIdentity) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
 fn monitor_location_is_hidden(location: &Location) -> bool {
     location
         .file_name()
         .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'))
+}
+
+// On Windows names beginning with '.' are not inherently hidden. Avoid
+// stat calls in the monitor/UI callback; GIO enumerations already carry the
+// Windows hidden attribute via standard::is-hidden.
+#[cfg(windows)]
+fn monitor_location_is_hidden(_location: &Location) -> bool {
+    false
 }
 
 fn visible_monitor_change(
