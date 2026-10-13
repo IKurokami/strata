@@ -56,6 +56,12 @@ These tests validate the worker and filesystem publication guarantees, not a san
 
 **Security boundary:** cancellation and raw-byte prefetch are not a decoder sandbox. No PDF, media, image, or executable parser may be enabled in-process on Windows merely because these file-operation safeguards are present.
 
+## Phase 5: first-visible-folder batch responsiveness
+
+- Directory listings now emit the first **32 names** instead of waiting for 256. Subsequent events remain **256 names** each, preserving steady-state throughput and existing bounded result channels.
+- This reduces the number of entries scanned before the first displayable event for folders containing at least 32 entries. It does not add per-name metadata I/O or any UAC/ACL preflight, and a superseded generation remains discarded.
+- A 600-file regression fixture checks the exact first and subsequent batch sizes (32, 256, 256, 56), and verifies that all names arrive. The change is backend-only: it is **not** a measured GUI paint-time improvement until the GTK integration is wired and instrumented.
+
 ## Verification
 
 The standalone native crate's CI runs Windows Server 2025 and Ubuntu 24.04 matrices: Cargo metadata, Rustfmt (including application source), Clippy with warnings denied, unit tests, and release build. Full application Linux CI / Windows GUI CI have independent outstanding blockers.
