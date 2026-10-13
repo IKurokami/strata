@@ -18,6 +18,10 @@ mod local_operations;
 mod local_operations;
 mod local_preview;
 pub(crate) mod trash;
+#[cfg(not(windows))]
+pub(crate) mod trash_restore;
+#[cfg(windows)]
+#[path = "trash_restore_windows.rs"]
 pub(crate) mod trash_restore;
 mod volume;
 
