@@ -6,6 +6,10 @@ mod file_manager1;
 mod gio_location;
 mod local_actions;
 mod local_files;
+#[cfg(not(windows))]
+mod local_jobs;
+#[cfg(windows)]
+#[path = "local_jobs_windows.rs"]
 mod local_jobs;
 mod local_operations;
 mod local_preview;
