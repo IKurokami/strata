@@ -118,3 +118,11 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Windows shallow indexing no longer fetches POSIX executable modes (which have no Windows equivalent). This matches the existing deep-index worker and avoids per-file metadata probes on the path to first visible search results.
 - `strata-native-io::windows_paths::is_hidden_attributes` is pure and covered by native Windows tests. The GTK application must still pass its complete Windows build and integration tests before this can be considered release parity.
 - Search remains on existing background workers with cancellation and entry/time budgets; this change adds no permission prompts, shell extension calls, or foreground drive scanning.
+
+## Phase 13: Windows custom-action runner boundary
+
+- The Unix `src/adapters/local_jobs.rs` implementation depends on process groups, `kill_process_group`, nonblocking Unix pipes and owner-only temporary folders. On Win32 the app now compiles a dedicated `local_jobs_windows.rs` boundary instead of attempting to reuse it.
+- Windows custom-action definitions remain editable/importable/exportable, but the action catalog explicitly reports them **unavailable** for execution until there is a Windows Job Object-based process-tree cancellation and containment implementation. The Windows runner reports an immediate failed event instead of silently succeeding, spawning children, or leaving an unbounded job running.
+- Windows action metadata no longer calls Unix `chmod(0700)`, Unix executable-bit checks or PATH scanning on startup. Action root symlinks/junctions are rejected before directory enumeration; directory creation inherits the parent Windows ACL and **does not claim owner-only ACL enforcement** yet.
+- A Windows-only GUI test exercises saving/loading a script, reporting it as unavailable, refusing to execute the script, and rejecting symlinked roots. It cannot run until the remaining unrelated GUI compiler errors are resolved; the independent native I/O CI does not test this adapter. Linux retains full custom-action execution and process-group cancellation.
+- Do not turn Windows scripts on by simply replacing POSIX process signals with `Child::kill()`: child/grandchild processes can remain running, violating cancellation and potentially leaking processes or file handles.
