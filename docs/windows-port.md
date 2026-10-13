@@ -152,3 +152,10 @@ The example reports initial-pass and warm p50/p95 times for the first batch and 
 - Linux-only install-source discovery and `PATH` executable permission probes are skipped on Windows first-window startup. `current_exe` stays available without guessing a Linux ` (deleted)` suffix.
 - `TrashedOriginal::at_path` returns `None` on Windows rather than manufacturing POSIX device/inode identities for Recycle Bin operations. Windows delete/restore remain fail-closed in the operation provider.
 - Windows-only GUI unit tests cover updater refusal and cancellation but cannot run until the remaining sandbox/media compiler blockers are fixed. The independent native I/O CI cannot validate this GUI-level code. A future update helper needs publisher signature verification, safe close-and-restart, rollback and no elevation during ordinary file-manager use.
+
+## Phase 17: native Windows external-provider boundary and startup performance
+
+- On Windows, opt-in external file providers are disabled until a trusted Win32 named-pipe transport, verified ownership/ACLs and Job Object containment exist. No Unix sockets, `CommandExt::pre_exec`, `rustix` FD probes or uncontained provider helpers may run.
+- The existing metadata protocol and GUI client interfaces are retained so UI code compiles unchanged. Provider discovery returns no registrations, and a synthetic client always refuses requests with a disconnected result; it never reports a fake successful activation. Unit tests cover empty registration and explicit refusal (GUI tests cannot run until independent Win32 compiler blockers are resolved).
+- Windows first-window construction no longer starts a provider discovery thread **or the old 100 ms GTK polling timer** when no provider can possibly exist. Linux continues the original opt-in scanning and transport with its existing security checks and tests.
+- A future Windows provider implementation needs to validate the publisher and binary identity without resolving arbitrary user-supplied executables from PATH; operations and cancellation must remain off GTK's main thread and must be able to stop all descendants.
