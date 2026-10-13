@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - feat/windows-native-port
+      - 'feat/windows-*'
     paths:
       - 'crates/strata-native-io/**'
       - '.github/workflows/windows-port.yml'
@@ -12,6 +12,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/model/**'
+      - 'src/adapters/**'
+      - 'src/services/**'
+      - 'src/ui/**'
+      - 'src/main.rs'
   pull_request:
     paths:
       - 'crates/strata-native-io/**'
@@ -20,6 +24,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/model/**'
+      - 'src/adapters/**'
+      - 'src/services/**'
+      - 'src/ui/**'
+      - 'src/main.rs'
   workflow_dispatch:
 
 permissions:
