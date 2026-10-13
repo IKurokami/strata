@@ -51,7 +51,7 @@ serde_norway = "0.9"
 sha2 = "0.11.0"
 sevenz-rust2 = "0.22.2"
 sourceview5 = { version = "0.11.2", features = ["gtk_v4_12"] }
-strata-native-io = { path = "crates/strata-native-io" }
+strata-native-io = { version = "0.1.0", path = "crates/strata-native-io" }
 tar = "0.4.46"
 tempfile = "3.27.0"
 toml = "1.1"
