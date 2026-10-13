@@ -7,6 +7,9 @@ mod browser;
 mod browser_modes;
 #[cfg(target_os = "linux")]
 mod chooser;
+#[cfg(windows)]
+#[path = "chooser_windows.rs"]
+mod chooser;
 mod close_guard;
 mod collection_edit;
 mod collection_interaction;
