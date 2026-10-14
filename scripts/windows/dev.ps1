@@ -42,6 +42,15 @@ try {
         $inventory = @(& $cargo test --locked --no-default-features --bin strata -- --list)
         if ($LASTEXITCODE -ne 0) { throw "Windows test inventory failed." }
         $cases = @(
+            # Native Windows operation regressions. Keep this inventory in
+            # sync with the tests embedded in local_operations_windows.rs so
+            # the developer workflow exercises the functionality added by
+            # the Windows integration branch.
+            "native_rename_never_clobbers_an_existing_file",
+            "native_rename_supports_folders_and_undo_without_copying",
+            "native_move_batch_reports_partial_completion_without_overwriting",
+            "native_batch_copy_reports_created_paths_and_original_sources",
+            "cancelled_operations_keep_polling_until_the_native_queue_is_drained",
             "windows_keeps_saved_action_but_never_executes_a_process_tree",
             "windows_refuses_reparse_action_roots_without_following_them",
             "windows_directory_index_obeys_hidden_attribute_not_dot_prefix",
