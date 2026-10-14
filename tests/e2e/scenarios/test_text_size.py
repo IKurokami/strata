@@ -101,18 +101,30 @@ def test_settings_text_size_keeps_switches_inside_the_page(strata, request):
 def _reveal_page_control(strata, name, role="button"):
     node = strata.wait(lambda: strata.window.find(role=role, name=name, rendered=False), f"{name} control")
     scroll = next(parent for parent in node.ancestors() if parent.role == "scroll pane")
-    # Position distant controls directly instead of jumping between pages.
+    # The initial request is cheap when GTK implements component scrolling.
     node.scroll_into_view()
+    scrollbar = scroll.find(role="scroll bar", rendered=False)
 
     def revealed():
         if _inside_scroll_view(node):
             return True
         viewport = scroll.screen_bounds()
+        bounds = node.screen_bounds()
+        # At large font sizes one mouse-wheel notch can move farther than a
+        # button is tall, oscillating across it forever. GTK exposes the scroll
+        # adjustment through AT-SPI Value; aim the control at the viewport's
+        # center instead of relying on coarse wheel steps. Keep the geometric
+        # visibility assertion above as the authority.
+        if scrollbar is not None:
+            position = scrollbar.numeric_value
+            if position is not None:
+                offset = (bounds.y + bounds.height // 2) - (viewport.y + viewport.height // 2)
+                if scrollbar.set_numeric_value(position + offset):
+                    return False
         # Stay in the content gutter: the scrollbar scrolls by whole pages,
         # which can jump over a control without ever showing all of it.
         # The nested theme library ends before this gutter.
         at = (viewport.x + viewport.width - 16, viewport.y + viewport.height // 2)
-        bounds = node.screen_bounds()
         below = bounds.y + bounds.height - (viewport.y + viewport.height)
         above = viewport.y - bounds.y
         # Large text makes General several viewports tall. Traverse distant
