@@ -341,13 +341,18 @@ impl OperationProvider for LocalOperationProvider {
         request: UndoRenameRequest,
         emit: Rc<dyn Fn(OperationEvent)>,
     ) -> LoadHandle {
-        let (Some(source), Some(target)) =
-            (request.current.native_path(), request.original.native_path())
-        else {
+        let (Some(source), Some(target)) = (
+            request.current.native_path(),
+            request.original.native_path(),
+        ) else {
             return rejected(request.id, emit, "Windows undo rename requires local paths");
         };
         if source.parent().is_none() || source.parent() != target.parent() {
-            return rejected(request.id, emit, "Undo rename must stay in the original folder");
+            return rejected(
+                request.id,
+                emit,
+                "Undo rename must stay in the original folder",
+            );
         }
         if !target
             .file_name()
