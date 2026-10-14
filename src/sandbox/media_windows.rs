@@ -192,6 +192,10 @@ fn decode_audio(
         .args([
             "-ss",
             &format!("{:.3}", start_tick as f64 / FPS as f64),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-nostdin",
             "-f",
             "s16le",
             "-ac",
@@ -222,7 +226,12 @@ fn decode_audio(
             let _ = child.kill();
             return Ok(());
         }
-        let mut samples = vec![0; crate::media::AUDIO_BYTES];
+        let chunk_bytes = if tick == start_tick {
+            crate::media::AUDIO_BYTES * (crate::media::AUDIO_LEAD_TICKS as usize + 1)
+        } else {
+            crate::media::AUDIO_BYTES
+        };
+        let mut samples = vec![0; chunk_bytes];
         let mut read = 0;
         while read < samples.len() {
             let count = stdout
