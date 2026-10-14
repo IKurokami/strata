@@ -110,9 +110,9 @@ fn decode_video(
     let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut child = Command::new(ffmpeg)
-        .args(["-v", "error", "-ss", &format!("{:.3}", start_tick as f64 / FPS as f64), "-i"])
+        .args(["-v", "error", "-i"])
         .arg(&source.path)
-        .args(["-vf", &format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=rgba"), "-f", "rawvideo", "-r", "30", "pipe:1"])
+        .args(["-ss", &format!("{:.3}", start_tick as f64 / FPS as f64), "-vf", &format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=rgba"), "-f", "rawvideo", "-r", "30", "pipe:1"])
         .stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| format!("Unable to start ffmpeg: {e}"))?;
     let mut stdout = child
         .stdout
@@ -185,16 +185,21 @@ fn decode_audio(
     let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut child = Command::new(ffmpeg)
+        .args(["-v", "error", "-i"])
+        .arg(&source.path)
+        // Accurate seek follows the input so restart does not land on an
+        // earlier keyframe. PcmOutput expects interleaved signed 16-bit data.
         .args([
-            "-v",
-            "error",
             "-ss",
             &format!("{:.3}", start_tick as f64 / FPS as f64),
-            "-i",
+            "-f",
+            "s16le",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "pipe:1",
         ])
-        .arg(&source.path)
-        // PcmOutput advertises interleaved signed 16-bit stereo samples.
-        .args(["-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
