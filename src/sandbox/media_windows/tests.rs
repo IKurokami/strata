@@ -23,3 +23,86 @@ fn cancellation_releases_a_full_packet_queue() {
     }
     assert!(worker.join().expect("worker").is_err());
 }
+
+fn generated_media(extension: &str, args: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("temporary media fixture");
+    let path = dir.path().join(format!("preview.{extension}"));
+    let result = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"))
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y"])
+        .args(args)
+        .arg(&path)
+        .output()
+        .expect("bundled ffmpeg must be available");
+    assert!(
+        result.status.success(),
+        "fixture encoder failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    (dir, path)
+}
+
+fn test_source(path: std::path::PathBuf, audio_only: bool) -> SandboxedMedia {
+    SandboxedMedia {
+        path,
+        size: crate::services::MediaPreviewSize::new(96, 64),
+        backend: crate::sandbox::MediaPreviewBackend::Software,
+        input_owner: None,
+        audio_only,
+    }
+}
+
+fn first_frame(session: &Session) -> (Header, Frame) {
+    let until = Instant::now() + Duration::from_secs(12);
+    let mut header = None;
+    while Instant::now() < until {
+        match session.receive() {
+            Some(Event::Prepared(value)) => header = Some(value),
+            Some(Event::Packet(Packet::Frame(frame))) => {
+                return (header.expect("header before pixels/PCM"), frame);
+            }
+            Some(Event::Failed(error)) => panic!("decoder failure: {error}"),
+            Some(Event::Packet(Packet::End(_))) => panic!("no media frame was decoded"),
+            None => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    panic!("media decoder did not return a first frame within 12 seconds");
+}
+
+#[test]
+fn windows_mp3_preview_emits_pcm() {
+    let (_dir, path) = generated_media("mp3", &[
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        "-t", "1", "-c:a", "libmp3lame",
+    ]);
+    let session = Session::start(test_source(path, true), 0).expect("MP3 session");
+    let (header, frame) = first_frame(&session);
+    assert!(header.audio);
+    assert_eq!(header.width, 0);
+    assert_eq!(header.height, 0);
+    assert_eq!(
+        frame.samples.len(),
+        crate::media::audio_bytes(header, frame.tick)
+    );
+    assert!(frame.samples.iter().any(|byte| *byte != 0), "no audible samples");
+}
+
+#[test]
+fn windows_video_preview_keeps_audio() {
+    let (_dir, path) = generated_media("mp4", &[
+        "-f", "lavfi", "-i", "color=c=red:size=64x64:rate=30",
+        "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+        "-t", "1", "-c:v", "mpeg4", "-c:a", "aac",
+        "-pix_fmt", "yuv420p", "-shortest",
+    ]);
+    let session = Session::start(test_source(path, false), 0).expect("video session");
+    let (header, frame) = first_frame(&session);
+    assert!(header.audio, "video audio track was lost");
+    assert_eq!(header.width, 96);
+    assert_eq!(header.height, 64);
+    assert_eq!(frame.pixels.len(), header.video_bytes());
+    assert_eq!(
+        frame.samples.len(),
+        crate::media::audio_bytes(header, frame.tick)
+    );
+    assert!(frame.samples.iter().any(|byte| *byte != 0), "silent video preview");
+}
