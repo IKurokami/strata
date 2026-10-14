@@ -1628,7 +1628,7 @@ impl PreviewState {
                 let is_gif = preview.content_type == "image/gif";
                 let family = media_family(&preview.content_type);
                 let handed_off = self.handed_off.borrow().as_ref() == Some(&preview.entry.location);
-                source.audio_only = family == Some(MediaFamily::Audio);
+                source.audio_only |= family == Some(MediaFamily::Audio);
                 let media =
                     super::media::DecodedMedia::new(source.clone()).upcast::<gtk::MediaStream>();
                 self.media.replace(Some(media.clone()));
