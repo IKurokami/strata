@@ -159,6 +159,7 @@ impl PreviewCache {
 fn preview_content_size(content: &PreviewContent) -> usize {
     match content {
         PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => png.len(),
+        PreviewContent::RawImage { pixels, .. } => pixels.len(),
         PreviewContent::Pdf {
             png, text_layer, ..
         } => {
@@ -548,6 +549,7 @@ impl LocalPreviewProvider {
                 | PreviewContent::Document { .. }
                 | PreviewContent::Rendered { .. }
                 | PreviewContent::Rasterized { .. }
+                | PreviewContent::RawImage { .. }
                 | PreviewContent::SandboxedMedia { .. }
                 | PreviewContent::Archive { .. }
                 | PreviewContent::Unsupported => None,
@@ -673,6 +675,12 @@ impl LocalPreviewProvider {
                             pages: output.pages,
                             text_layer: output.text_layer.map(std::sync::Arc::new),
                         }
+                    }
+                    #[cfg(windows)]
+                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewImage)
+                        && output.raster_dimensions.is_some() => {
+                        let (width, height) = output.raster_dimensions.expect("validated image dimensions");
+                        PreviewContent::RawImage { width, height, pixels: output.data }
                     }
                     Ok(Ok(output)) => {
                         if let Some(mtime) = modified.filter(|_| !matches!(operation, ParseOperation::PreviewCover(_))) {
