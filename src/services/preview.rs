@@ -210,12 +210,45 @@ fn content_type_for_path(path: &Path) -> glib::GString {
 }
 
 pub(crate) fn is_image_path(path: &Path) -> bool {
-    content_type_for_path(path).starts_with("image/")
+    let content_type = content_type_for_path(path);
+    content_type.starts_with("image/")
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+                )
+            })
 }
 
 pub(crate) fn is_media_path(path: &Path) -> bool {
     let content_type = content_type_for_path(path);
-    content_type.starts_with("audio/") || content_type.starts_with("video/")
+    content_type.starts_with("audio/")
+        || content_type.starts_with("video/")
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "mp3"
+                        | "wav"
+                        | "flac"
+                        | "ogg"
+                        | "m4a"
+                        | "aac"
+                        | "mp4"
+                        | "mkv"
+                        | "mov"
+                        | "avi"
+                        | "webm"
+                        | "wmv"
+                        | "mpeg"
+                        | "mpg"
+                )
+            })
 }
 
 pub(crate) fn supports_remote_video(name: &OsStr) -> bool {
