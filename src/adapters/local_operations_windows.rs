@@ -787,18 +787,22 @@ mod tests {
         let captured = received.clone();
         let emit: Rc<dyn Fn(OperationEvent)> =
             Rc::new(move |event| captured.borrow_mut().push(event));
-        let _handle =
-            async_rename_no_replace(source, target, OperationRequestId(1), emit);
+        let _handle = async_rename_no_replace(source, target, OperationRequestId(1), emit);
         let context = glib::MainContext::default();
         let started = Instant::now();
         while received.borrow().is_empty() {
             while context.pending() {
                 context.iteration(false);
             }
-            assert!(started.elapsed() < Duration::from_secs(10), "rename timed out");
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "rename timed out"
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
-        Rc::try_unwrap(received).expect("callback released").into_inner()
+        Rc::try_unwrap(received)
+            .expect("callback released")
+            .into_inner()
     }
 
     #[test]
@@ -814,8 +818,14 @@ mod tests {
 
         let events = collect_rename(source.clone(), existing.clone());
         assert!(matches!(events.as_slice(), [OperationEvent::Failed { .. }]));
-        assert_eq!(std::fs::read(&source).expect("source retained"), b"original");
-        assert_eq!(std::fs::read(&existing).expect("destination retained"), b"must remain");
+        assert_eq!(
+            std::fs::read(&source).expect("source retained"),
+            b"original"
+        );
+        assert_eq!(
+            std::fs::read(&existing).expect("destination retained"),
+            b"must remain"
+        );
     }
 
     #[test]
@@ -830,14 +840,20 @@ mod tests {
         std::fs::write(source.join("payload.txt"), b"intact").expect("nested fixture");
 
         let events = collect_rename(source.clone(), renamed.clone());
-        assert!(matches!(events.as_slice(), [OperationEvent::Renamed { .. }]));
+        assert!(matches!(
+            events.as_slice(),
+            [OperationEvent::Renamed { .. }]
+        ));
         assert!(!source.exists());
         assert_eq!(
             std::fs::read(renamed.join("payload.txt")).expect("renamed directory"),
             b"intact"
         );
         let undone = collect_rename(renamed.clone(), source.clone());
-        assert!(matches!(undone.as_slice(), [OperationEvent::Renamed { .. }]));
+        assert!(matches!(
+            undone.as_slice(),
+            [OperationEvent::Renamed { .. }]
+        ));
         assert!(!renamed.exists());
         assert_eq!(
             std::fs::read(source.join("payload.txt")).expect("restored directory"),
