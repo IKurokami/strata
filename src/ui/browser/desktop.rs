@@ -37,6 +37,14 @@ pub(in crate::ui) fn open_location_at(
         );
         return;
     }
+    // Windows does not expose every .exe through GIO's desktop application
+    // registry. Resolve and run it directly so GIO cannot reject a valid
+    // native executable with the opaque "Invalid argument" error.
+    #[cfg(windows)]
+    if location.native_path().is_some_and(is_regular_executable) {
+        confirm_run_program(location, parent);
+        return;
+    }
     let file = gio_file_for_location(location);
     let context = parent.as_ref().display().app_launch_context();
     let parent = parent.as_ref().downgrade();

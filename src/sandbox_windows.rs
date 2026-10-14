@@ -5,6 +5,8 @@
 //! workaround. A bounded, ACL-isolated Windows process + Job Object is required
 //! before any of these operations may be enabled.
 use std::{
+    fs,
+    io::Cursor,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -191,17 +193,64 @@ const UNSUPPORTED: &str =
 /// Fail closed without reading a file or spawning a child. Callers already
 /// execute preview work on independent background workers.
 pub(crate) fn parse(
-    _input: &Path,
-    _operation: ParseOperation,
+    input: &Path,
+    operation: ParseOperation,
     _value: i32,
     _media_backend: MediaPreviewBackend,
     cancellation: &Cancellation,
 ) -> Result<ParseOutput, String> {
     if cancellation.is_cancelled() {
-        Err("Preview cancelled".to_owned())
-    } else {
-        Err(UNSUPPORTED.to_owned())
+        return Err("Preview cancelled".to_owned());
     }
+    let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Preview input is not a regular file".to_owned());
+    }
+    const MAX_SAFE_READ: u64 = 32 * 1024 * 1024;
+    if metadata.len() > MAX_SAFE_READ {
+        return Err("Preview input exceeds the supported size limit".to_owned());
+    }
+    let bytes = fs::read(input).map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    let image_operation = matches!(
+        operation,
+        ParseOperation::ThumbnailImage
+            | ParseOperation::PreviewImage
+            | ParseOperation::InspectImage
+            | ParseOperation::ConvertImage
+            | ParseOperation::DocumentImage
+    );
+    if image_operation {
+        let image = image::ImageReader::new(Cursor::new(&bytes))
+            .with_guessed_format()
+            .map_err(|error| format!("Unable to identify image: {error}"))?
+            .decode()
+            .map_err(|error| format!("Unable to decode image: {error}"))?;
+        let mut output = Cursor::new(Vec::new());
+        image
+            .write_to(&mut output, image::ImageFormat::Png)
+            .map_err(|error| format!("Unable to encode image preview: {error}"))?;
+        return Ok(ParseOutput {
+            data: output.into_inner(),
+            page: 0,
+            pages: 0,
+            text_layer: None,
+        });
+    }
+    if matches!(
+        operation,
+        ParseOperation::PreviewMedia(_) | ParseOperation::PreviewAudio(_)
+    ) {
+        return Err("Windows media preview requires an isolated decoder worker".to_owned());
+    }
+    Ok(ParseOutput {
+        data: bytes,
+        page: 0,
+        pages: 0,
+        text_layer: None,
+    })
 }
 
 pub(crate) fn parse_with_progress(
