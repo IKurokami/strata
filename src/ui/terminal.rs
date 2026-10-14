@@ -3,7 +3,9 @@
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
+#[cfg(not(windows))]
+use std::process::Stdio;
 
 #[cfg(test)]
 mod tests;
@@ -185,6 +187,10 @@ impl Terminal {
     fn base(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.leading);
+        // Linux GUI terminals manage their own pseudo-terminal and do not need
+        // inherited handles. Native Windows PowerShell/cmd *do* need interactive
+        // console input/output: redirecting to NUL makes them unusable.
+        #[cfg(not(windows))]
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
