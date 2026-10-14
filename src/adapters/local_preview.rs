@@ -286,7 +286,11 @@ impl LocalPreviewProvider {
                     content_type = "image/*".to_owned();
                 } else if is_media_path(Path::new(&entry.native_name)) {
                     content = PreviewContent::Media;
-                    content_type = "video/*".to_owned();
+                    content_type = if crate::services::is_audio_path(Path::new(&entry.native_name)) {
+                        "audio/*"
+                    } else {
+                        "video/*"
+                    }.to_owned();
                 }
             }
 
@@ -507,13 +511,7 @@ impl LocalPreviewProvider {
                     backend: media_preview_backend,
                     input_owner: None,
                     audio_only: content_type.starts_with("audio/")
-                        || matches!(
-                            Path::new(&entry.native_name)
-                                .extension()
-                                .and_then(std::ffi::OsStr::to_str)
-                                .map(|extension| extension.to_ascii_lowercase()),
-                            Some(extension) if matches!(extension.as_str(), "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac")
-                        ),
+                        || crate::services::is_audio_path(Path::new(&entry.native_name)),
                 };
                 if let Some(staged) = staged {
                     media = media.retain_input(staged);
