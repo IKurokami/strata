@@ -68,7 +68,10 @@ pub(crate) fn flush_filesystem(_root: &Path) -> io::Result<()> {
 
 enum Success {
     Directory,
-    Copy { source: Location, destination: Location },
+    Copy {
+        source: Location,
+        destination: Location,
+    },
 }
 /// Collect a bounded worker batch into one truthful terminal event.
 /// Successful sources are ordered by the user's request, not worker timing.
@@ -329,7 +332,11 @@ impl OperationProvider for LocalOperationProvider {
         use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
 
         let Some(destination_dir) = request.destination.native_path() else {
-            return rejected(request.id, emit, "Windows copy requires a local destination");
+            return rejected(
+                request.id,
+                emit,
+                "Windows copy requires a local destination",
+            );
         };
         if !matches!(
             classify(destination_dir),
