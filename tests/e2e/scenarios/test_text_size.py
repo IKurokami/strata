@@ -103,7 +103,20 @@ def _reveal_page_control(strata, name, role="button"):
     scroll = next(parent for parent in node.ancestors() if parent.role == "scroll pane")
     # The initial request is cheap when GTK implements component scrolling.
     node.scroll_into_view()
-    scrollbar = scroll.find(role="scroll bar", rendered=False)
+    # Appearance has an independently scrolling theme list nested inside the
+    # Settings page. A recursive find() returns the theme list's scrollbar,
+    # leaving the outer page frozen and the text-size input off-screen.
+    # Select only a scrollbar whose nearest scroll-pane ancestor is the page.
+    scrollbar = next(
+        (
+            bar for bar in scroll.find_all(role="scroll bar", rendered=False)
+            if next(
+                (parent for parent in bar.ancestors() if parent.role == "scroll pane"),
+                None,
+            ) == scroll
+        ),
+        None,
+    )
 
     def revealed():
         if _inside_scroll_view(node):
