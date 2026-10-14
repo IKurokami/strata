@@ -18,7 +18,7 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | Listing local folders | Use lazy streaming batches and Windows-provided type hints | Backend tested, GTK integration pending |
 | Filename search | Preserve Rust matching/scoring; scan without startup index; optional opt-in search index later | Main-app integration pending |
 | Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Recursive directory copy now uses the native worker; reparse points are rejected and existing destinations are preserved |
-| Rename / move | Keep functionality using safe native rename semantics, with prompt on collision/cross-volume move | Not yet implemented |
+| Rename / move | Keep same-volume functionality using safe native rename semantics; add collision and cross-volume handling separately | Same-volume rename/undo and no-clobber batch move are tested; collision policies and cross-volume move remain pending |
 | Recycle Bin | Port to Windows shell recycle semantics | Not yet implemented; **never** fall back to permanent delete |
 | USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Not yet implemented |
 | SMB and network paths | Prefer native UNC; avoid blocking initial local listing on network volumes | Path classification implemented, remote operations unverified |
