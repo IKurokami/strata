@@ -9,9 +9,9 @@ use std::{
     io::Read,
     process::{Child, ChildStdout, Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc, Mutex,
+        mpsc,
     },
     thread,
 };
@@ -104,7 +104,6 @@ fn send(
     }
 }
 
-
 fn terminate_children(children: &Arc<Mutex<Vec<Child>>>) {
     // Child::kill is non-blocking. Holding the lock only for the termination
     // requests makes cancellation independent of a blocked stdout reader.
@@ -133,7 +132,10 @@ fn spawn_decoder(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("Unable to start bundled media decoder: {error}"))?;
-    let stdout = child.stdout.take().ok_or("Media decoder did not open a pipe")?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("Media decoder did not open a pipe")?;
     children
         .lock()
         .map_err(|_| "Media decoder process lock poisoned".to_owned())?
@@ -170,8 +172,18 @@ fn audio_command(source: &SandboxedMedia, start_tick: u32) -> Command {
         .arg("-i")
         .arg(&source.path)
         .args([
-            "-map", "0:a:0", "-vn", "-c:a", "pcm_s16le", "-f", "s16le",
-            "-ac", "2", "-ar", "48000", "pipe:1",
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-c:a",
+            "pcm_s16le",
+            "-f",
+            "s16le",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "pipe:1",
         ]);
     cmd
 }
@@ -196,8 +208,14 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
 fn has_audio(path: &std::path::Path) -> bool {
     Command::new(media_tool("STRATA_FFPROBE", "ffprobe.exe"))
         .args([
-            "-v", "error", "-select_streams", "a:0", "-show_entries",
-            "stream=index", "-of", "csv=p=0",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
         ])
         .arg(path)
         .output()
@@ -281,13 +299,11 @@ fn decode_video(
     }
     send(
         sender,
-        Event::Packet(Packet::End(
-            if duration_us == MAX_DURATION_US {
-                crate::media::timestamp(tick)
-            } else {
-                duration_us.min(crate::media::timestamp(tick))
-            },
-        )),
+        Event::Packet(Packet::End(if duration_us == MAX_DURATION_US {
+            crate::media::timestamp(tick)
+        } else {
+            duration_us.min(crate::media::timestamp(tick))
+        })),
         cancelled,
     )
 }
