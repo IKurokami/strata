@@ -83,7 +83,7 @@ paned > separator:focus-visible {
 headerbar,
 .mode-pane-header {
   background: @strata_surface;
-  border-bottom: 1px solid alpha(@strata_border, 0.6);
+  border: none;
   box-shadow: none;
   min-height: 46px;
   padding: 0;
@@ -200,7 +200,7 @@ headerbar menubutton.header-action > button:focus-visible {
 headerbar.browser-header,
 .mode-pane-header {
   border-bottom: none;
-  box-shadow: inset 0 -1px alpha(@strata_border, 0.6);
+  box-shadow: none;
 }
 
 .tab-strip button.header-action,
