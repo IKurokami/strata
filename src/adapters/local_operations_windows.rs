@@ -1121,6 +1121,82 @@ mod tests {
     }
 
     #[test]
+    fn native_batch_copy_reports_created_paths_and_original_sources() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary tree");
+        let dest = root.path().join("copied");
+        std::fs::create_dir(&dest).expect("destination");
+        let first = root.path().join("first.txt");
+        let second = root.path().join("second.txt");
+        std::fs::write(&first, b"alpha").expect("first fixture");
+        std::fs::write(&second, b"beta").expect("second fixture");
+        let sources = vec![Location::local(first.clone()), Location::local(second.clone())];
+        let request = PasteRequest {
+            id: OperationRequestId(50),
+            destination: Location::local(dest.clone()),
+            items: sources
+                .iter()
+                .cloned()
+                .map(|source| crate::services::PasteItem {
+                    source,
+                    conflict: TransferConflict::FailIfExists,
+                })
+                .collect(),
+            move_sources: false,
+        };
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+        let provider = LocalOperationProvider::default();
+        let _handle = provider.paste(request, emit);
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        loop {
+            while context.pending() {
+                context.iteration(false);
+            }
+            if events
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, OperationEvent::Pasted { .. }))
+            {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "batch copy timed out"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(std::fs::read(dest.join("first.txt")).expect("first copy"), b"alpha");
+        assert_eq!(std::fs::read(dest.join("second.txt")).expect("second copy"), b"beta");
+        assert_eq!(std::fs::read(&first).expect("original first"), b"alpha");
+        assert_eq!(std::fs::read(&second).expect("original second"), b"beta");
+        let observed = events.borrow();
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    OperationEvent::TransferProgress {
+                        created_location: Some(_),
+                        ..
+                    }
+                ))
+                .count(),
+            2,
+            "every completed file must enter the browser's undo ledger"
+        );
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            OperationEvent::Pasted { locations, .. } if locations == &sources
+        )));
+    }
+
+    #[test]
     fn cancelled_operations_keep_polling_until_the_native_queue_is_drained() {
         let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
             .lock()

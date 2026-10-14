@@ -115,7 +115,8 @@ jobs:
             private_preview_helper_rejects_execution \
             native_rename_never_clobbers_an_existing_file \
             native_rename_supports_folders_and_undo_without_copying \
-            native_move_batch_reports_partial_completion_without_overwriting; do
+            native_move_batch_reports_partial_completion_without_overwriting \
+            native_batch_copy_reports_created_paths_and_original_sources; do
             if ! grep -Fq "${name}: test" target/windows-test-inventory.txt; then
               echo "Windows-only regression test missing: ${name}" >&2
               exit 1

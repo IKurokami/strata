@@ -10,7 +10,7 @@ Preserve every user-facing Linux capability that can be ported or reimplemented 
 
 | Priority | User-visible capability | Evidence in fork main | Windows completion gate |
 | --- | --- | --- | --- |
-| P0 | Rename, move, batch paste, overwrite/keep-both, merge, undo | This branch now enables native asynchronous no-overwrite rename/undo rename and same-volume batch move/undo; copy batches, cross-volume moves, conflict policies and merge/undo merge still explicitly reject. | Validate Win32 GTK regression cases, case-only rename, cross-volume copy-verify-delete, conflict UI, undo and cancellation |
+| P0 | Rename, move, batch paste, overwrite/keep-both, merge, undo | This branch now enables native asynchronous no-overwrite rename/undo rename, same-volume batch move/undo and no-clobber file batch copy. Cross-volume moves, recursive folder copy, conflict policies, Recycle Bin-dependent undo and merge/undo merge still explicitly reject. | Validate Win32 GTK regression cases, case-only rename, cross-volume copy-verify-delete, conflict UI, undo and cancellation |
 | P0 | Move to Recycle Bin / restore | `src/adapters/trash_restore_windows.rs` always refuses; Windows adapter does not substitute permanent delete | Shell recycle contract with verified item identity/original location, restore and undo tests |
 | P0 | Image/PDF/document/video/audio/RAW previews, file thumbnails | `src/sandbox_windows.rs`, `src/sandbox/browser_windows.rs`, `src/sandbox/media_windows.rs`, `src/sandbox_helper_windows.rs` fail closed by design | Restricted decoder worker using Job Objects / Windows isolation and authenticated bounded IPC; then enable families incrementally |
 | P1 | Browse/compress/extract archives | `src/adapters/local_operations_windows.rs` rejects native archive mutation and direct archive preview | Sandboxed codecs; destination traversal protection, atomic publish, cancellation |
@@ -95,3 +95,10 @@ Run cold and warm measurements (distinct samples) on Windows 11, NTFS SSD, HDD, 
 - Native Windows tests verify existing-file preservation, directory rename + inverse, and partial batch completion on a destination collision. The Windows linked-EXE CI now runs these tests explicitly, rather than merely compiling them.
 - These moves intentionally reject cross-filesystem fallback rather than silently copy+delete. Operations stay asynchronous, so the GUI main loop never performs a synchronous move.
 - The user-facing parity debt remains substantial: direct Windows Recycle Bin/restore, sandboxed previews/thumbnails, archive mutation, cross-volume transfer/merge, SFTP/provider IPC, volume management and verified updater remain separate gated milestones.
+
+### Windows batch copy and undo-bookkeeping correction
+
+- The native mutation service now supports multi-file copy requests through bounded workers, using the existing exclusive scratch-file plus NTFS no-overwrite hard-link publication per file. This avoids accidentally exposing incomplete destination data.
+- `OperationEvent::Pasted.locations` now correctly reports **source** paths, consistent with the Linux event consumer; `TransferProgress.created_location` reports the actual published **destination**. The latter is required to construct an accurate undo record even when completion order differs from request order.
+- Out-of-order completions are aggregated into one final success or partial failure event and sorted back into requested order; the browser does not receive a premature terminal `Pasted` while other copies are still running.
+- The Windows linked binary CI exercises the event contract with two real files, native rename, and partial batch move. Note that true copy *undo* remains disabled until native Recycle Bin integration exists.
