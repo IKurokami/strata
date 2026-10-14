@@ -26,6 +26,14 @@ if (Test-Path -LiteralPath $Destination) {
 $stageBin = Join-Path $Destination "bin"
 New-Item -ItemType Directory -Path $stageBin -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination (Join-Path $stageBin "strata.exe")
+# Ship the media decoders alongside Strata; no machine-level codec installation.
+foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
+    $source = Join-Path $runtimeBin $name
+    if (-not (Test-Path -LiteralPath $source)) {
+        throw "Required bundled media decoder missing: $source"
+    }
+    Copy-Item -LiteralPath $source -Destination (Join-Path $stageBin $name)
+}
 
 # GTK/GIO/GdkPixbuf/GStreamer resources are loaded dynamically. Keep the
 # MSYS2-relative layout so the staged launcher can resolve them locally.
@@ -73,6 +81,8 @@ function Queue-Binary([string]$Path) {
     if ($queued.Add($Path)) { $queue.Enqueue($Path) }
 }
 Queue-Binary (Join-Path $stageBin "strata.exe")
+Queue-Binary (Join-Path $stageBin "ffmpeg.exe")
+Queue-Binary (Join-Path $stageBin "ffprobe.exe")
 Queue-Binary $scannerDest
 foreach ($relative in @("lib/gio", "lib/gdk-pixbuf-2.0", "lib/gstreamer-1.0")) {
     $dir = Join-Path $Destination $relative
@@ -172,6 +182,8 @@ set "GST_PLUGIN_SCANNER=%~dp0libexec\gstreamer-1.0\gst-plugin-scanner.exe"
 set "GDK_PIXBUF_MODULE_FILE=%~dp0lib\gdk-pixbuf-2.0\2.10.0\loaders.cache"
 set "GDK_PIXBUF_MODULEDIR=%~dp0lib\gdk-pixbuf-2.0\2.10.0\loaders"
 set "FONTCONFIG_PATH=%~dp0etc\fonts"
+set "STRATA_FFMPEG=%~dp0bin\ffmpeg.exe"
+set "STRATA_FFPROBE=%~dp0bin\ffprobe.exe"
 "%~dp0bin\strata.exe" %*
 exit /b %ERRORLEVEL%
 '@
@@ -183,7 +195,7 @@ STRATA WINDOWS DEVELOPER BUILD — NOT A RELEASE
 Start with Start-Strata.cmd, not from a globally installed MSYS2 terminal.
 This bundle contains the recursively linked UCRT64 runtime and GTK resources,
 but full GTK first-paint and filesystem integration tests remain outstanding.
-Rich previews, Recycle Bin/undo, package updates and external providers are
+Isolated rich previews, Recycle Bin/undo, package updates and external providers are
 deliberately unavailable until secure Windows-native implementations exist.
 Do not install this bundle as a system-level file manager or request UAC.
 
@@ -201,6 +213,8 @@ $start.UseShellExecute = $false
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 $start.Environment["PATH"] = "$stageBin;$($env:SystemRoot)\System32;$($env:SystemRoot)"
+$start.Environment["STRATA_FFMPEG"] = Join-Path $stageBin "ffmpeg.exe"
+$start.Environment["STRATA_FFPROBE"] = Join-Path $stageBin "ffprobe.exe"
 $start.Environment["GSETTINGS_SCHEMA_DIR"] = Join-Path $Destination "share/glib-2.0/schemas"
 $start.Environment["GIO_EXTRA_MODULES"] = Join-Path $Destination "lib/gio/modules"
 $start.Environment["GST_PLUGIN_SYSTEM_PATH"] = Join-Path $Destination "lib/gstreamer-1.0"
