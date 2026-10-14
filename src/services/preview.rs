@@ -125,6 +125,12 @@ pub enum PreviewContent {
     Rasterized {
         png: Vec<u8>,
     },
+    /// Windows direct-upload image: decoded once to tightly packed RGBA.
+    RawImage {
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    },
     Model {
         png: Vec<u8>,
     },
