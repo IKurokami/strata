@@ -228,6 +228,10 @@ pub(crate) fn parse(
             .map_err(|error| format!("Unable to identify image: {error}"))?
             .decode()
             .map_err(|error| format!("Unable to decode image: {error}"))?;
+        // The preview pane never needs source resolution. Downscale before
+        // PNG encoding so a 12k photo does not block the worker or allocate a
+        // multi-hundred-megapixel intermediate texture.
+        let image = image.thumbnail(1280, 1280);
         let mut output = Cursor::new(Vec::new());
         image
             .write_to(&mut output, image::ImageFormat::Png)
