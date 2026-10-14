@@ -41,10 +41,6 @@ pub(super) struct Header {
 }
 
 impl Header {
-    pub(super) fn widget(&self) -> &gtk::HeaderBar {
-        &self.widget
-    }
-
     pub(super) fn new(
         window: &gtk::ApplicationWindow,
         browser: &BrowserView,
@@ -221,6 +217,7 @@ pub(super) fn browser_layout(
     preferences: &Rc<PreferenceManager>,
 ) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    root.append(&header.widget);
     bind_pin_handlers(browser, sidebar);
     let preview_for_print = preview.clone();
     browser.set_print_handler(Rc::new(move |entry| preview_for_print.print_entry(entry)));
