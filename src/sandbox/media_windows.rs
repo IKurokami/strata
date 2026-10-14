@@ -103,7 +103,7 @@ fn decode_video(
     sender: &mpsc::SyncSender<Event>,
 ) -> Result<(), String> {
     if source.audio_only {
-        return Err("Windows audio preview is not available yet".into());
+        return decode_audio(source, start_tick, cancelled, sender);
     }
     let width = source.size.width.clamp(16, 1280) as u32;
     let height = source.size.height.clamp(16, 1280) as u32;
@@ -174,6 +174,80 @@ fn decode_video(
         cancelled,
     )?;
     Ok(())
+}
+
+fn decode_audio(
+    source: SandboxedMedia,
+    start_tick: u32,
+    cancelled: &AtomicBool,
+    sender: &mpsc::SyncSender<Event>,
+) -> Result<(), String> {
+    let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
+    let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
+    let mut child = Command::new(ffmpeg)
+        .args([
+            "-v",
+            "error",
+            "-ss",
+            &format!("{:.3}", start_tick as f64 / FPS as f64),
+            "-i",
+        ])
+        .arg(&source.path)
+        .args(["-f", "f32le", "-ac", "2", "-ar", "48000", "pipe:1"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Unable to start ffmpeg audio decoder: {error}"))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or("ffmpeg did not provide audio output")?;
+    let header = Header {
+        width: 0,
+        height: 0,
+        audio: true,
+        duration_us,
+        start_tick,
+    };
+    send(sender, Event::Prepared(header), cancelled)?;
+    let mut tick = start_tick;
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            let _ = child.kill();
+            return Ok(());
+        }
+        let mut samples = vec![0; crate::media::AUDIO_BYTES];
+        let mut read = 0;
+        while read < samples.len() {
+            let count = stdout
+                .read(&mut samples[read..])
+                .map_err(|error| error.to_string())?;
+            if count == 0 {
+                break;
+            }
+            read += count;
+        }
+        if read == 0 {
+            break;
+        }
+        samples.truncate(read);
+        send(
+            sender,
+            Event::Packet(Packet::Frame(Frame {
+                tick,
+                pixels: Vec::new(),
+                samples,
+            })),
+            cancelled,
+        )?;
+        tick = tick.saturating_add(1);
+    }
+    let _ = child.wait();
+    send(
+        sender,
+        Event::Packet(Packet::End((tick as u64 * 1_000_000) / FPS as u64)),
+        cancelled,
+    )
 }
 
 fn probe_duration(path: &std::path::Path) -> Option<u64> {

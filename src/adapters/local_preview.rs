@@ -506,7 +506,14 @@ impl LocalPreviewProvider {
                     size: request.media_size,
                     backend: media_preview_backend,
                     input_owner: None,
-                    audio_only: false,
+                    audio_only: content_type.starts_with("audio/")
+                        || matches!(
+                            Path::new(&entry.native_name)
+                                .extension()
+                                .and_then(std::ffi::OsStr::to_str)
+                                .map(|extension| extension.to_ascii_lowercase()),
+                            Some(extension) if matches!(extension.as_str(), "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac")
+                        ),
                 };
                 if let Some(staged) = staged {
                     media = media.retain_input(staged);
