@@ -589,6 +589,7 @@ impl DecodedMedia {
         }
         if let Some(header) = imp.header.get() {
             let position = (media::timestamp(header.start_tick) + relative)
+                .max(imp.position.get())
                 .min(imp.end.get().unwrap_or(header.duration_us));
             if position != imp.position.get() {
                 imp.last_progress.set(Some(Instant::now()));

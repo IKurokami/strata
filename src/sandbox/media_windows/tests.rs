@@ -140,6 +140,6 @@ fn windows_video_preview_keeps_audio() {
 
 #[test]
 fn video_output_fits_the_source_aspect_ratio_without_padding() {
-    assert_eq!(fitted_video_size(520, 800, 1920, 1080), (520, 292));
-    assert_eq!(fitted_video_size(520, 800, 1080, 1920), (450, 800));
+    assert_eq!(fitted_video_size(520, 800, 1920.0, 1080.0), (520, 292));
+    assert_eq!(fitted_video_size(520, 800, 1080.0, 1920.0), (450, 800));
 }

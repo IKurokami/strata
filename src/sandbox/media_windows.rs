@@ -20,7 +20,7 @@ pub(crate) const MAX_WORKERS: usize = 4;
 
 #[cfg(test)]
 #[path = "media_windows/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 pub(crate) enum Event {
     Prepared(Header),
@@ -214,7 +214,7 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
     cmd
 }
 
-fn probe_video_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
+fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> {
     let ffprobe = media_tool("STRATA_FFPROBE", "ffprobe.exe");
     let output = Command::new(ffprobe)
         .args([
@@ -223,43 +223,59 @@ fn probe_video_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height",
+            "stream=width,height,sample_aspect_ratio:stream_side_data=rotation",
             "-of",
-            "csv=p=0:s=x",
+            "json",
         ])
         .arg(path)
         .output()
-        .ok()?;
-    let dimensions = String::from_utf8_lossy(&output.stdout);
-    let (width, height) = dimensions.trim().split_once('x')?;
-    let width = width.parse::<u32>().ok()?;
-    let height = height.parse::<u32>().ok()?;
-    (width > 0 && height > 0).then_some((width, height))
+        .map_err(|error| error.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    let stream = &value["streams"][0];
+    let width = stream["width"].as_u64().unwrap_or(0);
+    let height = stream["height"].as_u64().unwrap_or(0);
+    if !output.status.success()
+        || width == 0
+        || height == 0
+        || width
+            .checked_mul(height)
+            .is_none_or(|pixels| pixels > 50_000_000)
+    {
+        return Err(crate::i18n::tr("Unsupported source dimensions"));
+    }
+    let sar = stream["sample_aspect_ratio"]
+        .as_str()
+        .and_then(|sar| sar.split_once(':'))
+        .and_then(|(n, d)| Some(n.parse::<f64>().ok()? / d.parse::<f64>().ok()?))
+        .filter(|sar| sar.is_finite() && *sar > 0.0 && *sar < 100.0)
+        .unwrap_or(1.0);
+    let (mut width, mut height) = (width as f64 * sar, height as f64);
+    if stream["side_data_list"].as_array().is_some_and(|data| {
+        data.iter().any(|entry| {
+            entry["rotation"]
+                .as_i64()
+                .is_some_and(|rotation| rotation.rem_euclid(180) == 90)
+        })
+    }) {
+        std::mem::swap(&mut width, &mut height);
+    }
+    Ok((width, height))
 }
 
 fn fitted_video_size(
     requested_width: u32,
     requested_height: u32,
-    source_width: u32,
-    source_height: u32,
+    source_width: f64,
+    source_height: f64,
 ) -> (u32, u32) {
-    let requested_width = requested_width.max(16);
-    let requested_height = requested_height.max(16);
-    let source_width = source_width.max(1);
-    let source_height = source_height.max(1);
-    if u64::from(requested_width) * u64::from(source_height)
-        <= u64::from(requested_height) * u64::from(source_width)
-    {
-        let height = (u64::from(requested_width) * u64::from(source_height)
-            / u64::from(source_width))
-        .max(2) as u32;
-        (requested_width, height)
-    } else {
-        let width = (u64::from(requested_height) * u64::from(source_width)
-            / u64::from(source_height))
-        .max(2) as u32;
-        (width, requested_height)
-    }
+    let scale = (f64::from(requested_width) / source_width)
+        .min(f64::from(requested_height) / source_height)
+        .min(1.0);
+    (
+        (source_width * scale).floor().max(1.0) as u32,
+        (source_height * scale).floor().max(1.0) as u32,
+    )
 }
 
 fn has_audio(path: &std::path::Path) -> bool {
@@ -291,8 +307,7 @@ fn decode_video(
     }
     let requested_width = source.size.width.clamp(16, 1280) as u32;
     let requested_height = source.size.height.clamp(16, 1280) as u32;
-    let (source_width, source_height) =
-        probe_video_dimensions(&source.path).unwrap_or((requested_width, requested_height));
+    let (source_width, source_height) = probe_video_dimensions(&source.path)?;
     let (width, height) = fitted_video_size(
         requested_width,
         requested_height,
