@@ -41,28 +41,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Windows application test compilation failed." }
         $inventory = @(& $cargo test --locked --no-default-features --bin strata -- --list)
         if ($LASTEXITCODE -ne 0) { throw "Windows test inventory failed." }
-        $cases = @(
-            # Native Windows operation regressions. Keep this inventory in
-            # sync with the tests embedded in local_operations_windows.rs so
-            # the developer workflow exercises the functionality added by
-            # the Windows integration branch.
-            "native_rename_never_clobbers_an_existing_file",
-            "native_rename_supports_folders_and_undo_without_copying",
-            "native_move_batch_reports_partial_completion_without_overwriting",
-            "native_batch_copy_reports_created_paths_and_original_sources",
-            "cancelled_operations_keep_polling_until_the_native_queue_is_drained",
-            "windows_keeps_saved_action_but_never_executes_a_process_tree",
-            "windows_refuses_reparse_action_roots_without_following_them",
-            "windows_directory_index_obeys_hidden_attribute_not_dot_prefix",
-            "cannot_install_or_launch_untrusted_archive",
-            "cancellation_precedes_any_installation",
-            "root_confinement_rejects_sibling_and_missing_paths",
-            "refuses_linux_trash_metadata_in_windows_recycle_bin",
-            "untrusted_parse_refused_without_touching_path",
-            "no_external_provider_can_be_discovered_on_windows",
-            "rejects_provider_requests_without_executing_helpers",
-            "private_preview_helper_rejects_execution"
-        )
+        $cases = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot "regression-tests.txt") | Where-Object { $_.Trim() -and -not $_.StartsWith("#") })
+        if ($cases.Count -eq 0) { throw "Windows regression inventory is empty." }
         foreach ($case in $cases) {
             if (-not ($inventory | Where-Object { $_ -like "*${case}: test" })) {
                 throw "Required Windows regression is missing: $case"

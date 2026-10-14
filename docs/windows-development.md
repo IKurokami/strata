@@ -36,8 +36,10 @@ specific folder, use `run -ApplicationArguments 'C:\Users\example\Documents'`.
 The script sets toolchain paths only for its process and restores them afterward;
 it does not change the machine's PATH or Rustup's default toolchain.
 
-The test action runs native I/O tests and the eleven non-GUI Windows safety
-regressions, requiring each regression to exist. GTK interaction tests still
+The test action runs native I/O tests and the Windows safety and filesystem
+regressions in `scripts/windows/regression-tests.txt`, requiring each regression
+to exist. The linked-executable CI workflow uses the same inventory, including
+rename, move, batch copy and cancellation queue draining. GTK interaction tests still
 need a separately isolated display/session; this command does not run them on
 the user's desktop. A successful `--version` alone does not prove first paint.
 

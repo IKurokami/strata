@@ -101,28 +101,15 @@ jobs:
           set -euo pipefail
           cargo test --locked --no-default-features --bin strata -- --list > target/windows-test-inventory.txt
           # Each case must really exist. A 0-tests result is not a pass.
-          for name in \
-            windows_keeps_saved_action_but_never_executes_a_process_tree \
-            windows_refuses_reparse_action_roots_without_following_them \
-            windows_directory_index_obeys_hidden_attribute_not_dot_prefix \
-            cannot_install_or_launch_untrusted_archive \
-            cancellation_precedes_any_installation \
-            root_confinement_rejects_sibling_and_missing_paths \
-            refuses_linux_trash_metadata_in_windows_recycle_bin \
-            untrusted_parse_refused_without_touching_path \
-            no_external_provider_can_be_discovered_on_windows \
-            rejects_provider_requests_without_executing_helpers \
-            private_preview_helper_rejects_execution \
-            native_rename_never_clobbers_an_existing_file \
-            native_rename_supports_folders_and_undo_without_copying \
-            native_move_batch_reports_partial_completion_without_overwriting \
-            native_batch_copy_reports_created_paths_and_original_sources; do
+          test -s scripts/windows/regression-tests.txt
+          while IFS= read -r name; do
+            name="${name%$'\r'}"
             if ! grep -Fq "${name}: test" target/windows-test-inventory.txt; then
               echo "Windows-only regression test missing: ${name}" >&2
               exit 1
             fi
             cargo test --locked --no-default-features --bin strata "${name}" -- --test-threads=1
-          done
+          done < scripts/windows/regression-tests.txt
 
       - name: Package UCRT64 runtime and test executable without MSYS2 PATH
         shell: pwsh
