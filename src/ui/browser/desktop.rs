@@ -360,3 +360,89 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
         );
     }
 }
+
+
+/// Open a local item in the native Windows Explorer without using cmd.exe,
+/// PowerShell, Shell extensions in-process, registry writes or elevation.
+#[cfg(windows)]
+pub(super) fn open_in_explorer(
+    location: &Location,
+    select_item: bool,
+    parent: &impl IsA<gtk::Widget>,
+) {
+    let Some(path) = location.native_path() else {
+        return;
+    };
+    if is_trash_location(location) {
+        return;
+    }
+    let result = explorer_command(path, select_item)
+        .and_then(terminal::spawn_reaped);
+    if let Err(error) = result {
+        tracing::warn!(%error, "unable to open Windows File Explorer");
+        show_error_dialog(
+            parent,
+            &crate::i18n::tr("Unable to open item"),
+            &crate::services::io_error_detail(&error),
+        );
+    }
+}
+
+#[cfg(windows)]
+fn explorer_command(path: &Path, select_item: bool) -> std::io::Result<Command> {
+    use std::ffi::OsString;
+
+    if !path.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Explorer requires an absolute local path",
+        ));
+    }
+    // Never resolve "explorer.exe" through the current folder or an untrusted PATH.
+    let windows = std::env::var_os("SystemRoot").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Windows SystemRoot is unavailable",
+        )
+    })?;
+    let mut command = Command::new(Path::new(&windows).join("explorer.exe"));
+    if select_item {
+        // /select,PATH is one opaque argument: punctuation in filenames is data,
+        // not a command-line fragment to execute.
+        let mut argument = OsString::from("/select,");
+        argument.push(path.as_os_str());
+        command.arg(argument);
+    } else {
+        command.arg(path);
+    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    Ok(command)
+}
+
+#[cfg(all(test, windows))]
+mod windows_explorer_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn explorer_select_passes_a_single_opaque_path_argument() {
+        let path = Path::new(r"C:\folder with spaces\name & (draft).txt");
+        let command = explorer_command(path, true).expect("SystemRoot is configured");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![OsString::from(format!("/select,{}", path.display())).as_os_str()]
+        );
+        assert!(command.get_program().to_string_lossy().to_ascii_lowercase().ends_with("explorer.exe"));
+    }
+
+    #[test]
+    fn explorer_open_folder_uses_plain_path_and_rejects_relative_paths() {
+        let path = Path::new(r"C:\folder with spaces");
+        let command = explorer_command(path, false).expect("SystemRoot is configured");
+        assert_eq!(command.get_args().collect::<Vec<_>>(), vec![path.as_os_str()]);
+        assert!(explorer_command(Path::new(r"relative\file.txt"), true).is_err());
+    }
+}
