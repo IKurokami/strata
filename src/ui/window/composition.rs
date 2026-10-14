@@ -40,10 +40,6 @@ impl WindowContent {
         let browser = super::browser_for_window();
         let preview = layout::preview(&browser, preferences);
         let header = layout::Header::new(window, &browser, &preview, preferences);
-        // The browser header is the single client-side title bar. Installing
-        // it as the GTK titlebar removes the platform decoration while
-        // retaining native drag, maximize and close behavior.
-        window.set_titlebar(Some(header.widget().upcast_ref::<gtk::Widget>()));
         let sidebar = super::build_sidebar(browser.clone(), preferences.clone(), false);
         let root = layout::browser_layout(&browser, &preview, &sidebar, &header, preferences);
         let footer = layout::FooterBinding::new(window, &root, &browser, preferences);
@@ -83,6 +79,7 @@ impl WindowContent {
     }
 
     fn activate_actions(&self, window: &gtk::ApplicationWindow) {
+        window.set_titlebar(Some(self.header.widget()));
         for name in self.actions.list_actions() {
             if let Some(action) = self.actions.lookup_action(&name) {
                 window.add_action(&action);
