@@ -18,6 +18,10 @@ use std::{
 
 pub(crate) const MAX_WORKERS: usize = 4;
 
+#[cfg(test)]
+#[path = "media_windows/tests.rs"]
+mod tests;
+
 pub(crate) enum Event {
     Prepared(Header),
     Packet(Packet),
@@ -41,7 +45,7 @@ impl Session {
             .name("windows-media-helper".into())
             .spawn(move || {
                 if let Err(error) = decode_video(source, start_tick, &stop, &sender) {
-                    let _ = sender.send(Event::Failed(error));
+                    let _ = send(&sender, Event::Failed(error), &stop);
                 }
             })
             .map_err(|error| error.to_string())?;
@@ -74,6 +78,24 @@ impl Drop for Session {
     }
 }
 
+fn send(
+    sender: &mpsc::SyncSender<Event>,
+    mut event: Event,
+    cancelled: &AtomicBool,
+) -> Result<(), String> {
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Preview cancelled".into());
+        }
+        match sender.try_send(event) {
+            Ok(()) => return Ok(()),
+            Err(mpsc::TrySendError::Disconnected(_)) => return Err("Preview closed".into()),
+            Err(mpsc::TrySendError::Full(pending)) => event = pending,
+        }
+        thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 fn decode_video(
     source: SandboxedMedia,
     start_tick: u32,
@@ -103,10 +125,8 @@ fn decode_video(
         duration_us,
         start_tick,
     };
-    sender
-        .send(Event::Prepared(header))
-        .map_err(|_| "Preview closed".to_owned())?;
     let frame_bytes = header.video_bytes();
+    send(sender, Event::Prepared(header), cancelled)?;
     let mut tick = start_tick;
     loop {
         if cancelled.load(Ordering::Acquire) {
@@ -127,27 +147,46 @@ fn decode_video(
         if read == 0 {
             break;
         }
-        pixels.truncate(read);
-        sender
-            .send(Event::Packet(Packet::Frame(Frame {
+        if read != frame_bytes {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Incomplete decoded frame".into());
+        }
+        send(
+            sender,
+            Event::Packet(Packet::Frame(Frame {
                 tick,
                 pixels,
                 samples: Vec::new(),
-            })))
-            .map_err(|_| "Preview closed".to_owned())?;
+            })),
+            cancelled,
+        )
+        .inspect_err(|_| {
+            let _ = child.kill();
+            let _ = child.wait();
+        })?;
         tick = tick.saturating_add(1);
     }
     let _ = child.wait();
-    sender
-        .send(Event::Packet(Packet::End(
-            (tick as u64 * 1_000_000) / FPS as u64,
-        )))
-        .map_err(|_| "Preview closed".to_owned())?;
+    send(
+        sender,
+        Event::Packet(Packet::End((tick as u64 * 1_000_000) / FPS as u64)),
+        cancelled,
+    )?;
     Ok(())
 }
 
 fn probe_duration(path: &std::path::Path) -> Option<u64> {
-    let ffprobe = std::env::var_os("STRATA_FFPROBE").unwrap_or_else(|| "ffprobe".into());
+    let ffprobe = std::env::var_os("STRATA_FFPROBE").unwrap_or_else(|| {
+        std::env::var_os("STRATA_FFMPEG")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.join("ffprobe.exe").into_os_string())
+            })
+            .unwrap_or_else(|| "ffprobe".into())
+    });
     let output = Command::new(ffprobe)
         .args([
             "-v",
