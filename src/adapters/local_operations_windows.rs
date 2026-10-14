@@ -337,7 +337,30 @@ impl OperationProvider for LocalOperationProvider {
         async_rename_no_replace(source.to_path_buf(), target, request.id, emit)
     }
     fn undo_move(&self, request: UndoMoveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(request.id, emit, "Windows undo move is not implemented")
+        // Undo that requires trashing merge-created folders must wait for a
+        // verified Recycle Bin adapter; never destroy those folders silently.
+        if !request.cleanup_locations.is_empty() {
+            return rejected(
+                request.id,
+                emit,
+                "Windows undo merge cleanup requires Recycle Bin integration",
+            );
+        }
+        let mut operations = Vec::with_capacity(request.items.len());
+        for item in &request.items {
+            let (Some(source), Some(target)) = (
+                item.record.current.native_path(),
+                item.record.original.native_path(),
+            ) else {
+                return rejected(request.id, emit, "Windows undo move requires local paths");
+            };
+            operations.push((
+                item.record.current.clone(),
+                source.to_path_buf(),
+                target.to_path_buf(),
+            ));
+        }
+        async_move_paths(request.id, operations, emit)
     }
     fn undo_rename(
         &self,
@@ -449,16 +472,43 @@ fn async_move_items(
         let target = destination_dir.join(name);
         operations.push((item.source.clone(), source.to_path_buf(), target));
     }
+    async_move_paths(request.id, operations, emit)
+}
+
+/// A single validated executor is shared by move and undo-move, keeping
+/// failure/cancellation accounting consistent across both directions.
+fn async_move_paths(
+    id: OperationRequestId,
+    operations: Vec<(Location, std::path::PathBuf, std::path::PathBuf)>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
+
+    // Validate every item before touching any of them. In particular, refuse
+    // device namespace and drive-relative paths even if passed by a caller
+    // other than the ordinary browser UI.
+    for (_, source, target) in &operations {
+        for path in [source, target] {
+            if !matches!(
+                classify(path),
+                PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+            ) || !path.file_name().is_some_and(valid_child_name)
+            {
+                return rejected(id, emit, "Invalid Windows move source or destination");
+            }
+        }
+    }
+
     let cancel = gio::Cancellable::new();
     let task_cancel = cancel.clone();
-    let id = request.id;
-    let destination = request.destination;
     let _task = glib::MainContext::default().spawn_local(async move {
         let mut completed = Vec::new();
-        let mut affected = std::collections::HashSet::from([destination.clone()]);
-        for item in &operations {
-            if let Some(parent) = item.0.parent() {
-                affected.insert(parent);
+        let mut affected = std::collections::HashSet::new();
+        for (_, source, target) in &operations {
+            for path in [source, target] {
+                if let Some(parent) = path.parent() {
+                    affected.insert(Location::local(parent.to_path_buf()));
+                }
             }
         }
         for (index, (location, source, target)) in operations.iter().enumerate() {
