@@ -2,6 +2,15 @@
 
 Strata includes or derives assets from the following projects.
 
+## MacTahoe GTK Theme / WhiteSur GTK Theme
+
+- Projects: <https://github.com/vinceliuice/MacTahoe-gtk-theme>, <https://github.com/vinceliuice/WhiteSur-gtk-theme>
+- Revision reviewed: `1e45e19f510edb8cde18fa84d6cd5319f60b086b`
+- Copyright: WhiteSur Developers and MacTahoe contributors
+- License: MIT
+- Intended use: visual reference and selectively adapted client-side titlebar/window-control styling; the complete system theme is not installed or bundled as a system override.
+- Full license: [`data/licenses/MacTahoe-MIT.txt`](data/licenses/MacTahoe-MIT.txt)
+
 ## MathJax
 
 - Projects: <https://github.com/mathjax/MathJax-src>, <https://github.com/mathjax/MathJax-fonts>
