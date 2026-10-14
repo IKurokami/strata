@@ -1776,7 +1776,14 @@ fn copy_recursively_local(
                 if options.fat_family {
                     children.sort();
                 }
-                if !options.overwrite_existing || !target.query_exists(Some(&cancellable)) {
+                // query_exists() returns false when its cancellable is cancelled.
+                // Never turn that into a spurious mkdir/EXISTS failure.
+                let needs_directory =
+                    !options.overwrite_existing || !target.query_exists(Some(&cancellable));
+                #[cfg(test)]
+                tests::on_copy_directory_existence_checked();
+                cancellable.set_error_if_cancelled()?;
+                if needs_directory {
                     // GIO can report cancellation after mkdir succeeds. Finish the
                     // reservation and record its identity before honoring cancellation.
                     let reservation = gio::Cancellable::new();
