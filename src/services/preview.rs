@@ -232,10 +232,22 @@ pub(crate) fn is_image_path(path: &Path) -> bool {
 pub(crate) fn is_audio_path(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
-        .is_some_and(|extension| matches!(
-            extension.to_ascii_lowercase().as_str(),
-            "mp3" | "wav" | "flac" | "ogg" | "opus" | "m4a" | "aac" | "wma" | "aiff" | "aif" | "alac"
-        ))
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp3"
+                    | "wav"
+                    | "flac"
+                    | "ogg"
+                    | "opus"
+                    | "m4a"
+                    | "aac"
+                    | "wma"
+                    | "aiff"
+                    | "aif"
+                    | "alac"
+            )
+        })
 }
 
 pub(crate) fn is_media_path(path: &Path) -> bool {
