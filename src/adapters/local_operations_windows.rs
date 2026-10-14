@@ -15,7 +15,7 @@ use std::{
     io,
     path::Path,
     rc::{Rc, Weak},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gtk::{gio, glib, prelude::*};
@@ -119,6 +119,12 @@ struct ProviderState {
     pending: RefCell<HashMap<u64, Pending>>,
     polling: Cell<bool>,
 }
+// A huge batch of tiny files can complete while GTK is drawing. Never drain
+// an unbounded number of result callbacks in a single main-loop iteration:
+// favor tactile input latency over one long blocking burst.
+const MAX_COMPLETIONS_PER_TICK: usize = 64;
+const MAX_COMPLETION_TICK_TIME: Duration = Duration::from_millis(3);
+
 impl ProviderState {
     fn ensure_polling(self: &Rc<Self>) {
         if self.polling.replace(true) {
@@ -142,7 +148,11 @@ impl ProviderState {
     }
 
     fn poll(&self) {
-        loop {
+        let start = Instant::now();
+        for _ in 0..MAX_COMPLETIONS_PER_TICK {
+            if start.elapsed() >= MAX_COMPLETION_TICK_TIME {
+                break;
+            }
             let next = self
                 .service
                 .borrow()
