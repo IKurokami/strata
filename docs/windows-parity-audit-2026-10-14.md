@@ -49,3 +49,17 @@ D-Bus FileManager1, XDG portal plumbing, GVfs command health checks, UDisks2/udi
 2. On real Windows, check Explorer selection for names with spaces and metacharacters, Windows Terminal working directory, fallback to PowerShell/cmd when Terminal is absent, long local paths and UNC/offline paths.
 3. Verify no background process/probe, UAC prompt, untrusted shell parsing, synchronous directory metadata enumeration or Linux feature regression.
 4. Rebase after PR #24 is merged, then rerun full CI; do not merge this branch based only on `cargo check`.
+
+## Upstream drift verified against `lgse/strata`
+
+GitHub's cross-fork commit comparison reports **8 upstream commits** beyond this fork's `main` as of the audit. This is commit ancestry, **not automatically eight missing features**: upstream `d0f7028` (compact sidebar rail) was manually reapplied to the fork in PR #21, and upstream `5e159343` (copy-cancellation cleanup) overlaps the fix staged in open PR #24.
+
+Remaining upstream patches to compare and reapply carefully (without resetting fork commits):
+
+- `c0490319`, `586ca3c9`: Simplified Chinese localization fixes.
+- `59c67222`: archive extraction conflict handling for dotted folder names.
+- `6aa721f7`: preview-type detection using file bytes rather than extensions.
+- `58981b33`: PDF preview zoom decoupled from interface font size.
+- `c85a001d`: horizontal scrolling for unwrapped rendered documents.
+
+Do not label preview behavior ported merely by copying these patches: the Windows secure decoder worker remains unavailable. Track this upstream drift separately from the Windows-native implementation backlog; reapply each patch with conflict review, test coverage and intact Linux behavior.
