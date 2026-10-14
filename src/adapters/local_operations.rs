@@ -1789,7 +1789,13 @@ fn copy_recursively_local(
                     })
                     .await?;
                     record_created_copy_root(&created_root, &target).await?;
+                    #[cfg(test)]
+                    tests::on_copy_directory_reserved();
                 }
+                // An empty directory has no child iteration to observe a cancel
+                // delivered while mkdir was being reserved. Report cancellation
+                // so the outer copy path can remove only its own new root.
+                cancellable.set_error_if_cancelled()?;
                 let handle = Arc::new(handle);
                 let mut used_names = HashSet::with_capacity(children.len());
                 let batch_size = children.len().min(options.workers).max(1);
@@ -1861,6 +1867,7 @@ fn copy_recursively_local(
                         }
                     }
                 }
+                cancellable.set_error_if_cancelled()?;
                 Ok(())
             }
         }
