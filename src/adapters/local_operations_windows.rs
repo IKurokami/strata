@@ -1139,7 +1139,10 @@ mod tests {
         let second = root.path().join("second.txt");
         std::fs::write(&first, b"alpha").expect("first fixture");
         std::fs::write(&second, b"beta").expect("second fixture");
-        let sources = vec![Location::local(first.clone()), Location::local(second.clone())];
+        let sources = vec![
+            Location::local(first.clone()),
+            Location::local(second.clone()),
+        ];
         let request = PasteRequest {
             id: OperationRequestId(50),
             destination: Location::local(dest.clone()),
@@ -1178,8 +1181,14 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
-        assert_eq!(std::fs::read(dest.join("first.txt")).expect("first copy"), b"alpha");
-        assert_eq!(std::fs::read(dest.join("second.txt")).expect("second copy"), b"beta");
+        assert_eq!(
+            std::fs::read(dest.join("first.txt")).expect("first copy"),
+            b"alpha"
+        );
+        assert_eq!(
+            std::fs::read(dest.join("second.txt")).expect("second copy"),
+            b"beta"
+        );
         assert_eq!(std::fs::read(&first).expect("original first"), b"alpha");
         assert_eq!(std::fs::read(&second).expect("original second"), b"beta");
         let observed = events.borrow();
