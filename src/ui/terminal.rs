@@ -3,9 +3,9 @@
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Child, Command};
 #[cfg(not(windows))]
 use std::process::Stdio;
+use std::process::{Child, Command};
 
 #[cfg(test)]
 mod tests;
