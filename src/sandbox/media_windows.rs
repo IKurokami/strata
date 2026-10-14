@@ -67,9 +67,10 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.cancel();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        // The decoder owns a blocking pipe read. Joining here would block the
+        // GTK thread while a replaced selection is still draining FFmpeg.
+        // Cancellation is observed by the worker and it tears down its child.
+        self.worker.take();
     }
 }
 
@@ -85,6 +86,7 @@ fn decode_video(
     let width = source.size.width.clamp(16, 1280) as u32;
     let height = source.size.height.clamp(16, 1280) as u32;
     let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
+    let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut child = Command::new(ffmpeg)
         .args(["-v", "error", "-ss", &format!("{:.3}", start_tick as f64 / FPS as f64), "-i"])
         .arg(&source.path)
@@ -98,7 +100,7 @@ fn decode_video(
         width,
         height,
         audio: false,
-        duration_us: MAX_DURATION_US,
+        duration_us,
         start_tick,
     };
     sender
@@ -142,6 +144,28 @@ fn decode_video(
         )))
         .map_err(|_| "Preview closed".to_owned())?;
     Ok(())
+}
+
+fn probe_duration(path: &std::path::Path) -> Option<u64> {
+    let ffprobe = std::env::var_os("STRATA_FFPROBE").unwrap_or_else(|| "ffprobe".into());
+    let output = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+    let seconds = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<f64>()
+        .ok()?;
+    (seconds.is_finite() && seconds > 0.0)
+        .then_some((seconds * 1_000_000.0).min(MAX_DURATION_US as f64) as u64)
 }
 
 pub(crate) enum PeaksEvent {
