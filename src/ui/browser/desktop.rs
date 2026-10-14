@@ -361,7 +361,6 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
     }
 }
 
-
 /// Open a local item in the native Windows Explorer without using cmd.exe,
 /// PowerShell, Shell extensions in-process, registry writes or elevation.
 #[cfg(windows)]
@@ -376,8 +375,7 @@ pub(super) fn open_in_explorer(
     if is_trash_location(location) {
         return;
     }
-    let result = explorer_command(path, select_item)
-        .and_then(terminal::spawn_reaped);
+    let result = explorer_command(path, select_item).and_then(terminal::spawn_reaped);
     if let Err(error) = result {
         tracing::warn!(%error, "unable to open Windows File Explorer");
         show_error_dialog(
@@ -433,15 +431,27 @@ mod windows_explorer_tests {
         let command = explorer_command(path, true).expect("SystemRoot is configured");
         let mut select = OsString::from("/select,");
         select.push(path.as_os_str());
-        assert_eq!(command.get_args().collect::<Vec<_>>(), vec![select.as_os_str()]);
-        assert!(command.get_program().to_string_lossy().to_ascii_lowercase().ends_with("explorer.exe"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![select.as_os_str()]
+        );
+        assert!(
+            command
+                .get_program()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with("explorer.exe")
+        );
     }
 
     #[test]
     fn explorer_open_folder_uses_plain_path_and_rejects_relative_paths() {
         let path = Path::new(r"C:\folder with spaces");
         let command = explorer_command(path, false).expect("SystemRoot is configured");
-        assert_eq!(command.get_args().collect::<Vec<_>>(), vec![path.as_os_str()]);
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![path.as_os_str()]
+        );
         assert!(explorer_command(Path::new(r"relative\file.txt"), true).is_err());
     }
 }
