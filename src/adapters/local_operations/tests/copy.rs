@@ -322,7 +322,10 @@ fn cancelled_empty_directory_copy_does_not_report_success_or_leave_destination()
     ));
 
     assert!(result.is_err_and(|error| error.matches(gio::IOErrorEnum::Cancelled)));
-    assert!(!target.exists(), "cancelled empty copy must remove its newly created root");
+    assert!(
+        !target.exists(),
+        "cancelled empty copy must remove its newly created root"
+    );
     assert!(source.is_dir(), "the source must remain untouched");
     assert_eq!(fs::read(root.path().join("keep.txt"))?, b"keep");
     Ok(())
