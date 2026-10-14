@@ -1591,11 +1591,18 @@ impl PreviewState {
                 self.rendered_text.replace(Some(state));
                 self.content.append(&view);
             }
-            PreviewContent::RawImage { width, height, pixels } => {
+            PreviewContent::RawImage {
+                width,
+                height,
+                pixels,
+            } => {
                 // The Windows worker decoded this once; create a memory-backed
                 // GDK texture without an intermediate PNG encoder/decoder.
                 let stride = (width as usize).saturating_mul(4);
-                if width == 0 || height == 0 || width > 1280 || height > 1280
+                if width == 0
+                    || height == 0
+                    || width > 1280
+                    || height > 1280
                     || pixels.len() != stride.saturating_mul(height as usize)
                 {
                     self.show_message(
@@ -1620,7 +1627,8 @@ impl PreviewState {
                     picture.set_vexpand(true);
                     picture.set_cursor_from_name(Some("grab"));
                     install_preview_drag(&picture, self);
-                    self.content.append(&media_layout::section(&picture, &texture));
+                    self.content
+                        .append(&media_layout::section(&picture, &texture));
                 }
             }
             PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => {
