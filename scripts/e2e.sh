@@ -55,15 +55,13 @@ if [[ "$group_id" != 0 ]]; then
   printf 'strata-e2e:x:%s:\n' "$group_id" >> "$accounts/group"
 fi
 
-options=(--rm --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m)
+options=(--rm --platform=linux/amd64 --network=none --user "$user_id:$group_id" --shm-size=512m)
 if [[ "$(basename "$engine")" == podman ]]; then
   # Bubblewrap needs an unmasked proc tree to mount its nested private /proc.
   options+=(--userns=keep-id --passwd=false --security-opt 'unmask=/proc/*')
 else
   # Docker also blocks the nested namespace/mount syscalls used by bubblewrap.
-  # NET_ADMIN is the minimum capability bubblewrap needs to bring up its
-  # private loopback device; the container is still unprivileged.
-  options+=(--cap-add=NET_ADMIN --security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined)
+  options+=(--security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined)
 fi
 exec "$engine" run "${options[@]}" \
   --mount "type=bind,source=$repository,target=/workspace" \

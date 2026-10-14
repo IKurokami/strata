@@ -463,8 +463,7 @@ jobs:
       - name: Verify nested sandbox startup before GUI scenarios
         run: |
           chmod +x target/e2e-bundle/strata
-          docker run --rm --user "$(id -u):$(id -g)" \
-            --cap-add=NET_ADMIN \
+          docker run --rm --network=none --user "$(id -u):$(id -g)" \
             --security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
             --mount "type=bind,source=$PWD/target/e2e-bundle/strata,target=/strata,readonly" \
             strata-e2e:ci-runtime bwrap --unshare-all --die-with-parent --new-session --clearenv \
