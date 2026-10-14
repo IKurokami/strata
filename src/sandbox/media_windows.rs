@@ -107,7 +107,7 @@ fn decode_video(
     }
     let width = source.size.width.clamp(16, 1280) as u32;
     let height = source.size.height.clamp(16, 1280) as u32;
-    let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
+    let ffmpeg = media_tool("STRATA_FFMPEG", "ffmpeg.exe");
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut child = Command::new(ffmpeg)
         .args(["-v", "error", "-i"])
@@ -182,7 +182,7 @@ fn decode_audio(
     cancelled: &AtomicBool,
     sender: &mpsc::SyncSender<Event>,
 ) -> Result<(), String> {
-    let ffmpeg = std::env::var_os("STRATA_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
+    let ffmpeg = media_tool("STRATA_FFMPEG", "ffmpeg.exe");
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut child = Command::new(ffmpeg)
         .args(["-v", "error", "-i"])
@@ -265,17 +265,22 @@ fn decode_audio(
     )
 }
 
+fn media_tool(override_name: &str, executable: &str) -> std::ffi::OsString {
+    if let Some(value) = std::env::var_os(override_name) {
+        return value;
+    }
+    if let Some(tool) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(executable)))
+        .filter(|tool| tool.is_file())
+    {
+        return tool.into_os_string();
+    }
+    executable.into()
+}
+
 fn probe_duration(path: &std::path::Path) -> Option<u64> {
-    let ffprobe = std::env::var_os("STRATA_FFPROBE").unwrap_or_else(|| {
-        std::env::var_os("STRATA_FFMPEG")
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .and_then(|path| {
-                path.parent()
-                    .map(|parent| parent.join("ffprobe.exe").into_os_string())
-            })
-            .unwrap_or_else(|| "ffprobe".into())
-    });
+    let ffprobe = media_tool("STRATA_FFPROBE", "ffprobe.exe");
     let output = Command::new(ffprobe)
         .args([
             "-v",
