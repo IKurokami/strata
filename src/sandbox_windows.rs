@@ -215,15 +215,25 @@ pub(crate) fn parse(
     // Fast path: one buffered file read and one decode. The GTK uploader
     // consumes packed RGBA directly, without compressing PNG and decoding it.
     if matches!(operation, ParseOperation::PreviewImage) {
-        let reader = image::ImageReader::open(input)
+        let mut reader = image::ImageReader::open(input)
             .map_err(|error| format!("Unable to read image: {error}"))?
             .with_guessed_format()
             .map_err(|error| format!("Unable to identify image: {error}"))?;
-        let image = reader
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(16_384);
+        limits.max_image_height = Some(16_384);
+        limits.max_alloc = Some(256 * 1024 * 1024);
+        reader.limits(limits);
+        let decoded = reader
             .decode()
-            .map_err(|error| format!("Unable to decode image: {error}"))?
-            .thumbnail(1280, 1280)
-            .into_rgba8();
+            .map_err(|error| format!("Unable to decode image: {error}"))?;
+        // Avoid a second resampling pass for already viewport-sized images.
+        let image = if decoded.width() > 1280 || decoded.height() > 1280 {
+            decoded.thumbnail(1280, 1280)
+        } else {
+            decoded
+        }
+        .into_rgba8();
         if cancellation.is_cancelled() {
             return Err("Preview cancelled".to_owned());
         }
