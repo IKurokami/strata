@@ -126,7 +126,10 @@ pub enum PreviewContent {
         png: Vec<u8>,
     },
     /// Windows direct-upload image: decoded once to tightly packed RGBA.
-    #[expect(dead_code, reason = "constructed by the Windows preview decoder")]
+    #[cfg_attr(
+        not(windows),
+        expect(dead_code, reason = "constructed by the Windows preview decoder")
+    )]
     RawImage {
         width: u32,
         height: u32,
