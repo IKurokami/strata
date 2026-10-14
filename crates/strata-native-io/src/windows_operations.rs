@@ -70,6 +70,10 @@ pub enum LocalOperation {
         source: PathBuf,
         destination: PathBuf,
     },
+    CopyPath {
+        source: PathBuf,
+        destination: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -186,6 +190,10 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
             source,
             destination,
         } => remote(source) || remote(destination),
+        LocalOperation::CopyPath {
+            source,
+            destination,
+        } => remote(source) || remote(destination),
     }
 }
 
@@ -223,6 +231,10 @@ fn uncertain_drive_lane(operation: &LocalOperation) -> Option<u8> {
     match operation {
         LocalOperation::CreateDirectory(path) => non_system(path),
         LocalOperation::CopyFile {
+            source,
+            destination,
+        } => non_system(destination).or_else(|| non_system(source)),
+        LocalOperation::CopyPath {
             source,
             destination,
         } => non_system(destination).or_else(|| non_system(source)),
@@ -377,6 +389,14 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
             validate_native_file_path(&destination)?;
             copy_no_clobber(source, destination, cancelled)
         }
+        LocalOperation::CopyPath {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            copy_path_no_clobber(source, destination, cancelled)
+        }
     }
 }
 
@@ -406,6 +426,72 @@ pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
 fn copy_no_clobber(source: PathBuf, destination: PathBuf, cancelled: &AtomicU8) -> io::Result<()> {
     let mut reader = open_regular_source(&source)?;
     stage_and_publish(&mut reader, &destination, cancelled)
+}
+
+fn copy_path_no_clobber(
+    source: PathBuf,
+    destination: PathBuf,
+    cancelled: &AtomicU8,
+) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(&source)?;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source reparse points are not copied",
+        ));
+    }
+    if metadata.is_file() {
+        return copy_no_clobber(source, destination, cancelled);
+    }
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source must be a regular file or directory",
+        ));
+    }
+    start_irreversible_step(cancelled)?;
+    copy_directory_no_clobber(&source, &destination, cancelled)
+}
+
+fn copy_directory_no_clobber(
+    source: &Path,
+    destination: &Path,
+    cancelled: &AtomicU8,
+) -> io::Result<()> {
+    if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+    }
+    // CREATE_NEW-equivalent directory creation is the no-clobber publication
+    // for the root. A partial tree is left intact on failure for truthful
+    // recovery; it is never mistaken for a completed copy.
+    fs::create_dir(destination)?;
+    for entry in fs::read_dir(source)? {
+        if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+        }
+        let entry = entry?;
+        let source_child = entry.path();
+        let destination_child = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_child)?;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source reparse points are not copied",
+            ));
+        }
+        if metadata.is_dir() {
+            copy_directory_no_clobber(&source_child, &destination_child, cancelled)?;
+        } else if metadata.is_file() {
+            let child_state = AtomicU8::new(OP_PENDING);
+            copy_no_clobber(source_child, destination_child, &child_state)?;
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source contains an unsupported filesystem entry",
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct StagingFile {
@@ -548,6 +634,10 @@ mod tests {
         assert!(operation_uses_unc(&LocalOperation::CopyFile {
             source: PathBuf::from(r"C:\Users\Public\local.txt"),
             destination: PathBuf::from(r"\\server\share\remote.txt"),
+        }));
+        assert!(operation_uses_unc(&LocalOperation::CopyPath {
+            source: PathBuf::from(r"C:\Users\Public\local"),
+            destination: PathBuf::from(r"\\server\share\remote"),
         }));
     }
 
@@ -769,5 +859,28 @@ mod tests {
             .expect("queue");
         finished(&service, id).expect("copy");
         assert_eq!(fs::read(dest).expect("copy"), payload);
+    }
+
+    #[test]
+    fn copies_directories_and_empty_subdirectories_without_following_reparse_points() {
+        let dir = TempDir::new();
+        let source = dir.file("source");
+        let nested = source.join("nested");
+        fs::create_dir_all(&nested).expect("source tree");
+        fs::write(source.join("file.txt"), b"directory bytes").expect("source file");
+        let destination = dir.file("destination");
+        let service = LocalOperationService::new().expect("service");
+        let id = service
+            .submit(LocalOperation::CopyPath {
+                source,
+                destination: destination.clone(),
+            })
+            .expect("queue");
+        finished(&service, id).expect("directory copy");
+        assert_eq!(
+            fs::read(destination.join("file.txt")).expect("copied file"),
+            b"directory bytes"
+        );
+        assert!(destination.join("nested").is_dir());
     }
 }

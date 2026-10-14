@@ -446,7 +446,7 @@ impl OperationProvider for LocalOperationProvider {
                 }
             });
             handles.push(self.state.submit(
-                LocalOperation::CopyFile {
+                LocalOperation::CopyPath {
                     source: path,
                     destination: destination.clone(),
                 },

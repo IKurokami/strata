@@ -17,7 +17,7 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | GTK4 views, keyboard actions, tabs, appearance | Retain UI; use GDK Win32 backend | Windows GUI unverified |
 | Listing local folders | Use lazy streaming batches and Windows-provided type hints | Backend tested, GTK integration pending |
 | Filename search | Preserve Rust matching/scoring; scan without startup index; optional opt-in search index later | Main-app integration pending |
-| Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Basic native worker implemented; GTK integration pending |
+| Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Recursive directory copy now uses the native worker; reparse points are rejected and existing destinations are preserved |
 | Rename / move | Keep functionality using safe native rename semantics, with prompt on collision/cross-volume move | Not yet implemented |
 | Recycle Bin | Port to Windows shell recycle semantics | Not yet implemented; **never** fall back to permanent delete |
 | USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Not yet implemented |
