@@ -61,10 +61,7 @@ fn powershell_and_cmd_inherit_working_directory_without_shell_expansion() {
         assert_eq!(command.get_current_dir(), Some(path));
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            known.leading
-                .iter()
-                .map(OsStr::new)
-                .collect::<Vec<_>>()
+            known.leading.iter().map(OsStr::new).collect::<Vec<_>>()
         );
     }
 }
@@ -74,7 +71,10 @@ fn powershell_and_cmd_inherit_working_directory_without_shell_expansion() {
 fn windows_known_terminals_use_only_native_executables() {
     assert_eq!(PREFERRED_LAUNCHER, "wt.exe");
     assert_eq!(
-        KNOWN_TERMINALS.iter().map(|item| item.program).collect::<Vec<_>>(),
+        KNOWN_TERMINALS
+            .iter()
+            .map(|item| item.program)
+            .collect::<Vec<_>>(),
         vec!["wt.exe", "pwsh.exe", "powershell.exe", "cmd.exe"]
     );
 }
