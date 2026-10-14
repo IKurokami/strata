@@ -42,6 +42,16 @@ mod undo;
 
 thread_local! {
     static COPY_ACTIVITY: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+    static COPY_DIRECTORY_RESERVATION_HOOK: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+}
+
+pub(super) fn on_copy_directory_reserved() {
+    COPY_DIRECTORY_RESERVATION_HOOK.with(|slot| {
+        let callback = slot.borrow_mut().take();
+        if let Some(callback) = callback {
+            callback();
+        }
+    });
 }
 
 pub(super) struct CopyActivity;
