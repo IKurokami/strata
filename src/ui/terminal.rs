@@ -4,8 +4,8 @@ use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
 #[cfg(not(windows))]
-use std::process::Stdio;
-use std::process::{Child, Command};
+use std::process::{Child, Stdio};
+use std::process::Command;
 
 #[cfg(test)]
 mod tests;
@@ -272,14 +272,26 @@ pub(super) fn no_terminal_message() -> String {
     }
 }
 
-/// Reaps the child off-thread so exited launchers never linger as defunct.
+/// Launch an external application without keeping a Windows reaper thread
+/// alive for the lifetime of Explorer or an interactive terminal. Closing the
+/// Win32 process handle does not stop the launched program, and Windows has no
+/// Unix zombie process to reap. Unix still needs wait() in a background thread.
 pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
-    let program = command.get_program().to_owned();
-    let child = command.spawn()?;
-    reap_in_background(child, program);
-    Ok(())
+    #[cfg(windows)]
+    {
+        drop(command.spawn()?);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let program = command.get_program().to_owned();
+        let child = command.spawn()?;
+        reap_in_background(child, program);
+        Ok(())
+    }
 }
 
+#[cfg(not(windows))]
 fn reap_in_background(mut child: Child, program: OsString) {
     let label = program.to_string_lossy().into_owned();
     let spawned = std::thread::Builder::new()
