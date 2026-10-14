@@ -273,11 +273,14 @@ impl OperationProvider for LocalOperationProvider {
     }
 
     fn paste(&self, request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        if request.move_sources || request.items.len() != 1 {
+        if request.move_sources {
+            return async_move_items(request, emit);
+        }
+        if request.items.len() != 1 {
             return rejected(
                 request.id,
                 emit,
-                "Windows batch move/merge is not available yet",
+                "Windows batch copy is not available yet",
             );
         }
         let item = &request.items[0];
@@ -410,6 +413,151 @@ impl OperationProvider for LocalOperationProvider {
     }
 }
 
+/// All transfer paths are validated before the first mutation. A batch
+/// reports exactly which source items moved if a later item fails. Only native
+/// same-volume renames are attempted: NO_FALLBACK_FOR_MOVE must not degrade
+/// into non-atomic copy/delete, particularly for directories or remote drives.
+fn async_move_items(
+    request: PasteRequest,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    let Some(destination_dir) = request.destination.native_path() else {
+        return rejected(request.id, emit, "Windows move requires a local destination");
+    };
+    if request
+        .items
+        .iter()
+        .any(|item| item.conflict != TransferConflict::FailIfExists)
+    {
+        return rejected(
+            request.id,
+            emit,
+            "Windows move conflict resolution is not implemented",
+        );
+    }
+    let mut operations = Vec::with_capacity(request.items.len());
+    for item in &request.items {
+        let Some(source) = item.source.native_path() else {
+            return rejected(request.id, emit, "Windows move requires local source paths");
+        };
+        let Some(name) = source.file_name() else {
+            return rejected(request.id, emit, "Cannot move a volume root");
+        };
+        if !strata_native_io::windows_paths::valid_child_name(name) {
+            return rejected(request.id, emit, "Invalid Windows filename");
+        }
+        let target = destination_dir.join(name);
+        operations.push((item.source.clone(), source.to_path_buf(), target));
+    }
+    let cancel = gio::Cancellable::new();
+    let task_cancel = cancel.clone();
+    let id = request.id;
+    let destination = request.destination;
+    let _task = glib::MainContext::default().spawn_local(async move {
+        let mut completed = Vec::new();
+        let mut affected = std::collections::HashSet::from([destination.clone()]);
+        for item in &operations {
+            if let Some(parent) = item.0.parent() {
+                affected.insert(parent);
+            }
+        }
+        for (index, (location, source, target)) in operations.iter().enumerate() {
+            if task_cancel.is_cancelled() {
+                emit(OperationEvent::Cancelled {
+                    request_id: id,
+                    result: crate::services::CancelledOperation {
+                        completed,
+                        not_attempted: operations[index..].iter().map(|op| op.0.clone()).collect(),
+                        affected_locations: affected,
+                        ..Default::default()
+                    },
+                });
+                return;
+            }
+            let outcome = if source == target {
+                Ok(())
+            } else {
+                move_no_replace(source, target, task_cancel.clone()).await
+            };
+            match outcome {
+                Ok(()) => {
+                    if source != target {
+                        let target_location = Location::local(target.clone());
+                        affected.insert(target_location.clone());
+                        emit(OperationEvent::ItemMoved {
+                            request_id: id,
+                            from: location.clone(),
+                            to: target_location,
+                            merged: false,
+                        });
+                    }
+                    completed.push(location.clone());
+                    emit(OperationEvent::TransferProgress {
+                        request_id: id,
+                        completed_items: completed.len(),
+                        completed_files: completed.len(),
+                        total_files: Some(operations.len()),
+                        current_file: None,
+                        transferred_bytes: 0,
+                        total_bytes: None,
+                        created_location: None,
+                    });
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {
+                    emit(OperationEvent::Cancelled {
+                        request_id: id,
+                        result: crate::services::CancelledOperation {
+                            completed,
+                            not_attempted: operations[index..]
+                                .iter()
+                                .map(|op| op.0.clone())
+                                .collect(),
+                            affected_locations: affected,
+                            ..Default::default()
+                        },
+                    });
+                    return;
+                }
+                Err(error) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: id,
+                        completed_locations: completed,
+                        message: crate::services::gio_error_message(&error),
+                    });
+                    return;
+                }
+            }
+        }
+        emit(OperationEvent::Pasted {
+            request_id: id,
+            locations: completed,
+        });
+    });
+    LoadHandle::new(move || cancel.cancel())
+}
+
+/// A cancellable native rename with no silent copy/delete fallback.
+/// The flags intentionally exclude OVERWRITE.
+async fn move_no_replace(
+    source: &Path,
+    target: &Path,
+    cancel: gio::Cancellable,
+) -> Result<(), glib::Error> {
+    let file = gio::File::for_path(source);
+    let destination = gio::File::for_path(target);
+    gio::GioFuture::new(&file, move |file, _, result| {
+        file.move_async(
+            &destination,
+            gio::FileCopyFlags::NO_FALLBACK_FOR_MOVE,
+            glib::Priority::DEFAULT,
+            Some(&cancel),
+            None,
+            move |outcome| result.resolve(outcome),
+        );
+    })
+    .await
+}
+
 /// Rename in-place without replacing an existing destination. GIO's native
 /// move with NO_FALLBACK_FOR_MOVE performs a same-volume rename (including
 /// directories) and rejects collisions; it never degrades to copy + delete.
@@ -425,22 +573,10 @@ fn async_rename_no_replace(
         emit(OperationEvent::Renamed { request_id });
         return LoadHandle::new(|| {});
     }
-    let file = gio::File::for_path(&source);
-    let destination = gio::File::for_path(&target);
     let cancel = gio::Cancellable::new();
     let task_cancel = cancel.clone();
     let _task = glib::MainContext::default().spawn_local(async move {
-        let result = gio::GioFuture::new(&file, move |file, _, result| {
-            file.move_async(
-                &destination,
-                gio::FileCopyFlags::NO_FALLBACK_FOR_MOVE,
-                glib::Priority::DEFAULT,
-                Some(&task_cancel),
-                None,
-                move |outcome| result.resolve(outcome),
-            );
-        })
-        .await;
+        let result = move_no_replace(&source, &target, task_cancel).await;
         match result {
             Ok(()) => emit(OperationEvent::Renamed { request_id }),
             Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {
