@@ -206,11 +206,60 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
         .arg(&source.path)
         .args(["-map", "0:v:0", "-an"])
         .arg("-vf")
-        .arg(format!(
-            "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=rgba"
-        ))
+        // `fitted_video_size` has already chosen dimensions with the source
+        // aspect ratio. Scale to those exact dimensions so rawvideo emits a
+        // fixed-size frame without a black pad or a short final read.
+        .arg(format!("scale={width}:{height},format=rgba"))
         .args(["-f", "rawvideo", "-r", "30", "pipe:1"]);
     cmd
+}
+
+fn probe_video_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
+    let ffprobe = media_tool("STRATA_FFPROBE", "ffprobe.exe");
+    let output = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+    let dimensions = String::from_utf8_lossy(&output.stdout);
+    let (width, height) = dimensions.trim().split_once('x')?;
+    let width = width.parse::<u32>().ok()?;
+    let height = height.parse::<u32>().ok()?;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+fn fitted_video_size(
+    requested_width: u32,
+    requested_height: u32,
+    source_width: u32,
+    source_height: u32,
+) -> (u32, u32) {
+    let requested_width = requested_width.max(16);
+    let requested_height = requested_height.max(16);
+    let source_width = source_width.max(1);
+    let source_height = source_height.max(1);
+    if u64::from(requested_width) * u64::from(source_height)
+        <= u64::from(requested_height) * u64::from(source_width)
+    {
+        let height = (u64::from(requested_width) * u64::from(source_height)
+            / u64::from(source_width))
+        .max(2) as u32;
+        (requested_width, height)
+    } else {
+        let width = (u64::from(requested_height) * u64::from(source_width)
+            / u64::from(source_height))
+        .max(2) as u32;
+        (width, requested_height)
+    }
 }
 
 fn has_audio(path: &std::path::Path) -> bool {
@@ -240,8 +289,16 @@ fn decode_video(
     if source.audio_only {
         return decode_audio(source, start_tick, cancelled, sender, children);
     }
-    let width = source.size.width.clamp(16, 1280) as u32;
-    let height = source.size.height.clamp(16, 1280) as u32;
+    let requested_width = source.size.width.clamp(16, 1280) as u32;
+    let requested_height = source.size.height.clamp(16, 1280) as u32;
+    let (source_width, source_height) =
+        probe_video_dimensions(&source.path).unwrap_or((requested_width, requested_height));
+    let (width, height) = fitted_video_size(
+        requested_width,
+        requested_height,
+        source_width,
+        source_height,
+    );
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let audio = has_audio(&source.path);
     let mut pixels_pipe = spawn_decoder(

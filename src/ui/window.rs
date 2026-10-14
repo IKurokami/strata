@@ -313,6 +313,7 @@ pub(super) fn present_target(
     let window = gtk::ApplicationWindow::builder()
         .application(application)
         .title("Strata")
+        .decorated(false)
         .default_width(1200)
         .default_height(760)
         .build();

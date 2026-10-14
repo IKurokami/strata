@@ -182,11 +182,7 @@ mod imp {
         }
 
         fn pause(&self) {
-            self.obj().capture_position();
-            // Resuming waits for the sink again, like a fresh start.
-            self.audio_anchored.set(false);
-            self.clock.set(None);
-            self.audio_stuck_since.set(None);
+            let obj = self.obj();
             self.paused.set(Some(Instant::now()));
             let result = self
                 .audio
@@ -195,8 +191,18 @@ mod imp {
                 .map(PcmOutput::pause)
                 .transpose();
             if let Err(error) = result {
-                self.obj().fail(&error);
+                obj.fail(&error);
+                return;
             }
+            // Stop the sink before sampling its position. This makes the
+            // timestamp and timeline settle on one frame instead of taking a
+            // second, slightly later sample while the device pauses.
+            obj.capture_position();
+            obj.update(obj.imp().position.get() as i64);
+            // Resuming waits for the sink again, like a fresh start.
+            self.audio_anchored.set(false);
+            self.clock.set(None);
+            self.audio_stuck_since.set(None);
         }
 
         fn seek(&self, timestamp: i64) {

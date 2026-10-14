@@ -106,7 +106,7 @@ fn windows_video_preview_keeps_audio() {
             "-f",
             "lavfi",
             "-i",
-            "color=c=red:size=64x64:rate=30",
+            "color=c=red:size=128x72:rate=30",
             "-f",
             "lavfi",
             "-i",
@@ -126,7 +126,7 @@ fn windows_video_preview_keeps_audio() {
     let (header, frame) = first_frame(&session);
     assert!(header.audio, "video audio track was lost");
     assert_eq!(header.width, 96);
-    assert_eq!(header.height, 64);
+    assert_eq!(header.height, 54);
     assert_eq!(frame.pixels.len(), header.video_bytes());
     assert_eq!(
         frame.samples.len(),
@@ -136,4 +136,10 @@ fn windows_video_preview_keeps_audio() {
         frame.samples.iter().any(|byte| *byte != 0),
         "silent video preview"
     );
+}
+
+#[test]
+fn video_output_fits_the_source_aspect_ratio_without_padding() {
+    assert_eq!(fitted_video_size(520, 800, 1920, 1080), (520, 292));
+    assert_eq!(fitted_video_size(520, 800, 1080, 1920), (450, 800));
 }

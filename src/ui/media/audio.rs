@@ -189,9 +189,14 @@ impl PcmOutput {
     }
 
     pub(super) fn position_us(&self) -> Option<u64> {
-        // Query the sink, not appsrc's queued-buffer position: this follows playback's clock.
-        self.sink
+        // The Windows autoaudiosink bin does not always forward position
+        // queries from its selected device sink. The pipeline clock still
+        // advances with rendered PCM, so use it as the primary source and
+        // retain the sink query as a fallback for platform sinks that expose
+        // a more precise rendered position.
+        self.pipeline
             .query_position::<gst::ClockTime>()
+            .or_else(|| self.sink.query_position::<gst::ClockTime>())
             .map(|time| time.useconds())
     }
 
