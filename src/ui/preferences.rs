@@ -242,7 +242,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             mode: "theme".to_owned(),
-            theme: "mactahoe".to_owned(),
+            theme: "tokyo-night".to_owned(),
             omarchy_variant: OmarchyVariant::default(),
             folder_peeking: false,
             single_click_previews: true,

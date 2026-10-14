@@ -9,24 +9,6 @@
 # Azure Glow and Omarchy Light use original curated syntax palettes.
 
 [[themes]]
-id = "mactahoe"
-name = "MacTahoe"
-background = "#f6f5f4"
-surface = "#ffffff"
-text = "#2e3436"
-accent = "#3584e4"
-danger = "#e01b24"
-muted = "#deddda"
-highlight = "#e8f0fb"
-border = "#c0bfbc"
-dim_text = "#5e5c64"
-syntax_keyword = "#9141ac"
-syntax_string = "#26a269"
-syntax_constant = "#c64600"
-syntax_type = "#986a44"
-syntax_preprocessor = "#1c71d8"
-
-[[themes]]
 id = "0x96f"
 name = "0x96f"
 background = "#1e1d1f"

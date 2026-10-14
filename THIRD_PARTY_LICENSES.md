@@ -11,9 +11,6 @@ Strata includes or derives assets from the following projects.
 - Intended use: visual reference and selectively adapted client-side titlebar/window-control styling; the complete system theme is not installed or bundled as a system override.
 - Full license: [`data/licenses/MacTahoe-MIT.txt`](data/licenses/MacTahoe-MIT.txt)
 
-The bundled `MacTahoe` Strata palette is an original semantic mapping of the
-upstream GTK palette; it does not bundle the GPL-3.0 MacTahoe icon theme.
-
 ## MathJax
 
 - Projects: <https://github.com/mathjax/MathJax-src>, <https://github.com/mathjax/MathJax-fonts>
