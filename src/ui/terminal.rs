@@ -253,16 +253,16 @@ pub(super) fn no_terminal_message() -> String {
     }
     #[cfg(not(windows))]
     {
-    // Program names are identifiers, so they keep ASCII separators that wrap between names
-    // even in languages whose list separator has no space; they start on their own line.
-    let fallbacks = KNOWN_TERMINALS
-        .iter()
-        .skip(1)
-        .map(|known| known.program)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let fallbacks = format!("\n{fallbacks}");
-    rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+        // Program names are identifiers, so they keep ASCII separators that wrap between names
+        // even in languages whose list separator has no space; they start on their own line.
+        let fallbacks = KNOWN_TERMINALS
+            .iter()
+            .skip(1)
+            .map(|known| known.program)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let fallbacks = format!("\n{fallbacks}");
+        rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
     }
 }
 
