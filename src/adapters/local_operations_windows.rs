@@ -74,6 +74,9 @@ struct Pending {
     request_id: OperationRequestId,
     success: Success,
     emit: Rc<dyn Fn(OperationEvent)>,
+    // Keep a tombstone until the worker result has been received. Removing
+    // entries on cancel stops the poller and can fill the bounded result queue.
+    cancelled: bool,
 }
 #[derive(Default)]
 struct ProviderState {
@@ -120,8 +123,14 @@ impl ProviderState {
                 request_id,
                 success,
                 emit,
+                cancelled,
             }) = pending
             {
+                if cancelled {
+                    // The native worker still sends one completion per request.
+                    // Drain it without publishing an event to a dropped handle.
+                    continue;
+                }
                 let event = match result {
                     Ok(()) => match success {
                         Success::Directory => OperationEvent::Created { request_id },
@@ -178,17 +187,24 @@ impl ProviderState {
                 request_id,
                 success,
                 emit,
+                cancelled: false,
             },
         );
         self.ensure_polling();
         let weak = Rc::downgrade(self);
         LoadHandle::new(move || {
             if let Some(state) = weak.upgrade() {
-                // An accepted cancellation must not emit a late success event.
-                if let Some(service) = state.service.borrow().as_ref() {
-                    service.cancel(id);
+                // Only an accepted native cancellation suppresses publication.
+                // Leave the tombstone pending until poll() drains its result,
+                // otherwise the bounded completion channel can block workers.
+                let accepted = state
+                    .service
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|service| service.cancel(id));
+                if accepted && let Some(pending) = state.pending.borrow_mut().get_mut(&id) {
+                    pending.cancelled = true;
                 }
-                state.pending.borrow_mut().remove(&id);
             }
         })
     }
