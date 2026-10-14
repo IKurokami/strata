@@ -219,7 +219,8 @@ pub(crate) fn parse(
             .map_err(|error| format!("Unable to read image: {error}"))?
             .with_guessed_format()
             .map_err(|error| format!("Unable to identify image: {error}"))?;
-        let image = reader.decode()
+        let image = reader
+            .decode()
             .map_err(|error| format!("Unable to decode image: {error}"))?
             .thumbnail(1280, 1280)
             .into_rgba8();
