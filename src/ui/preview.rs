@@ -101,6 +101,11 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     let (content_type, uncertain) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
     let content = crate::services::content_family(&content_type);
+    // Windows installations often lack a complete shared MIME database.
+    // Keep quick preview available for known image/media extensions; the
+    // provider still validates and decodes the actual file before rendering.
+    let extension_preview = crate::services::is_image_path(Path::new(&entry.native_name))
+        || crate::services::is_media_path(Path::new(&entry.native_name));
     if crate::services::table::is_workbook(&content_type, &entry.native_name)
         || crate::services::docx::is_document(&content_type, &entry.native_name)
     {
@@ -119,7 +124,8 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
         return true;
     }
     // An uncertain name guess defers to the loader, which resolves the file's content type.
-    !matches!(content, PreviewContent::Unsupported)
+    extension_preview
+        || !matches!(content, PreviewContent::Unsupported)
         || uncertain
         || gio::content_type_is_a(&content_type, "text/plain")
         || crate::services::has_plain_text_extension(&entry.native_name)
