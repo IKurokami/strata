@@ -58,6 +58,7 @@ jobs:
           pkgconf --modversion gtk4
           pkgconf --modversion gtksourceview-5
           pkgconf --modversion gstreamer-1.0
+          gst-inspect-1.0 autoaudiosink
           pkgconf --modversion poppler-glib
           # Pass the actual MSYS2 location to native PowerShell steps.
           echo "STRATA_UCRT_ROOT=$(cygpath -w /ucrt64)" >> "$GITHUB_ENV"

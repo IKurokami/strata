@@ -19,6 +19,10 @@ $objdump = Join-Path $runtimeBin "objdump.exe"
 if (-not (Test-Path -LiteralPath $objdump)) {
     throw "UCRT64 objdump.exe is required to verify every imported runtime DLL"
 }
+$autoAudioPlugin = Join-Path $prefix "lib/gstreamer-1.0/libgstautodetect.dll"
+if (-not (Test-Path -LiteralPath $autoAudioPlugin)) {
+    throw "Required GStreamer audio plugin missing: $autoAudioPlugin. Install mingw-w64-ucrt-x86_64-gst-plugins-good."
+}
 
 if (Test-Path -LiteralPath $Destination) {
     throw "Destination already exists. Choose a new staging directory: $Destination"

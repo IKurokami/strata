@@ -15,6 +15,15 @@ foreach ($tool in @("cargo.exe", "rustc.exe", "gcc.exe", "pkgconf.exe")) {
         throw "Missing UCRT64 tool $tool. See docs/windows-development.md."
     }
 }
+$gstInspect = Join-Path $bin "gst-inspect-1.0.exe"
+if (-not (Test-Path -LiteralPath $gstInspect)) {
+    throw "Missing GStreamer inspection tool. Install mingw-w64-ucrt-x86_64-gstreamer."
+}
+foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $bin $tool))) {
+        throw "Missing media decoder $tool. Install mingw-w64-ucrt-x86_64-ffmpeg."
+    }
+}
 $saved = @{}
 $variables = @{
     PATH = "$bin;$env:PATH"
@@ -33,6 +42,10 @@ try {
     $compiler = (& (Join-Path $bin "rustc.exe") -vV) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $compiler -notmatch 'host: x86_64-pc-windows-gnu') {
         throw "The Windows GUI requires the native UCRT64 GNU toolchain."
+    }
+    & $gstInspect autoaudiosink *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "GStreamer autoaudiosink is unavailable. Install mingw-w64-ucrt-x86_64-gst-plugins-good."
     }
     if ($Action -eq "test") {
         & $cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets

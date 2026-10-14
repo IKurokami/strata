@@ -51,7 +51,9 @@ jobs:
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-gtksourceview5
             mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-poppler
             mingw-w64-ucrt-x86_64-glib2
             mingw-w64-ucrt-x86_64-fontconfig
@@ -67,6 +69,7 @@ jobs:
           pkgconf --modversion gtk4
           pkgconf --modversion gtksourceview-5
           pkgconf --modversion gstreamer-1.0
+          gst-inspect-1.0 autoaudiosink
           pkgconf --modversion poppler-glib
           pkgconf --modversion fontconfig
 

@@ -17,7 +17,7 @@ the core update requests it), then install the same packages as the Windows CI:
 
 ```bash
 pacman -Syu
-pacman -S --needed mingw-w64-ucrt-x86_64-{rust,gcc,clang,pkgconf,gtk4,gtksourceview5,gstreamer,gst-plugins-base,poppler,glib2,fontconfig,cmake}
+pacman -S --needed mingw-w64-ucrt-x86_64-{rust,gcc,clang,pkgconf,gtk4,gtksourceview5,gstreamer,ffmpeg,gst-plugins-base,gst-plugins-good,poppler,glib2,fontconfig,cmake}
 ```
 
 ## Build, test, run, and package
