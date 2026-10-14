@@ -557,3 +557,85 @@ fn async_create_file(request: CreateFileRequest, emit: Rc<dyn Fn(OperationEvent)
     });
     LoadHandle::new(move || cancel.cancel())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn cancelled_operations_keep_polling_until_the_native_queue_is_drained() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary destination");
+        let state = Rc::new(ProviderState::default());
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let captured = received.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+        let context = glib::MainContext::default();
+
+        // More results than the native completion channel can buffer (64).
+        // Cancelling a LoadHandle must leave its entry in the map until the
+        // completion is consumed; otherwise polling stops and workers block.
+        for batch in 0..6 {
+            let handles: Vec<_> = (0..16)
+                .map(|item| {
+                    state.submit(
+                        LocalOperation::CreateDirectory(
+                            root.path().join(format!("cancel-{batch}-{item}")),
+                        ),
+                        OperationRequestId(batch * 16 + item),
+                        Success::Directory,
+                        emit.clone(),
+                    )
+                })
+                .collect();
+            assert_eq!(state.pending.borrow().len(), 16);
+            drop(handles);
+            assert_eq!(
+                state.pending.borrow().len(),
+                16,
+                "dropping handles must not discard unconsumed completions",
+            );
+
+            let started = Instant::now();
+            while !state.pending.borrow().is_empty() {
+                while context.pending() {
+                    context.iteration(false);
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(10),
+                    "cancelled completions were not drained",
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(!state.polling.get(), "poller should stop after draining");
+        }
+
+        // A new request must still finish after the cancellation storm.
+        let destination = root.path().join("still-works");
+        let _handle = state.submit(
+            LocalOperation::CreateDirectory(destination.clone()),
+            OperationRequestId(1000),
+            Success::Directory,
+            emit.clone(),
+        );
+        let started = Instant::now();
+        while !state.pending.borrow().is_empty() {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(started.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(destination.is_dir());
+        assert!(received.borrow().iter().any(|event| matches!(
+            event,
+            OperationEvent::Created {
+                request_id: OperationRequestId(1000)
+            }
+        )));
+    }
+}
