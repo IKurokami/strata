@@ -7,6 +7,8 @@ use crate::services::ArchiveFormat;
 use crate::ui::browser::clipboard::{copy_locations, copy_names, locations_equal};
 use crate::ui::browser::customization::show_customize_modal;
 use crate::ui::browser::desktop::{can_open_terminal, launch_terminal};
+#[cfg(windows)]
+use crate::ui::browser::desktop::open_in_explorer;
 use crate::ui::browser::entry::{entry_icon, entry_supports_printing};
 use crate::ui::browser::paths::{
     can_remove_location, compact_display_path, is_trash_item, is_trash_location,
@@ -392,6 +394,12 @@ pub(in crate::ui) fn install_folder_context_menu(
         "Open in Terminal",
         ContextHint::Terminal,
     );
+    #[cfg(windows)]
+    let open_explorer = context_menu_option(
+        crate::assets::icons::FOLDER_OPEN,
+        "Open in File Explorer",
+        ContextHint::None,
+    );
     let paste = context_menu_option(
         crate::assets::icons::CLIPBOARD_PASTE,
         "Paste",
@@ -436,6 +444,8 @@ pub(in crate::ui) fn install_folder_context_menu(
     new_file.set_visible(directory_actions);
     open_with.set_visible(directory_actions);
     open_terminal.set_visible(directory_actions);
+    #[cfg(windows)]
+    open_explorer.set_visible(directory_actions && location.native_path().is_some());
     paste.set_visible(directory_actions);
     properties.set_visible(!in_recent);
     content.append(&new_folder);
@@ -444,6 +454,8 @@ pub(in crate::ui) fn install_folder_context_menu(
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     content.append(&open_with);
     content.append(&open_terminal);
+    #[cfg(windows)]
+    content.append(&open_explorer);
     content.set_visible(directory_actions);
     remaining.append(&select_all);
     remaining.append(&refresh);
@@ -597,6 +609,21 @@ pub(in crate::ui) fn install_folder_context_menu(
             launch_terminal(&terminal_location, &state.overlay);
         }
     });
+
+    #[cfg(windows)]
+    {
+        let explorer_popover = popover.downgrade();
+        let explorer_location = location.clone();
+        let explorer_state = Rc::downgrade(state);
+        open_explorer.connect_clicked(move |_| {
+            if let Some(popover) = explorer_popover.upgrade() {
+                popover.popdown();
+            }
+            if let Some(state) = explorer_state.upgrade() {
+                open_in_explorer(&explorer_location, false, &state.overlay);
+            }
+        });
+    }
 
     let browser_for_trigger = state.browser.clone();
     let weak_state = Rc::downgrade(state);
@@ -856,6 +883,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Open file location",
         ContextHint::None,
     );
+    #[cfg(windows)]
+    let open_explorer = item_context_option(
+        crate::assets::icons::FOLDER_OPEN,
+        "Show in File Explorer",
+        ContextHint::None,
+    );
     let run = item_context_option(crate::assets::icons::PLAY, "Run", ContextHint::None);
     let open_terminal = item_context_option(
         crate::assets::icons::TERMINAL,
@@ -976,6 +1009,8 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&open_with);
     single_open.append(&preview);
     single_open.append(&open_file_location);
+    #[cfg(windows)]
+    single_open.append(&open_explorer);
     single_open.append(&run);
     single_open.append(&open_terminal);
     single_open.append(&open_in_submenu);
@@ -1211,6 +1246,23 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             state.reveal_locations(parent, vec![entry.location], false);
         }
     });
+    #[cfg(windows)]
+    {
+        let explorer_target = target.clone();
+        let explorer_state = Rc::downgrade(state);
+        let explorer_popover = popover.downgrade();
+        open_explorer.connect_clicked(move |_| {
+            if let Some(popover) = explorer_popover.upgrade() {
+                popover.popdown();
+            }
+            let Some((_, entry)) = explorer_target.borrow().clone() else {
+                return;
+            };
+            if let Some(state) = explorer_state.upgrade() {
+                open_in_explorer(&entry.location, true, &state.overlay);
+            }
+        });
+    }
     let run_target = target.clone();
     let run_state = Rc::downgrade(state);
     let run_popover = popover.downgrade();
@@ -1672,6 +1724,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             open_in_multiple_submenu
                 .set_visible(entries.len() > 1 && entries.iter().any(|entry| entry.is_directory()));
             open_terminal.set_visible(entry.is_directory() && can_open_terminal(&entry.location));
+            #[cfg(windows)]
+            open_explorer.set_visible(
+                entries.len() == 1
+                    && entry.location.native_path().is_some()
+                    && !is_trash_location(&entry.location),
+            );
             let search_or_filter = context_filter_or_search_active(&state, depth);
             let in_different_folder =
                 state.browser.location_at(depth).as_ref() != entry.location.parent().as_ref();
