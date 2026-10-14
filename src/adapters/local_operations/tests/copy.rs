@@ -299,6 +299,36 @@ fn failed_incomplete_copy_cleanup_is_reported_as_a_failure() {
 }
 
 #[test]
+fn cancelled_empty_directory_copy_does_not_report_success_or_leave_destination()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("empty-source");
+    let target = root.path().join("new-target");
+    fs::create_dir(&source)?;
+    fs::write(root.path().join("keep.txt"), b"keep")?;
+
+    let cancellable = gio::Cancellable::new();
+    let cancel_after_mkdir = cancellable.clone();
+    COPY_DIRECTORY_RESERVATION_HOOK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || cancel_after_mkdir.cancel()));
+    });
+    let result = glib::MainContext::default().block_on(copy_new_recursively(
+        gio::File::for_path(&source),
+        gio::File::for_path(&target),
+        cancellable,
+    ));
+
+    assert!(result.is_err_and(|error| error.matches(gio::IOErrorEnum::Cancelled)));
+    assert!(!target.exists(), "cancelled empty copy must remove its newly created root");
+    assert!(source.is_dir(), "the source must remain untouched");
+    assert_eq!(fs::read(root.path().join("keep.txt"))?, b"keep");
+    Ok(())
+}
+
+#[test]
 fn cancelling_recursive_copy_removes_only_its_staging_output() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
