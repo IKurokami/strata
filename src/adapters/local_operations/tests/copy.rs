@@ -337,7 +337,7 @@ fn cancellation_after_directory_existence_check_never_reports_exists_or_success(
 }
 
 #[test]
-fn cancelled_empty_directory_copy_does_not_report_success_or_leave_destination()
+fn cancelled_nested_empty_directory_copy_does_not_report_success_or_leave_destination()
 -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
@@ -345,7 +345,9 @@ fn cancelled_empty_directory_copy_does_not_report_success_or_leave_destination()
     let root = tempfile::tempdir()?;
     let source = root.path().join("empty-source");
     let target = root.path().join("new-target");
-    fs::create_dir(&source)?;
+    // Local copy stages its root directory before recursion; the reservation
+    // hook must run for a nested directory created during recursive copying.
+    fs::create_dir_all(source.join("empty-child"))?;
     fs::write(root.path().join("keep.txt"), b"keep")?;
 
     let cancellable = gio::Cancellable::new();

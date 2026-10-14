@@ -101,6 +101,8 @@ def test_settings_text_size_keeps_switches_inside_the_page(strata, request):
 def _reveal_page_control(strata, name, role="button"):
     node = strata.wait(lambda: strata.window.find(role=role, name=name, rendered=False), f"{name} control")
     scroll = next(parent for parent in node.ancestors() if parent.role == "scroll pane")
+    # Position distant controls directly instead of jumping between pages.
+    node.scroll_into_view()
 
     def revealed():
         if _inside_scroll_view(node):
