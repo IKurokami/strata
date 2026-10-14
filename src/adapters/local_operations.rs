@@ -1776,8 +1776,18 @@ fn copy_recursively_local(
                 if options.fat_family {
                     children.sort();
                 }
-                if !options.overwrite_existing || !target.query_exists(Some(&cancellable)) {
-                    await_cancellable(&target, &cancellable, |target, cancellable, result| {
+                // query_exists() returns false when its cancellable is cancelled.
+                // Never turn that into a spurious mkdir/EXISTS failure.
+                let needs_directory =
+                    !options.overwrite_existing || !target.query_exists(Some(&cancellable));
+                #[cfg(test)]
+                tests::on_copy_directory_existence_checked();
+                cancellable.set_error_if_cancelled()?;
+                if needs_directory {
+                    // GIO can report cancellation after mkdir succeeds. Finish the
+                    // reservation and record its identity before honoring cancellation.
+                    let reservation = gio::Cancellable::new();
+                    await_cancellable(&target, &reservation, |target, cancellable, result| {
                         target.make_directory_async(
                             glib::Priority::DEFAULT,
                             Some(cancellable),
@@ -1786,7 +1796,13 @@ fn copy_recursively_local(
                     })
                     .await?;
                     record_created_copy_root(&created_root, &target).await?;
+                    #[cfg(test)]
+                    tests::on_copy_directory_reserved();
                 }
+                // An empty directory has no child iteration to observe a cancel
+                // delivered while mkdir was being reserved. Report cancellation
+                // so the outer copy path can remove only its own new root.
+                cancellable.set_error_if_cancelled()?;
                 let handle = Arc::new(handle);
                 let mut used_names = HashSet::with_capacity(children.len());
                 let batch_size = children.len().min(options.workers).max(1);
@@ -1858,6 +1874,7 @@ fn copy_recursively_local(
                         }
                     }
                 }
+                cancellable.set_error_if_cancelled()?;
                 Ok(())
             }
         }

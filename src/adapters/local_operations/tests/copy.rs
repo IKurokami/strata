@@ -299,6 +299,79 @@ fn failed_incomplete_copy_cleanup_is_reported_as_a_failure() {
 }
 
 #[test]
+fn cancellation_after_directory_existence_check_never_reports_exists_or_success()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("empty-source");
+    let existing = root.path().join("existing-target");
+    let new_target = root.path().join("new-target");
+    fs::create_dir(&source)?;
+    fs::create_dir(&existing)?;
+    fs::write(existing.join("keep.txt"), b"keep")?;
+
+    for (target, overwrite_existing) in [(&existing, true), (&new_target, false)] {
+        let cancellable = gio::Cancellable::new();
+        let cancel_after_check = cancellable.clone();
+        COPY_DIRECTORY_EXISTENCE_HOOK.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || cancel_after_check.cancel()));
+        });
+        let result = glib::MainContext::default().block_on(copy_recursively(
+            gio::File::for_path(&source),
+            gio::File::for_path(target),
+            overwrite_existing,
+            cancellable,
+            None,
+        ));
+        assert!(
+            result.is_err_and(|error| error.matches(gio::IOErrorEnum::Cancelled)),
+            "cancellation after the existence check must not report EXISTS or success"
+        );
+    }
+
+    assert_eq!(fs::read(existing.join("keep.txt"))?, b"keep");
+    assert!(!new_target.exists());
+    Ok(())
+}
+
+#[test]
+fn cancelled_nested_empty_directory_copy_does_not_report_success_or_leave_destination()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("empty-source");
+    let target = root.path().join("new-target");
+    // Local copy stages its root directory before recursion; the reservation
+    // hook must run for a nested directory created during recursive copying.
+    fs::create_dir_all(source.join("empty-child"))?;
+    fs::write(root.path().join("keep.txt"), b"keep")?;
+
+    let cancellable = gio::Cancellable::new();
+    let cancel_after_mkdir = cancellable.clone();
+    COPY_DIRECTORY_RESERVATION_HOOK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || cancel_after_mkdir.cancel()));
+    });
+    let result = glib::MainContext::default().block_on(copy_new_recursively(
+        gio::File::for_path(&source),
+        gio::File::for_path(&target),
+        cancellable,
+    ));
+
+    assert!(result.is_err_and(|error| error.matches(gio::IOErrorEnum::Cancelled)));
+    assert!(
+        !target.exists(),
+        "cancelled empty copy must remove its newly created root"
+    );
+    assert!(source.is_dir(), "the source must remain untouched");
+    assert_eq!(fs::read(root.path().join("keep.txt"))?, b"keep");
+    Ok(())
+}
+
+#[test]
 fn cancelling_recursive_copy_removes_only_its_staging_output() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
