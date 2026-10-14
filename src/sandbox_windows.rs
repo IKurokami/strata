@@ -185,6 +185,8 @@ pub(crate) struct ParseOutput {
     pub(crate) page: i32,
     pub(crate) pages: i32,
     pub(crate) text_layer: Option<crate::services::PdfTextLayer>,
+    // PreviewImage returns packed RGBA, bypassing PNG re-encoding.
+    pub(crate) raster_dimensions: Option<(u32, u32)>,
 }
 
 const UNSUPPORTED: &str =
@@ -209,6 +211,29 @@ pub(crate) fn parse(
     const MAX_SAFE_READ: u64 = 32 * 1024 * 1024;
     if metadata.len() > MAX_SAFE_READ {
         return Err("Preview input exceeds the supported size limit".to_owned());
+    }
+    // Fast path: one buffered file read and one decode. The GTK uploader
+    // consumes packed RGBA directly, without compressing PNG and decoding it.
+    if matches!(operation, ParseOperation::PreviewImage) {
+        let reader = image::ImageReader::open(input)
+            .map_err(|error| format!("Unable to read image: {error}"))?
+            .with_guessed_format()
+            .map_err(|error| format!("Unable to identify image: {error}"))?;
+        let image = reader.decode()
+            .map_err(|error| format!("Unable to decode image: {error}"))?
+            .thumbnail(1280, 1280)
+            .into_rgba8();
+        if cancellation.is_cancelled() {
+            return Err("Preview cancelled".to_owned());
+        }
+        let dimensions = image.dimensions();
+        return Ok(ParseOutput {
+            data: image.into_raw(),
+            page: 0,
+            pages: 0,
+            text_layer: None,
+            raster_dimensions: Some(dimensions),
+        });
     }
     let bytes = fs::read(input).map_err(|error| error.to_string())?;
     if cancellation.is_cancelled() {
@@ -241,6 +266,7 @@ pub(crate) fn parse(
             page: 0,
             pages: 0,
             text_layer: None,
+            raster_dimensions: None,
         });
     }
     if matches!(
@@ -254,6 +280,7 @@ pub(crate) fn parse(
         page: 0,
         pages: 0,
         text_layer: None,
+        raster_dimensions: None,
     })
 }
 
