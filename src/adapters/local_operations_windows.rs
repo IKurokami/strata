@@ -619,6 +619,17 @@ fn async_rename_no_replace(
     request_id: OperationRequestId,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
+    use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
+
+    for path in [&source, &target] {
+        if !matches!(
+            classify(path),
+            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+        ) || !path.file_name().is_some_and(valid_child_name)
+        {
+            return rejected(request_id, emit, "Invalid Windows rename path");
+        }
+    }
     if source == target {
         emit(OperationEvent::Renamed { request_id });
         return LoadHandle::new(|| {});
@@ -850,9 +861,7 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
-        Rc::try_unwrap(received)
-            .expect("callback released")
-            .into_inner()
+        std::mem::take(&mut *received.borrow_mut())
     }
 
     #[test]
@@ -909,6 +918,74 @@ mod tests {
             std::fs::read(source.join("payload.txt")).expect("restored directory"),
             b"intact"
         );
+    }
+
+    #[test]
+    fn native_move_batch_reports_partial_completion_without_overwriting() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary tree");
+        let originals = root.path().join("originals");
+        let target = root.path().join("target");
+        std::fs::create_dir(&originals).expect("source folder");
+        std::fs::create_dir(&target).expect("destination folder");
+        let first = originals.join("first.txt");
+        let second = originals.join("second.txt");
+        std::fs::write(&first, b"one").expect("first source");
+        std::fs::write(&second, b"two").expect("second source");
+        std::fs::write(target.join("second.txt"), b"protected")
+            .expect("concurrent destination");
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+        let _handle = async_move_paths(
+            OperationRequestId(12),
+            vec![
+                (Location::local(first.clone()), first.clone(), target.join("first.txt")),
+                (
+                    Location::local(second.clone()),
+                    second.clone(),
+                    target.join("second.txt"),
+                ),
+            ],
+            emit,
+        );
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        loop {
+            while context.pending() {
+                context.iteration(false);
+            }
+            if events.borrow().iter().any(|event| {
+                matches!(event, OperationEvent::TransferFailed { .. })
+            }) {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "batch move timed out"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!first.exists());
+        assert_eq!(
+            std::fs::read(target.join("first.txt")).expect("first moved"),
+            b"one"
+        );
+        assert_eq!(std::fs::read(&second).expect("second preserved"), b"two");
+        assert_eq!(
+            std::fs::read(target.join("second.txt")).expect("protected destination"),
+            b"protected"
+        );
+        assert!(events.borrow().iter().any(|event| matches!(
+            event,
+            OperationEvent::TransferFailed {
+                completed_locations,
+                ..
+            } if completed_locations == &vec![Location::local(first.clone())]
+        )));
     }
 
     #[test]
