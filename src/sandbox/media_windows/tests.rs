@@ -70,10 +70,19 @@ fn first_frame(session: &Session) -> (Header, Frame) {
 
 #[test]
 fn windows_mp3_preview_emits_pcm() {
-    let (_dir, path) = generated_media("mp3", &[
-        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-        "-t", "1", "-c:a", "libmp3lame",
-    ]);
+    let (_dir, path) = generated_media(
+        "mp3",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000",
+            "-t",
+            "1",
+            "-c:a",
+            "libmp3lame",
+        ],
+    );
     let session = Session::start(test_source(path, true), 0).expect("MP3 session");
     let (header, frame) = first_frame(&session);
     assert!(header.audio);
@@ -83,17 +92,36 @@ fn windows_mp3_preview_emits_pcm() {
         frame.samples.len(),
         crate::media::audio_bytes(header, frame.tick)
     );
-    assert!(frame.samples.iter().any(|byte| *byte != 0), "no audible samples");
+    assert!(
+        frame.samples.iter().any(|byte| *byte != 0),
+        "no audible samples"
+    );
 }
 
 #[test]
 fn windows_video_preview_keeps_audio() {
-    let (_dir, path) = generated_media("mp4", &[
-        "-f", "lavfi", "-i", "color=c=red:size=64x64:rate=30",
-        "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
-        "-t", "1", "-c:v", "mpeg4", "-c:a", "aac",
-        "-pix_fmt", "yuv420p", "-shortest",
-    ]);
+    let (_dir, path) = generated_media(
+        "mp4",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=64x64:rate=30",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=48000",
+            "-t",
+            "1",
+            "-c:v",
+            "mpeg4",
+            "-c:a",
+            "aac",
+            "-pix_fmt",
+            "yuv420p",
+            "-shortest",
+        ],
+    );
     let session = Session::start(test_source(path, false), 0).expect("video session");
     let (header, frame) = first_frame(&session);
     assert!(header.audio, "video audio track was lost");
@@ -104,5 +132,8 @@ fn windows_video_preview_keeps_audio() {
         frame.samples.len(),
         crate::media::audio_bytes(header, frame.tick)
     );
-    assert!(frame.samples.iter().any(|byte| *byte != 0), "silent video preview");
+    assert!(
+        frame.samples.iter().any(|byte| *byte != 0),
+        "silent video preview"
+    );
 }
