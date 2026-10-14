@@ -79,7 +79,6 @@ impl WindowContent {
     }
 
     fn activate_actions(&self, window: &gtk::ApplicationWindow) {
-        window.set_titlebar(Some(self.header.widget()));
         for name in self.actions.list_actions() {
             if let Some(action) = self.actions.lookup_action(&name) {
                 window.add_action(&action);
