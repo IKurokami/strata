@@ -67,7 +67,8 @@ impl Session {
     }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
-        terminate_children(&self.children);
+        // Avoid waiting for a decoder process from the GTK event loop.
+        kill_children(&self.children);
     }
     pub fn finished(&self) -> bool {
         self.worker
@@ -104,9 +105,16 @@ fn send(
     }
 }
 
+fn kill_children(children: &Arc<Mutex<Vec<Child>>>) {
+    if let Ok(mut jobs) = children.lock() {
+        for child in jobs.iter_mut() {
+            let _ = child.kill();
+        }
+    }
+}
+
 fn terminate_children(children: &Arc<Mutex<Vec<Child>>>) {
-    // Child::kill is non-blocking. Holding the lock only for the termination
-    // requests makes cancellation independent of a blocked stdout reader.
+    // Called from the worker, never the GTK event loop: reap all subprocesses.
     if let Ok(mut jobs) = children.lock() {
         for child in jobs.iter_mut() {
             let _ = child.kill();
