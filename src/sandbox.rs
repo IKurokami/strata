@@ -740,13 +740,6 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
         "/etc/ImageMagick-6",
         "/etc/ImageMagick-6",
     ]);
-    // CI runs the whole container without networking. Reusing that already
-    // isolated namespace avoids bubblewrap's loopback setup, which requires
-    // NET_ADMIN on some rootless runners; normal launches keep full network
-    // namespace isolation.
-    if std::env::var_os("STRATA_SANDBOX_SHARE_NET").is_some() {
-        command.arg("--share-net");
-    }
     if let Some(loaders) = option_env!("STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE") {
         command.args(["--setenv", "GDK_PIXBUF_MODULE_FILE", loaders]);
     }

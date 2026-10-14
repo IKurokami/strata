@@ -155,9 +155,9 @@ private `/proc`; the decoder's sandbox and the container's seccomp policy remain
 enabled. Docker's outer seccomp/AppArmor profiles and system-path masks must be
 disabled for the nested namespace and mount operations. This applies only to the
 disposable E2E container; Strata still launches its normal bubblewrap decoder
-sandbox. The outer Docker container uses `--network=none` so bubblewrap can
-reuse that already-isolated namespace without extra capabilities; the E2E-only
-`STRATA_SANDBOX_SHARE_NET` flag is never set for normal launches. Neither engine
+sandbox. GitHub's disposable Ubuntu VM also allows unprivileged user namespaces
+through the host AppArmor policy before the nested sandbox probe. This setting
+is never applied to a developer's machine by the local runner. Neither engine
 uses privileged mode or mounts desktop sockets.
 Updating the image inputs is an intentional rendering
 environment change and requires reviewing the visual baselines.

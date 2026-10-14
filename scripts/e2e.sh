@@ -55,7 +55,7 @@ if [[ "$group_id" != 0 ]]; then
   printf 'strata-e2e:x:%s:\n' "$group_id" >> "$accounts/group"
 fi
 
-options=(--rm --platform=linux/amd64 --network=none --user "$user_id:$group_id" --shm-size=512m)
+options=(--rm --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m)
 if [[ "$(basename "$engine")" == podman ]]; then
   # Bubblewrap needs an unmasked proc tree to mount its nested private /proc.
   options+=(--userns=keep-id --passwd=false --security-opt 'unmask=/proc/*')
@@ -74,7 +74,6 @@ exec "$engine" run "${options[@]}" \
   --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0 \
   --env "STRATA_E2E_UPDATE_BASELINES=${STRATA_E2E_UPDATE_BASELINES:-0}" \
   --env "STRATA_E2E_WORKERS=${STRATA_E2E_WORKERS:-auto}" \
-  --env STRATA_SANDBOX_SHARE_NET=1 \
   --env "STRATA_E2E_BUNDLE=${bundle:+/workspace/$bundle}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
