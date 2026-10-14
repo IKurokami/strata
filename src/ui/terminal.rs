@@ -8,7 +8,10 @@ use std::process::{Child, Command, Stdio};
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(windows))]
 pub(super) const PREFERRED_LAUNCHER: &str = "xdg-terminal-exec";
+#[cfg(windows)]
+pub(super) const PREFERRED_LAUNCHER: &str = "wt.exe";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectoryStyle {
@@ -32,6 +35,37 @@ struct KnownTerminal {
     exec: ExecStyle,
 }
 
+// Native Windows terminal commands inherit the selected directory without a shell
+// interpreter. Windows Terminal supports -d; PowerShell and cmd inherit cwd.
+#[cfg(windows)]
+const KNOWN_TERMINALS: &[KnownTerminal] = &[
+    KnownTerminal {
+        program: "wt.exe",
+        leading: &[],
+        directory: DirectoryStyle::Separate("-d"),
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "pwsh.exe",
+        leading: &["-NoLogo"],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "powershell.exe",
+        leading: &["-NoLogo"],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "cmd.exe",
+        leading: &[],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+];
+
+#[cfg(not(windows))]
 const KNOWN_TERMINALS: &[KnownTerminal] = &[
     KnownTerminal {
         program: PREFERRED_LAUNCHER,
@@ -209,6 +243,14 @@ impl Terminal {
 }
 
 pub(super) fn no_terminal_message() -> String {
+    #[cfg(windows)]
+    {
+        return crate::i18n::tr(
+            "No Windows terminal was found. Install Windows Terminal, or enable PowerShell or Command Prompt on PATH.",
+        );
+    }
+    #[cfg(not(windows))]
+    {
     // Program names are identifiers, so they keep ASCII separators that wrap between names
     // even in languages whose list separator has no space; they start on their own line.
     let fallbacks = KNOWN_TERMINALS
@@ -219,6 +261,7 @@ pub(super) fn no_terminal_message() -> String {
         .join(", ");
     let fallbacks = format!("\n{fallbacks}");
     rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+    }
 }
 
 /// Reaps the child off-thread so exited launchers never linger as defunct.
@@ -252,9 +295,16 @@ fn explicit_terminal(path_var: Option<&OsStr>, terminal_var: Option<&OsStr>) -> 
     let mut words = glib::shell_parse_argv(text).ok()?.into_iter();
     let program = words.next()?;
     let file_name = Path::new(&program).file_name()?.to_str()?;
-    let known = KNOWN_TERMINALS
-        .iter()
-        .find(|known| known.program == file_name);
+    let known = KNOWN_TERMINALS.iter().find(|known| {
+        #[cfg(windows)]
+        {
+            known.program.eq_ignore_ascii_case(file_name)
+        }
+        #[cfg(not(windows))]
+        {
+            known.program == file_name
+        }
+    });
     let leading = known
         .into_iter()
         .flat_map(|known| known.leading.iter().map(OsString::from))
