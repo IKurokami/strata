@@ -1777,7 +1777,10 @@ fn copy_recursively_local(
                     children.sort();
                 }
                 if !options.overwrite_existing || !target.query_exists(Some(&cancellable)) {
-                    await_cancellable(&target, &cancellable, |target, cancellable, result| {
+                    // GIO can report cancellation after mkdir succeeds. Finish the
+                    // reservation and record its identity before honoring cancellation.
+                    let reservation = gio::Cancellable::new();
+                    await_cancellable(&target, &reservation, |target, cancellable, result| {
                         target.make_directory_async(
                             glib::Priority::DEFAULT,
                             Some(cancellable),
