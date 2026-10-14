@@ -61,7 +61,9 @@ if [[ "$(basename "$engine")" == podman ]]; then
   options+=(--userns=keep-id --passwd=false --security-opt 'unmask=/proc/*')
 else
   # Docker also blocks the nested namespace/mount syscalls used by bubblewrap.
-  options+=(--security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined)
+  # NET_ADMIN is the minimum capability bubblewrap needs to bring up its
+  # private loopback device; the container is still unprivileged.
+  options+=(--cap-add=NET_ADMIN --security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined)
 fi
 exec "$engine" run "${options[@]}" \
   --mount "type=bind,source=$repository,target=/workspace" \

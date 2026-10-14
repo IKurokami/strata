@@ -155,7 +155,9 @@ private `/proc`; the decoder's sandbox and the container's seccomp policy remain
 enabled. Docker's outer seccomp/AppArmor profiles and system-path masks must be
 disabled for the nested namespace and mount operations. This applies only to the
 disposable E2E container; Strata still launches its normal bubblewrap decoder
-sandbox. Neither engine uses privileged mode or mounts desktop sockets.
+sandbox. Docker grants only `NET_ADMIN`, the minimum capability bubblewrap needs
+to create its private loopback device; neither engine uses privileged mode or
+mounts desktop sockets.
 Updating the image inputs is an intentional rendering
 environment change and requires reviewing the visual baselines.
 
