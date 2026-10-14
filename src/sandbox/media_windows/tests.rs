@@ -139,6 +139,51 @@ fn windows_video_preview_keeps_audio() {
 }
 
 #[test]
+fn windows_portrait_preview_keeps_all_frames_without_drift() {
+    let (_dir, path) = generated_media(
+        "mp4",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=green:size=72x128:rate=30",
+            "-t",
+            "1",
+            "-c:v",
+            "mpeg4",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+    );
+    let session = Session::start(test_source(path, false), 0).expect("portrait session");
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut frames = 0;
+    let mut prepared = None;
+    loop {
+        assert!(Instant::now() < deadline, "portrait decoder deadline");
+        match session.receive() {
+            Some(Event::Prepared(header)) => prepared = Some(header),
+            Some(Event::Packet(Packet::Frame(frame))) => {
+                frames += 1;
+                assert_eq!(
+                    frame.pixels.len(),
+                    prepared.as_ref().expect("header").video_bytes()
+                );
+            }
+            Some(Event::Packet(Packet::End(_))) => break,
+            Some(Event::Failed(error)) => panic!("portrait decoder failure: {error}"),
+            None => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    let header = prepared.expect("portrait header");
+    assert_eq!((header.width, header.height), (36, 64));
+    assert!(
+        frames >= 20,
+        "expected a full portrait stream, got {frames}"
+    );
+}
+
+#[test]
 fn video_output_fits_the_source_aspect_ratio_without_padding() {
     assert_eq!(fitted_video_size(520, 800, 1920.0, 1080.0), (520, 292));
     assert_eq!(fitted_video_size(520, 800, 1080.0, 1920.0), (450, 800));
