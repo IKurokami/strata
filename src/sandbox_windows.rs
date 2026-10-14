@@ -336,6 +336,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_preview_image_returns_rgba_without_png_roundtrip() {
+        let dir = tempfile::tempdir().expect("image fixture directory");
+        let path = dir.path().join("sample.png");
+        let expected = [15, 30, 45, 255];
+        image::RgbaImage::from_pixel(2, 1, image::Rgba(expected))
+            .save(&path)
+            .expect("write fixture");
+        let output = parse(
+            &path,
+            ParseOperation::PreviewImage,
+            0,
+            MediaPreviewBackend::Software,
+            &Cancellation::default(),
+        )
+        .expect("decode image once");
+        assert_eq!(output.raster_dimensions, Some((2, 1)));
+        assert_eq!(output.data, [expected, expected].concat());
+        assert!(!output.data.starts_with(b"\\x89PNG"));
+    }
+
+    #[test]
     fn untrusted_parse_refused_without_touching_path() {
         let c = Cancellation::default();
         let file = Path::new("Z:\\offline-not-accessible\\data.pdf");
