@@ -6,9 +6,9 @@ use crate::model::{FileEntry, Location};
 use crate::services::ArchiveFormat;
 use crate::ui::browser::clipboard::{copy_locations, copy_names, locations_equal};
 use crate::ui::browser::customization::show_customize_modal;
-use crate::ui::browser::desktop::{can_open_terminal, launch_terminal};
 #[cfg(windows)]
 use crate::ui::browser::desktop::open_in_explorer;
+use crate::ui::browser::desktop::{can_open_terminal, launch_terminal};
 use crate::ui::browser::entry::{entry_icon, entry_supports_printing};
 use crate::ui::browser::paths::{
     can_remove_location, compact_display_path, is_trash_item, is_trash_location,
