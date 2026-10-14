@@ -636,6 +636,74 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    /// Run GIO's Windows rename API to completion on the GLib main context
+    /// without needing a display server or a GTK window.
+    fn collect_rename(
+        source: std::path::PathBuf,
+        target: std::path::PathBuf,
+    ) -> Vec<OperationEvent> {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let captured = received.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+        let _handle =
+            async_rename_no_replace(source, target, OperationRequestId(1), emit);
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while received.borrow().is_empty() {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(started.elapsed() < Duration::from_secs(10), "rename timed out");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Rc::try_unwrap(received).expect("callback released").into_inner()
+    }
+
+    #[test]
+    fn native_rename_never_clobbers_an_existing_file() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary folder");
+        let source = root.path().join("source.txt");
+        let existing = root.path().join("existing.txt");
+        std::fs::write(&source, b"original").expect("source fixture");
+        std::fs::write(&existing, b"must remain").expect("destination fixture");
+
+        let events = collect_rename(source.clone(), existing.clone());
+        assert!(matches!(events.as_slice(), [OperationEvent::Failed { .. }]));
+        assert_eq!(std::fs::read(&source).expect("source retained"), b"original");
+        assert_eq!(std::fs::read(&existing).expect("destination retained"), b"must remain");
+    }
+
+    #[test]
+    fn native_rename_supports_folders_and_undo_without_copying() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary folder");
+        let source = root.path().join("before");
+        let renamed = root.path().join("after");
+        std::fs::create_dir(&source).expect("source directory");
+        std::fs::write(source.join("payload.txt"), b"intact").expect("nested fixture");
+
+        let events = collect_rename(source.clone(), renamed.clone());
+        assert!(matches!(events.as_slice(), [OperationEvent::Renamed { .. }]));
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read(renamed.join("payload.txt")).expect("renamed directory"),
+            b"intact"
+        );
+        let undone = collect_rename(renamed.clone(), source.clone());
+        assert!(matches!(undone.as_slice(), [OperationEvent::Renamed { .. }]));
+        assert!(!renamed.exists());
+        assert_eq!(
+            std::fs::read(source.join("payload.txt")).expect("restored directory"),
+            b"intact"
+        );
+    }
+
     #[test]
     fn cancelled_operations_keep_polling_until_the_native_queue_is_drained() {
         let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
