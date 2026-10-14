@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
