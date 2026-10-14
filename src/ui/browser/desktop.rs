@@ -431,10 +431,9 @@ mod windows_explorer_tests {
     fn explorer_select_passes_a_single_opaque_path_argument() {
         let path = Path::new(r"C:\folder with spaces\name & (draft).txt");
         let command = explorer_command(path, true).expect("SystemRoot is configured");
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            vec![OsString::from(format!("/select,{}", path.display())).as_os_str()]
-        );
+        let mut select = OsString::from("/select,");
+        select.push(path.as_os_str());
+        assert_eq!(command.get_args().collect::<Vec<_>>(), vec![select.as_os_str()]);
         assert!(command.get_program().to_string_lossy().to_ascii_lowercase().ends_with("explorer.exe"));
     }
 
