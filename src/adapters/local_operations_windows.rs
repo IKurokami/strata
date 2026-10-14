@@ -68,7 +68,39 @@ pub(crate) fn flush_filesystem(_root: &Path) -> io::Result<()> {
 
 enum Success {
     Directory,
-    Copy(Location),
+    Copy { source: Location, destination: Location },
+}
+/// Collect a bounded worker batch into one truthful terminal event.
+/// Successful sources are ordered by the user's request, not worker timing.
+struct BatchCopyState {
+    remaining: usize,
+    completed: Vec<(usize, Location)>,
+    error: Option<String>,
+}
+impl BatchCopyState {
+    fn terminal(&mut self, request_id: OperationRequestId) -> Option<OperationEvent> {
+        if self.remaining != 0 {
+            return None;
+        }
+        self.completed.sort_by_key(|(index, _)| *index);
+        let completed = self
+            .completed
+            .iter()
+            .map(|(_, location)| location.clone())
+            .collect();
+        Some(if let Some(message) = &self.error {
+            OperationEvent::TransferFailed {
+                request_id,
+                completed_locations: completed,
+                message: message.clone(),
+            }
+        } else {
+            OperationEvent::Pasted {
+                request_id,
+                locations: completed,
+            }
+        })
+    }
 }
 struct Pending {
     request_id: OperationRequestId,
@@ -134,10 +166,28 @@ impl ProviderState {
                 let event = match result {
                     Ok(()) => match success {
                         Success::Directory => OperationEvent::Created { request_id },
-                        Success::Copy(location) => OperationEvent::Pasted {
-                            request_id,
-                            locations: vec![location],
-                        },
+                        Success::Copy {
+                            source,
+                            destination,
+                        } => {
+                            // Browser operation tracking records the created
+                            // destination from progress, but Pasted holds
+                            // SOURCE locations (for selection and move undo).
+                            emit(OperationEvent::TransferProgress {
+                                request_id,
+                                completed_items: 1,
+                                completed_files: 1,
+                                total_files: Some(1),
+                                current_file: None,
+                                transferred_bytes: 0,
+                                total_bytes: None,
+                                created_location: Some(destination),
+                            });
+                            OperationEvent::Pasted {
+                                request_id,
+                                locations: vec![source],
+                            }
+                        }
                     },
                     Err(error) => OperationEvent::Failed {
                         request_id,
@@ -276,42 +326,122 @@ impl OperationProvider for LocalOperationProvider {
         if request.move_sources {
             return async_move_items(request, emit);
         }
-        if request.items.len() != 1 {
-            return rejected(request.id, emit, "Windows batch copy is not available yet");
-        }
-        let item = &request.items[0];
-        if item.conflict != TransferConflict::FailIfExists {
-            return rejected(
-                request.id,
-                emit,
-                "Windows overwrite, merge and Keep Both are not available yet",
-            );
-        }
-        let (Some(source), Some(destination_dir)) =
-            (item.source.native_path(), request.destination.native_path())
-        else {
-            return rejected(
-                request.id,
-                emit,
-                "Windows file copy requires local filesystem paths",
-            );
+        use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
+
+        let Some(destination_dir) = request.destination.native_path() else {
+            return rejected(request.id, emit, "Windows copy requires a local destination");
         };
-        let Some(name) = source.file_name() else {
-            return rejected(request.id, emit, "Source file has no ordinary filename");
-        };
-        if !strata_native_io::windows_paths::valid_child_name(name) {
-            return rejected(request.id, emit, "Invalid Windows filename");
+        if !matches!(
+            classify(destination_dir),
+            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+        ) {
+            return rejected(request.id, emit, "Invalid Windows destination");
         }
-        let destination = destination_dir.join(name);
-        self.state.submit(
-            LocalOperation::CopyFile {
-                source: source.to_path_buf(),
-                destination: destination.clone(),
-            },
-            request.id,
-            Success::Copy(Location::local(destination)),
-            emit,
-        )
+        let mut operations = Vec::with_capacity(request.items.len());
+        for item in &request.items {
+            if item.conflict != TransferConflict::FailIfExists {
+                return rejected(
+                    request.id,
+                    emit,
+                    "Windows overwrite, merge and Keep Both are not available yet",
+                );
+            }
+            let Some(source) = item.source.native_path() else {
+                return rejected(request.id, emit, "Windows copy requires local source paths");
+            };
+            if !matches!(
+                classify(source),
+                PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+            ) || !source.file_name().is_some_and(valid_child_name)
+            {
+                return rejected(request.id, emit, "Invalid Windows source filename");
+            }
+            let name = source.file_name().expect("validated");
+            let destination = destination_dir.join(name);
+            operations.push((item.source.clone(), source.to_path_buf(), destination));
+        }
+        // No inline filesystem calls. Each native request goes through the
+        // existing bounded mutation service, with atomic no-clobber publish.
+        // Aggregate multiple out-of-order completions into one terminal event.
+        let total = operations.len();
+        if total == 0 {
+            emit(OperationEvent::Pasted {
+                request_id: request.id,
+                locations: Vec::new(),
+            });
+            return LoadHandle::new(|| {});
+        }
+        let batch = Rc::new(RefCell::new(BatchCopyState {
+            remaining: total,
+            completed: Vec::with_capacity(total),
+            error: None,
+        }));
+        let mut handles = Vec::with_capacity(total);
+        for (index, (source, path, destination)) in operations.into_iter().enumerate() {
+            let progress = batch.clone();
+            let outer = emit.clone();
+            let callback: Rc<dyn Fn(OperationEvent)> = Rc::new(move |event| {
+                // Release the RefCell borrow before calling the browser: it
+                // can start another transfer synchronously from an event.
+                let mut forwarded = None;
+                let terminal = {
+                    let mut state = progress.borrow_mut();
+                    match event {
+                        OperationEvent::TransferProgress {
+                            request_id,
+                            created_location,
+                            ..
+                        } => {
+                            forwarded = Some(OperationEvent::TransferProgress {
+                                request_id,
+                                completed_items: state.completed.len() + 1,
+                                completed_files: state.completed.len() + 1,
+                                total_files: Some(total),
+                                current_file: None,
+                                transferred_bytes: 0,
+                                total_bytes: None,
+                                created_location,
+                            });
+                            None
+                        }
+                        OperationEvent::Pasted { locations, .. } => {
+                            if let Some(location) = locations.into_iter().next() {
+                                state.completed.push((index, location));
+                            }
+                            state.remaining -= 1;
+                            state.terminal(request.id)
+                        }
+                        OperationEvent::Failed { message, .. } => {
+                            if state.error.is_none() {
+                                state.error = Some(message);
+                            }
+                            state.remaining -= 1;
+                            state.terminal(request.id)
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(event) = forwarded {
+                    outer(event);
+                }
+                if let Some(event) = terminal {
+                    outer(event);
+                }
+            });
+            handles.push(self.state.submit(
+                LocalOperation::CopyFile {
+                    source: path,
+                    destination: destination.clone(),
+                },
+                request.id,
+                Success::Copy {
+                    source,
+                    destination: Location::local(destination),
+                },
+                callback,
+            ));
+        }
+        LoadHandle::new(move || drop(handles))
     }
 
     fn rename(&self, request: RenameRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
