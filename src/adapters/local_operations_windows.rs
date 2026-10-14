@@ -931,8 +931,7 @@ mod tests {
         let second = originals.join("second.txt");
         std::fs::write(&first, b"one").expect("first source");
         std::fs::write(&second, b"two").expect("second source");
-        std::fs::write(target.join("second.txt"), b"protected")
-            .expect("concurrent destination");
+        std::fs::write(target.join("second.txt"), b"protected").expect("concurrent destination");
         let events = Rc::new(RefCell::new(Vec::new()));
         let captured = events.clone();
         let emit: Rc<dyn Fn(OperationEvent)> =
@@ -940,7 +939,11 @@ mod tests {
         let _handle = async_move_paths(
             OperationRequestId(12),
             vec![
-                (Location::local(first.clone()), first.clone(), target.join("first.txt")),
+                (
+                    Location::local(first.clone()),
+                    first.clone(),
+                    target.join("first.txt"),
+                ),
                 (
                     Location::local(second.clone()),
                     second.clone(),
@@ -955,9 +958,11 @@ mod tests {
             while context.pending() {
                 context.iteration(false);
             }
-            if events.borrow().iter().any(|event| {
-                matches!(event, OperationEvent::TransferFailed { .. })
-            }) {
+            if events
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, OperationEvent::TransferFailed { .. }))
+            {
                 break;
             }
             assert!(

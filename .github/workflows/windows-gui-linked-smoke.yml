@@ -112,7 +112,10 @@ jobs:
             untrusted_parse_refused_without_touching_path \
             no_external_provider_can_be_discovered_on_windows \
             rejects_provider_requests_without_executing_helpers \
-            private_preview_helper_rejects_execution; do
+            private_preview_helper_rejects_execution \
+            native_rename_never_clobbers_an_existing_file \
+            native_rename_supports_folders_and_undo_without_copying \
+            native_move_batch_reports_partial_completion_without_overwriting; do
             if ! grep -Fq "${name}: test" target/windows-test-inventory.txt; then
               echo "Windows-only regression test missing: ${name}" >&2
               exit 1

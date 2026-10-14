@@ -10,7 +10,7 @@ Preserve every user-facing Linux capability that can be ported or reimplemented 
 
 | Priority | User-visible capability | Evidence in fork main | Windows completion gate |
 | --- | --- | --- | --- |
-| P0 | Rename, move, batch paste, overwrite/keep-both, merge, undo | `src/adapters/local_operations_windows.rs` rejects several operations; `crates/strata-native-io/src/windows_operations.rs` currently implements the bounded foundational worker | Race-safe native move/rename (including cross-volume semantics), no-clobber, cancellation, conflict UI and undo regression tests |
+| P0 | Rename, move, batch paste, overwrite/keep-both, merge, undo | This branch now enables native asynchronous no-overwrite rename/undo rename and same-volume batch move/undo; copy batches, cross-volume moves, conflict policies and merge/undo merge still explicitly reject. | Validate Win32 GTK regression cases, case-only rename, cross-volume copy-verify-delete, conflict UI, undo and cancellation |
 | P0 | Move to Recycle Bin / restore | `src/adapters/trash_restore_windows.rs` always refuses; Windows adapter does not substitute permanent delete | Shell recycle contract with verified item identity/original location, restore and undo tests |
 | P0 | Image/PDF/document/video/audio/RAW previews, file thumbnails | `src/sandbox_windows.rs`, `src/sandbox/browser_windows.rs`, `src/sandbox/media_windows.rs`, `src/sandbox_helper_windows.rs` fail closed by design | Restricted decoder worker using Job Objects / Windows isolation and authenticated bounded IPC; then enable families incrementally |
 | P1 | Browse/compress/extract archives | `src/adapters/local_operations_windows.rs` rejects native archive mutation and direct archive preview | Sandboxed codecs; destination traversal protection, atomic publish, cancellation |
@@ -87,3 +87,11 @@ The upstream **source**, not marketing throughput figures, was reviewed on 2026-
 Run cold and warm measurements (distinct samples) on Windows 11, NTFS SSD, HDD, ReFS if available, and remote/offline SMB. Use 0/1/1k/10k/100k files, nested directories, Unicode/extended paths, symlinks/junctions, protected/read-only files and cancellation races. Record file count, data loss (must be zero beyond the selected explicit deletion), completion/error count, memory peak, open handles, worker count, CPU, UI main-loop stalls and p50/p95/p99 end-to-end latency. Never interpret reduced *total deletion duration* as lower *first-response latency* without separate first-progress measurement. Keep benchmarks opt-in, write fixtures only to freshly created owned temporary directories, and compare with the same data and warmed cache order. CI correctness tests come before performance adoption.
 
 **Priority:** finish Windows deletion/recycle/undo correctness first, then optimize the separately supported permanent-delete mode with measured wins; do not silently turn the safe default into irreversible deletion.
+
+## Native rename and move implemented in PR #25 (pending full CI)
+
+- Windows `rename` and `undo_rename` now use a same-volume asynchronous GIO move, with `NO_FALLBACK_FOR_MOVE` and no `OVERWRITE`, after checking Win32 filename and lexical path class.
+- Native batch move and undo move also use the same no-copy/no-overwrite operation, pre-validating all source/destination paths, reporting each `ItemMoved`, progress and partial failure/cancellation. Undo requiring cleanup/trash remains gated on the Recycle Bin.
+- Native Windows tests verify existing-file preservation, directory rename + inverse, and partial batch completion on a destination collision. The Windows linked-EXE CI now runs these tests explicitly, rather than merely compiling them.
+- These moves intentionally reject cross-filesystem fallback rather than silently copy+delete. Operations stay asynchronous, so the GUI main loop never performs a synchronous move.
+- The user-facing parity debt remains substantial: direct Windows Recycle Bin/restore, sandboxed previews/thumbnails, archive mutation, cross-volume transfer/merge, SFTP/provider IPC, volume management and verified updater remain separate gated milestones.
