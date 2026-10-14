@@ -277,11 +277,7 @@ impl OperationProvider for LocalOperationProvider {
             return async_move_items(request, emit);
         }
         if request.items.len() != 1 {
-            return rejected(
-                request.id,
-                emit,
-                "Windows batch copy is not available yet",
-            );
+            return rejected(request.id, emit, "Windows batch copy is not available yet");
         }
         let item = &request.items[0];
         if item.conflict != TransferConflict::FailIfExists {
@@ -440,12 +436,13 @@ impl OperationProvider for LocalOperationProvider {
 /// reports exactly which source items moved if a later item fails. Only native
 /// same-volume renames are attempted: NO_FALLBACK_FOR_MOVE must not degrade
 /// into non-atomic copy/delete, particularly for directories or remote drives.
-fn async_move_items(
-    request: PasteRequest,
-    emit: Rc<dyn Fn(OperationEvent)>,
-) -> LoadHandle {
+fn async_move_items(request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
     let Some(destination_dir) = request.destination.native_path() else {
-        return rejected(request.id, emit, "Windows move requires a local destination");
+        return rejected(
+            request.id,
+            emit,
+            "Windows move requires a local destination",
+        );
     };
     if request
         .items
