@@ -967,9 +967,11 @@ impl PreviewState {
         // The preview closes now, so input such as the next Escape already
         // reaches the files; only the drawer's slide out waits.
         let restore_focus = tree_focused || self.hide_intent();
-        if self.is_enabled() {
-            self.dismissed.set(true);
-        }
+        // Closing the preview is a layout operation as well as a content
+        // operation. Do not keep an invisible preview column reserved; the
+        // View toggle must reclaim the space immediately.
+        self.dismissed.set(false);
+        self.reserve_columns.set(false);
         self.set_enabled(false);
         self.child_pane.set(false);
         self.content.set_focusable(false);
