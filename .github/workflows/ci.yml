@@ -468,7 +468,7 @@ jobs:
             --mount "type=bind,source=$PWD/target/e2e-bundle/strata,target=/strata,readonly" \
             strata-e2e:ci-runtime bwrap --unshare-all --die-with-parent --new-session --clearenv \
             --ro-bind /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 \
-            --dir /app --ro-bind /strata /app/strata --proc /proc --dev /dev --tmpfs /tmp \
+            --share-net --dir /app --ro-bind /strata /app/strata --proc /proc --dev /dev --tmpfs /tmp \
             -- /usr/bin/sh -ec '/app/strata --version; unshare --user --map-root-user /usr/bin/true'
 
       - name: Run the assigned scenarios without rebuilding or installing

@@ -74,6 +74,7 @@ exec "$engine" run "${options[@]}" \
   --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0 \
   --env "STRATA_E2E_UPDATE_BASELINES=${STRATA_E2E_UPDATE_BASELINES:-0}" \
   --env "STRATA_E2E_WORKERS=${STRATA_E2E_WORKERS:-auto}" \
+  --env STRATA_SANDBOX_SHARE_NET=1 \
   --env "STRATA_E2E_BUNDLE=${bundle:+/workspace/$bundle}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"

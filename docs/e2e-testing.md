@@ -156,7 +156,8 @@ enabled. Docker's outer seccomp/AppArmor profiles and system-path masks must be
 disabled for the nested namespace and mount operations. This applies only to the
 disposable E2E container; Strata still launches its normal bubblewrap decoder
 sandbox. The outer Docker container uses `--network=none` so bubblewrap can
-create its private network namespace without extra capabilities; neither engine
+reuse that already-isolated namespace without extra capabilities; the E2E-only
+`STRATA_SANDBOX_SHARE_NET` flag is never set for normal launches. Neither engine
 uses privileged mode or mounts desktop sockets.
 Updating the image inputs is an intentional rendering
 environment change and requires reviewing the visual baselines.
