@@ -316,11 +316,22 @@ impl OperationProvider for LocalOperationProvider {
     }
 
     fn rename(&self, request: RenameRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows no-clobber rename is not implemented",
-        )
+        if let Err(message) = validate_basename(&request.new_name) {
+            return rejected(request.id, emit, crate::i18n::tr(message));
+        }
+        if !strata_native_io::windows_paths::valid_child_name(OsStr::new(&request.new_name)) {
+            return rejected(request.id, emit, "Invalid Windows filename");
+        }
+        let Some(source) = request.entry.location.native_path() else {
+            return rejected(request.id, emit, "Windows rename requires a local path");
+        };
+        let Some(parent) = source.parent() else {
+            return rejected(request.id, emit, "Cannot rename a volume root");
+        };
+        // Rename is a same-directory move: never use std::fs::rename here,
+        // whose Windows replacement semantics are not a no-clobber contract.
+        let target = parent.join(&request.new_name);
+        async_rename_no_replace(source.to_path_buf(), target, request.id, emit)
     }
     fn undo_move(&self, request: UndoMoveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         rejected(request.id, emit, "Windows undo move is not implemented")
@@ -330,7 +341,21 @@ impl OperationProvider for LocalOperationProvider {
         request: UndoRenameRequest,
         emit: Rc<dyn Fn(OperationEvent)>,
     ) -> LoadHandle {
-        rejected(request.id, emit, "Windows undo rename is not implemented")
+        let (Some(source), Some(target)) =
+            (request.current.native_path(), request.original.native_path())
+        else {
+            return rejected(request.id, emit, "Windows undo rename requires local paths");
+        };
+        if source.parent().is_none() || source.parent() != target.parent() {
+            return rejected(request.id, emit, "Undo rename must stay in the original folder");
+        }
+        if !target
+            .file_name()
+            .is_some_and(strata_native_io::windows_paths::valid_child_name)
+        {
+            return rejected(request.id, emit, "Invalid Windows filename");
+        }
+        async_rename_no_replace(source.to_path_buf(), target.to_path_buf(), request.id, emit)
     }
     fn undo_copy(&self, request: UndoCopyRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         rejected(
@@ -378,6 +403,54 @@ impl OperationProvider for LocalOperationProvider {
             "Windows archive extraction needs a sandboxed decoder",
         )
     }
+}
+
+/// Rename in-place without replacing an existing destination. GIO's native
+/// move with NO_FALLBACK_FOR_MOVE performs a same-volume rename (including
+/// directories) and rejects collisions; it never degrades to copy + delete.
+/// The async operation does not block GTK's main loop on filesystem I/O.
+/// A failure is reported as a failure, never as a successful rename.
+fn async_rename_no_replace(
+    source: std::path::PathBuf,
+    target: std::path::PathBuf,
+    request_id: OperationRequestId,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    if source == target {
+        emit(OperationEvent::Renamed { request_id });
+        return LoadHandle::new(|| {});
+    }
+    let file = gio::File::for_path(&source);
+    let destination = gio::File::for_path(&target);
+    let cancel = gio::Cancellable::new();
+    let task_cancel = cancel.clone();
+    let _task = glib::MainContext::default().spawn_local(async move {
+        let result = gio::GioFuture::new(&file, move |file, _, result| {
+            file.move_async(
+                &destination,
+                gio::FileCopyFlags::NO_FALLBACK_FOR_MOVE,
+                glib::Priority::DEFAULT,
+                Some(&task_cancel),
+                None,
+                move |outcome| result.resolve(outcome),
+            );
+        })
+        .await;
+        match result {
+            Ok(()) => emit(OperationEvent::Renamed { request_id }),
+            Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {
+                // No operation was confirmed complete. Cancelling a handle
+                // suppresses its completion just as the existing Windows
+                // create-file and create-directory providers do.
+            }
+            Err(error) => emit(OperationEvent::Failed {
+                request_id,
+                message: crate::services::gio_error_message(&error),
+                password_failure: None,
+            }),
+        }
+    });
+    LoadHandle::new(move || cancel.cancel())
 }
 
 fn async_create_directory(
