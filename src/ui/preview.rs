@@ -1217,6 +1217,7 @@ impl PreviewState {
                     }
                     PreviewContent::Image
                     | PreviewContent::Model { .. }
+                    | PreviewContent::RawImage { .. }
                     | PreviewContent::Media
                     | PreviewContent::SandboxedMedia { .. }
                     | PreviewContent::Archive { .. }
@@ -1589,6 +1590,38 @@ impl PreviewState {
                     super::virtual_preview::rendered_document(document, warnings, false, None);
                 self.rendered_text.replace(Some(state));
                 self.content.append(&view);
+            }
+            PreviewContent::RawImage { width, height, pixels } => {
+                // The Windows worker decoded this once; create a memory-backed
+                // GDK texture without an intermediate PNG encoder/decoder.
+                let stride = (width as usize).saturating_mul(4);
+                if width == 0 || height == 0 || width > 1280 || height > 1280
+                    || pixels.len() != stride.saturating_mul(height as usize)
+                {
+                    self.show_message(
+                        &crate::i18n::tr("Preview unavailable"),
+                        "Invalid decoded image dimensions",
+                    );
+                } else {
+                    self.print.set_visible(true);
+                    let bytes = glib::Bytes::from_owned(pixels);
+                    let texture = gtk::gdk::MemoryTexture::new(
+                        width as i32,
+                        height as i32,
+                        gtk::gdk::MemoryFormat::R8g8b8a8,
+                        &bytes,
+                        stride,
+                    );
+                    let picture = gtk::Picture::for_paintable(&texture);
+                    picture.add_css_class("preview-image");
+                    picture.set_can_shrink(true);
+                    picture.set_content_fit(gtk::ContentFit::Contain);
+                    picture.set_hexpand(true);
+                    picture.set_vexpand(true);
+                    picture.set_cursor_from_name(Some("grab"));
+                    install_preview_drag(&picture, self);
+                    self.content.append(&media_layout::section(&picture, &texture));
+                }
             }
             PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => {
                 let model = crate::services::is_model(&preview.entry.native_name);
