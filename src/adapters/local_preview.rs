@@ -21,8 +21,9 @@ use crate::{
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
-        document_kind, has_plain_text_extension, is_non_executable_extensionless_dotfile,
-        layout_document, normalize_preview_text, parse_document,
+        document_kind, has_plain_text_extension, is_image_path, is_media_path,
+        is_non_executable_extensionless_dotfile, layout_document, normalize_preview_text,
+        parse_document,
     },
 };
 
@@ -276,6 +277,16 @@ impl LocalPreviewProvider {
                         truncated: false,
                     };
                     content_type = "text/plain".to_owned();
+                } else if is_image_path(Path::new(&entry.native_name)) {
+                    // Windows GIO can report application/octet-stream for
+                    // valid images when no desktop MIME database is present.
+                    // Extension classification is only a fallback; the
+                    // bounded decoder still validates the actual bytes.
+                    content = PreviewContent::Image;
+                    content_type = "image/*".to_owned();
+                } else if is_media_path(Path::new(&entry.native_name)) {
+                    content = PreviewContent::Media;
+                    content_type = "video/*".to_owned();
                 }
             }
 
