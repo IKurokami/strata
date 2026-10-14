@@ -193,7 +193,8 @@ fn decode_audio(
             "-i",
         ])
         .arg(&source.path)
-        .args(["-f", "f32le", "-ac", "2", "-ar", "48000", "pipe:1"])
+        // PcmOutput advertises interleaved signed 16-bit stereo samples.
+        .args(["-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
