@@ -196,9 +196,16 @@ mod imp {
             }
             // Stop the sink before sampling its position. This makes the
             // timestamp and timeline settle on one frame instead of taking a
-            // second, slightly later sample while the device pauses.
-            obj.capture_position();
-            obj.update(obj.imp().position.get() as i64);
+            // second, slightly later sample while the device pauses. A seek
+            // can still be settling during the first 200 ms; keep its target
+            // visible instead of replacing it with the old sink position.
+            let position = if let Some((pending, _)) = self.seek_pending.get() {
+                pending
+            } else {
+                obj.capture_position();
+                obj.imp().position.get()
+            };
+            obj.update(position as i64);
             // Resuming waits for the sink again, like a fresh start.
             self.audio_anchored.set(false);
             self.clock.set(None);

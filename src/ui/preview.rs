@@ -976,7 +976,9 @@ impl PreviewState {
         // Closing the preview is a layout operation as well as a content
         // operation. Do not keep an invisible preview column reserved; the
         // View toggle must reclaim the space immediately.
-        self.dismissed.set(false);
+        // An explicit close suppresses selection-following until a later
+        // explicit preview request reopens the drawer.
+        self.dismissed.set(true);
         self.reserve_columns.set(false);
         self.set_enabled(false);
         self.child_pane.set(false);
