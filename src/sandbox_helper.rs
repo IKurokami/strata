@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MIT
-
+#[cfg(unix)]
+use std::os::fd::RawFd;
 use std::{
     fs,
     io::{self, Read, Seek},
-    os::fd::RawFd,
     path::Path,
     process::{Child, Command, Output, Stdio},
     sync::mpsc,
@@ -20,12 +19,14 @@ use crate::{
     services::{ArchiveFormat, MediaPreviewSize},
 };
 
+#[cfg(target_os = "linux")]
 mod appimage;
 pub(crate) mod archive_cover;
-#[cfg(feature = "rar")]
+#[cfg(all(feature = "rar", unix))]
 mod archive_rar;
 mod document_media;
 mod image_conversion;
+#[cfg(unix)]
 mod media;
 mod model;
 mod raw_metadata;
@@ -33,7 +34,7 @@ mod raw_metadata;
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
-    #[cfg(not(feature = "rar"))]
+    #[cfg(any(not(feature = "rar"), not(unix)))]
     if arguments
         .first()
         .is_some_and(|operation| operation == "extract-rar")
@@ -43,7 +44,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     // Streams to its own stdout pipe instead of a bound `/output` file, so it
     // does not fit the fixed [operation, input, output, value, media_backend]
     // shape every other operation below shares.
-    #[cfg(feature = "rar")]
+    #[cfg(all(feature = "rar", unix))]
     if let [operation, input, rest @ ..] = arguments
         && operation == "extract-rar"
     {
@@ -70,7 +71,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         let mut stdout = stdout.lock();
         return archive_rar::run(Path::new(input), password.as_deref(), &mut stdout);
     }
-    let (arguments, start_tick) = match arguments {
+    let (arguments, _start_tick) = match arguments {
         [operation, ..]
             if matches!(operation.as_str(), "preview-media" | "preview-audio")
                 && arguments.len() == 6 =>
@@ -84,6 +85,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         }
         _ => (arguments, 0),
     };
+    #[cfg(unix)]
     let secret_fd = match arguments {
         [operation, ..] if operation == "archive-list" && arguments.len() == 6 => Some(
             arguments[5]
@@ -95,29 +97,45 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         _ if arguments.len() == 5 => None,
         _ => return Err("Invalid preview helper arguments".to_owned()),
     };
+    #[cfg(not(unix))]
+    let has_secret = match arguments {
+        [operation, ..] if operation == "archive-list" && arguments.len() == 6 => {
+            arguments[5] == "0" || arguments[5] == "stdin"
+        }
+        _ if arguments.len() == 5 => false,
+        _ => return Err("Invalid preview helper arguments".to_owned()),
+    };
     let [operation, input, output, value, media_backend] = &arguments[..5] else {
         return Err("Invalid preview helper arguments".to_owned());
     };
     let input = Path::new(input);
     let output = Path::new(output);
+    #[cfg(unix)]
     let media_backend = MediaPreviewBackend::from_argument(media_backend)
+        .ok_or_else(|| "Invalid media preview backend".to_owned())?;
+    #[cfg(not(unix))]
+    let _media_backend = MediaPreviewBackend::from_argument(media_backend)
         .ok_or_else(|| "Invalid media preview backend".to_owned())?;
     if matches!(operation.as_str(), "inspect-image" | "convert-image") {
         return image_conversion::run(input, output, operation == "convert-image");
     }
+    #[cfg(unix)]
     if operation == "preview-media" || operation == "preview-audio" {
         let audio_only = operation == "preview-audio";
         return media::run(input, output, value, media_backend, start_tick, audio_only);
     }
+    #[cfg(unix)]
     if operation == "audio-peaks" {
         return media::run_peaks(input, output);
     }
+    #[cfg(unix)]
     if operation == "video-storyboard" {
         let cell_edge = value
             .parse::<u32>()
             .map_err(|_| "Invalid storyboard cell size".to_owned())?;
         return media::run_storyboard(input, output, cell_edge);
     }
+    #[cfg(unix)]
     if operation == "audio-tags" {
         return fs::write(output, media::audio_tags(input)?).map_err(|error| error.to_string());
     }
@@ -143,8 +161,13 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     if operation == "raw-metadata" {
         return fs::write(output, raw_metadata::read(input)?).map_err(|error| error.to_string());
     }
+    #[cfg(unix)]
     if operation == "archive-list" {
         return run_archive_list(input, output, value, secret_fd);
+    }
+    #[cfg(not(unix))]
+    if operation == "archive-list" {
+        return run_archive_list(input, output, value, has_secret);
     }
     let numeric_value = || {
         value
@@ -163,6 +186,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             None,
         ),
         "thumbnail-video" => (render_media(input, numeric_value()?.clamp(16, 256))?, None),
+        #[cfg(unix)]
         "audio-cover" => {
             let cover = media::cover(input, 800)?;
             (
@@ -174,10 +198,15 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
                 None,
             )
         }
+        #[cfg(not(unix))]
+        "audio-cover" => (b"null".to_vec(), None),
+        #[cfg(target_os = "linux")]
         "thumbnail-appimage" => (
             appimage::render(input, numeric_value()?.clamp(16, 256))?,
             None,
         ),
+        #[cfg(not(target_os = "linux"))]
+        "thumbnail-appimage" => return Err("AppImage is only supported on Linux".to_owned()),
         "thumbnail-model" => (
             model::thumbnail(
                 input,
@@ -245,6 +274,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn run_archive_list(
     input: &Path,
     output: &Path,
@@ -280,7 +310,46 @@ fn run_archive_list(
     Ok(())
 }
 
+#[cfg(not(unix))]
+fn run_archive_list(
+    input: &Path,
+    output: &Path,
+    format: &str,
+    has_secret: bool,
+) -> Result<(), String> {
+    use crate::adapters::MAX_ARCHIVE_PASSWORD_BYTES;
+
+    let format = match format {
+        "zip" => ArchiveFormat::Zip,
+        "7z" => ArchiveFormat::SevenZ,
+        "tar" => ArchiveFormat::Tar,
+        "tar.gz" => ArchiveFormat::TarGz,
+        _ => return Err("Unknown archive format for preview.".to_owned()),
+    };
+    let password = if has_secret {
+        let mut secret = Vec::new();
+        std::io::stdin()
+            .take(MAX_ARCHIVE_PASSWORD_BYTES as u64 + 1)
+            .read_to_end(&mut secret)
+            .map_err(|error| format!("Unable to read the preview secret: {error}"))?;
+        if secret.len() > MAX_ARCHIVE_PASSWORD_BYTES {
+            return Err("Archive password is too long.".to_owned());
+        }
+        Some(
+            String::from_utf8(secret)
+                .map_err(|_| "Archive password is not valid text.".to_owned())?,
+        )
+    } else {
+        None
+    };
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let result = list_archive_entries_direct(input, format, password.as_deref(), &cancelled);
+    fs::write(output, encode_archive_result(&result)).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 // Reopen to read from offset zero without changing the inherited description's offset.
+#[cfg(unix)]
 fn read_secret_fd(descriptor: RawFd) -> Result<Vec<u8>, String> {
     let mut secret = Vec::new();
     fs::File::open(format!("/proc/self/fd/{descriptor}"))
@@ -372,6 +441,7 @@ fn read_media_metadata(input: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[cfg(unix)]
 pub(crate) fn browser_render(
     input: &Path,
     operation: crate::sandbox::browser::wire::Operation,
@@ -655,12 +725,18 @@ fn render_dcraw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 }
 
 fn render_simple_dcraw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
-    use std::os::unix::fs::symlink;
-
     // Writes `<file>.thumb.jpg` next to the input, which is a read-only bind.
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let staging = directory.path().join("raw-thumb");
-    symlink(path, &staging).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        symlink(path, &staging).map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::copy(path, &staging).map_err(|error| error.to_string())?;
+    }
     let status = Command::new("simple_dcraw")
         .arg("-e")
         .arg(&staging)
@@ -1118,5 +1194,5 @@ fn bounded_output(command: &mut Command, max_bytes: u64) -> io::Result<Output> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;

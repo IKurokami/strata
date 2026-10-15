@@ -7,6 +7,8 @@
 //! destroying an item the bin cannot hold.
 #![cfg(windows)]
 
+pub mod job;
+
 use std::{
     cell::RefCell,
     io,
