@@ -28,8 +28,7 @@ pub(crate) enum Event {
     Failed(String),
 }
 
-/// API-compatible unavailable session. No GStreamer graph, audio device,
-/// process or worker thread is started by this constructor.
+/// Bounded Windows media session backed by the helper decoder process.
 pub(crate) struct Session {
     cancelled: Arc<AtomicBool>,
     receiver: mpsc::Receiver<Event>,

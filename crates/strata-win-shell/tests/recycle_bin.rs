@@ -2,7 +2,7 @@
 
 use std::{fs, io, path::PathBuf};
 
-use strata_win_shell::{recycle, restore};
+use strata_win_shell::{permanently_delete, recycle, restore};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("strata-win-shell-{}-{name}", std::process::id()));
@@ -79,5 +79,17 @@ fn restore_by_original_path_finds_and_restores_recycled_file() {
     assert_eq!(fs::read_to_string(&path).unwrap(), "restorable content");
 
     fs::remove_file(&path).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn permanent_delete_removes_an_explicitly_confirmed_file() {
+    let dir = scratch("permanent");
+    let path = dir.join("permanent.txt");
+    fs::write(&path, "gone").unwrap();
+
+    permanently_delete(std::slice::from_ref(&path)).expect("permanent delete");
+
+    assert!(!path.exists());
     fs::remove_dir_all(dir).unwrap();
 }

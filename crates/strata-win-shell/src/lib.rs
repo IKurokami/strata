@@ -116,6 +116,8 @@ struct Sink {
     outcomes: Rc<RefCell<Outcomes>>,
     /// Reject any move whose destination already exists (restore never replaces).
     refuse_existing_destination: bool,
+    /// Permanent deletion does not produce a Recycle Bin item to identify.
+    expect_recycled_item: bool,
 }
 
 #[allow(
@@ -215,6 +217,9 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
         let mut outcomes = self.outcomes.borrow_mut();
         if result.is_err() {
             outcomes.failure.get_or_insert(result);
+            return Ok(());
+        }
+        if !self.expect_recycled_item {
             return Ok(());
         }
         // A missing "newly created" item means the shell destroyed the item
@@ -341,6 +346,7 @@ pub fn recycle(paths: &[PathBuf]) -> io::Result<Vec<RecycledItem>> {
         let sink: IFileOperationProgressSink = Sink {
             outcomes: outcomes.clone(),
             refuse_existing_destination: false,
+            expect_recycled_item: true,
         }
         .into();
         let operation = new_operation(
@@ -364,6 +370,36 @@ pub fn recycle(paths: &[PathBuf]) -> io::Result<Vec<RecycledItem>> {
             ));
         }
         Ok(recycled)
+    })
+}
+
+/// Permanently delete absolute paths through the Windows Shell on a private
+/// COM STA thread. The caller must have shown an explicit confirmation.
+pub fn permanently_delete(paths: &[PathBuf]) -> io::Result<()> {
+    if paths.iter().any(|path| !path.is_absolute()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "permanent deletion requires absolute paths",
+        ));
+    }
+    let paths = paths.to_vec();
+    with_sta(move || {
+        let outcomes = Rc::new(RefCell::new(Outcomes::default()));
+        let sink: IFileOperationProgressSink = Sink {
+            outcomes: outcomes.clone(),
+            refuse_existing_destination: false,
+            expect_recycled_item: false,
+        }
+        .into();
+        let operation = new_operation(FOF_NOCONFIRMATION | FOF_NOERRORUI)?;
+        for path in &paths {
+            let item = shell_item(path)?;
+            // SAFETY: both COM objects are live for the call.
+            unsafe { operation.DeleteItem(&item, &sink) }
+                .map_err(|error| io_error("cannot queue permanent delete", &error))?;
+        }
+        perform(&operation, &outcomes)?;
+        Ok(())
     })
 }
 
@@ -475,6 +511,7 @@ pub fn restore(item: &RecycledItem) -> io::Result<()> {
         let sink: IFileOperationProgressSink = Sink {
             outcomes: outcomes.clone(),
             refuse_existing_destination: true,
+            expect_recycled_item: false,
         }
         .into();
         let operation = new_operation(FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR)?;
@@ -516,6 +553,7 @@ pub fn restore_by_original_path(original: &Path) -> io::Result<PathBuf> {
         let sink: IFileOperationProgressSink = Sink {
             outcomes: outcomes.clone(),
             refuse_existing_destination: true,
+            expect_recycled_item: false,
         }
         .into();
         let operation = new_operation(FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR)?;

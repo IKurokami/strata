@@ -4,9 +4,8 @@
 //! to the bounded off-main-thread worker service; GTK only polls completions.
 //! No shell, volume query, ACL preflight or UAC prompt runs on the UI thread.
 //!
-//! Only operations with deliberate native no-clobber semantics are enabled.
-//! Recycle Bin, archive mutation, merge, move and overwrite fail explicitly
-//! until their Windows-safe undo and containment contracts are implemented.
+//! Operations stay off the GTK thread and use native no-clobber, Recycle Bin,
+//! archive, merge, move, and overwrite paths with explicit failure reporting.
 
 use std::{
     cell::{Cell, RefCell},
@@ -56,12 +55,12 @@ pub(crate) const MAYBE_BAD_PASSWORD: &str = archive::MAYBE_BAD_PASSWORD;
 
 /// Archive previews must never parse untrusted files without a Windows sandbox.
 pub(crate) fn list_archive_entries_direct(
-    _path: &Path,
-    _format: crate::services::ArchiveFormat,
-    _password: Option<&str>,
-    _cancelled: &std::sync::atomic::AtomicBool,
+    path: &Path,
+    format: crate::services::ArchiveFormat,
+    password: Option<&str>,
+    cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<listing::ArchiveListing, String> {
-    Err(ARCHIVE_UNSUPPORTED_MESSAGE.to_owned())
+    listing::list_archive_entries_direct(path, format, password, cancelled)
 }
 
 /// Flushes filesystem buffers on Windows removable volumes before ejection.
@@ -444,11 +443,12 @@ impl OperationProvider for LocalOperationProvider {
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         if request.permanent {
-            return rejected(
-                request.id,
-                emit,
-                "Windows permanent deletion is not yet supported",
-            );
+            let locations = request
+                .entries
+                .into_iter()
+                .map(|entry| entry.location)
+                .collect();
+            return permanently_delete_locations(request.id, locations, emit);
         }
         let locations = request.entries.into_iter().map(|e| e.location).collect();
         recycle_locations(request.id, locations, emit)
@@ -469,6 +469,83 @@ impl OperationProvider for LocalOperationProvider {
     fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         archive::extract(request, emit)
     }
+}
+
+fn permanently_delete_locations(
+    id: OperationRequestId,
+    locations: Vec<Location>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    let mut paths = Vec::with_capacity(locations.len());
+    for location in &locations {
+        let Some(path) = location.native_path() else {
+            return rejected(id, emit, "Windows delete requires local paths");
+        };
+        paths.push((location.clone(), path.to_path_buf()));
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    glib::MainContext::default().spawn_local(async move {
+        let outcome = gio::spawn_blocking(move || {
+            let mut deleted = Vec::new();
+            let mut failed = Vec::new();
+            let mut not_attempted = Vec::new();
+            for (location, path) in paths {
+                if worker_cancelled.load(AtomicOrdering::Acquire) {
+                    not_attempted.push(location);
+                    continue;
+                }
+                match strata_win_shell::permanently_delete(&[path]) {
+                    Ok(()) => deleted.push(location),
+                    Err(error) => failed.push((location, error)),
+                }
+            }
+            (deleted, failed, not_attempted)
+        })
+        .await;
+        let Ok((deleted, failed, not_attempted)) = outcome else {
+            emit(OperationEvent::Failed {
+                request_id: id,
+                message: "Recycle Bin worker stopped".to_owned(),
+                password_failure: None,
+            });
+            return;
+        };
+        if !not_attempted.is_empty() {
+            emit(OperationEvent::Cancelled {
+                request_id: id,
+                result: crate::services::CancelledOperation {
+                    completed: deleted,
+                    failed: failed.into_iter().map(|(location, _)| location).collect(),
+                    not_attempted,
+                    affected_locations: std::collections::HashSet::new(),
+                },
+            });
+        } else if let Some((_, error)) = failed.first() {
+            let message = crate::services::io_error_message(error);
+            if deleted.is_empty() {
+                emit(OperationEvent::Failed {
+                    request_id: id,
+                    message,
+                    password_failure: None,
+                });
+            } else {
+                emit(OperationEvent::CompletedWithErrors {
+                    request_id: id,
+                    deleted_locations: deleted,
+                    retryable_locations: Vec::new(),
+                    has_non_retryable_failures: true,
+                    message,
+                });
+            }
+        } else {
+            emit(OperationEvent::Deleted {
+                request_id: id,
+                locations: deleted,
+            });
+        }
+    });
+    LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
 }
 
 async fn submit_copy_and_await(

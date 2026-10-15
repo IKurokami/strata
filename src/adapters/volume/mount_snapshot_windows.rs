@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 //! No synchronous GIO/Win32 volume enumeration from Windows navigation.
-//! A future Windows volume worker should publish immutable snapshots to GTK.
-use std::{cell::RefCell, path::PathBuf};
+//! The cached snapshot is refreshed by a dedicated worker and read by GTK.
+use std::{
+    path::PathBuf,
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
 
 use super::MountTable;
 
@@ -17,44 +24,62 @@ pub(crate) struct MountSnapshot {
     pub(crate) removable: Vec<RemovableRoot>,
 }
 
-thread_local! {
-    static MOUNTS: RefCell<Option<MountSnapshot>> = const { RefCell::new(None) };
-}
+static MOUNTS: OnceLock<Mutex<MountSnapshot>> = OnceLock::new();
+static ENUMERATION_STARTED: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn with_mount_snapshot<T>(read: impl FnOnce(&MountSnapshot) -> T) -> T {
-    MOUNTS.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        read(cache.get_or_insert_with(|| {
-            let removable = strata_win_shell::enumerate_volumes()
-                .into_iter()
-                .filter(|v| v.drive_type.is_removable())
-                .map(|v| RemovableRoot {
-                    uuid: v
-                        .serial_number
-                        .map(|s| format!("{:08X}", s))
-                        .unwrap_or_else(|| "00000000".to_string()),
-                    path: v.root,
-                })
-                .collect();
-            MountSnapshot {
-                table: MountTable::current(),
-                removable,
-            }
-        }))
+fn mount_cache() -> &'static Mutex<MountSnapshot> {
+    MOUNTS.get_or_init(|| {
+        Mutex::new(MountSnapshot {
+            table: MountTable::current(),
+            removable: Vec::new(),
+        })
     })
 }
 
+fn refresh_in_background() {
+    if ENUMERATION_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    thread::Builder::new()
+        .name("strata-windows-volume-snapshot".into())
+        .spawn(|| {
+            let removable = strata_win_shell::enumerate_volumes()
+                .into_iter()
+                .filter(|volume| volume.drive_type.is_removable())
+                .map(|volume| RemovableRoot {
+                    uuid: volume
+                        .serial_number
+                        .map(|serial| format!("{serial:08X}"))
+                        .unwrap_or_else(|| "00000000".to_owned()),
+                    path: volume.root,
+                })
+                .collect();
+            if let Ok(mut snapshot) = mount_cache().lock() {
+                snapshot.removable = removable;
+            }
+        })
+        .ok();
+}
+
+pub(crate) fn with_mount_snapshot<T>(read: impl FnOnce(&MountSnapshot) -> T) -> T {
+    refresh_in_background();
+    let snapshot = mount_cache().lock().expect("Windows mount snapshot");
+    read(&snapshot)
+}
+
 pub(crate) fn invalidate_mount_snapshot() {
-    MOUNTS.with(|cache| {
-        if let Ok(mut cache) = cache.try_borrow_mut() {
-            *cache = None;
-        }
-    });
+    ENUMERATION_STARTED.store(false, Ordering::Release);
+    if let Ok(mut snapshot) = mount_cache().try_lock() {
+        snapshot.removable.clear();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::Path;
 
     #[test]
     fn test_enumerate_volumes_finds_c_drive() {
