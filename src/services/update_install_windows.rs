@@ -17,6 +17,7 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     path::{Component, Path, PathBuf},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -443,6 +444,12 @@ fn perform_windows_install(
         return Err(InstallStop::Cancelled);
     }
 
+    // Keep the staging tree alive after this function returns. The handoff
+    // process runs after the current executable exits and therefore cannot use
+    // a TempDir that is dropped here.
+    let _staging_root = workdir.keep();
+    launch_windows_handoff(&handoff_script)?;
+
     let _ = progress.send(UpdateInstall::Finalizing);
 
     tracing::info!(
@@ -660,39 +667,53 @@ pub(crate) fn prepare_windows_handoff_script(
     target_exe: &Path,
     current_pid: u32,
 ) -> Result<PathBuf, String> {
-    let script_path = staged_dir.join("strata-apply-update.cmd");
+    let script_path = staged_dir.join("strata-apply-update.ps1");
+    let quote = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "''"));
     let content = format!(
-        "@echo off\r\n\
-        setlocal enabledelayedexpansion\r\n\
-        set \"OLD_PID={current_pid}\"\r\n\
-        set \"STAGE_DIR={stage}\"\r\n\
-        set \"TARGET_DIR={target}\"\r\n\
-        set \"TARGET_EXE={exe}\"\r\n\
-        \r\n\
-        :wait_loop\r\n\
-        tasklist /fi \"PID eq %OLD_PID%\" 2>nul | findstr /i \"%OLD_PID%\" >nul\r\n\
-        if not errorlevel 1 (\r\n\
-            timeout /t 1 /nobreak >nul\r\n\
-            goto wait_loop\r\n\
-        )\r\n\
-        \r\n\
-        xcopy /e /y /q \"%STAGE_DIR%\\*\" \"%TARGET_DIR%\\\" >nul 2>&1\r\n\
-        if errorlevel 1 (\r\n\
-            exit /b 1\r\n\
-        )\r\n\
-        \r\n\
-        start \"\" \"%TARGET_EXE%\"\r\n\
-        exit /b 0\r\n",
+        "$ErrorActionPreference = 'Stop'\r\n\
+        $oldPid = {current_pid}\r\n\
+        $stageDir = {stage}\r\n\
+        $targetDir = {target}\r\n\
+        $targetExe = {exe}\r\n\
+        while (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) {{\r\n\
+            Start-Sleep -Seconds 1\r\n\
+        }}\r\n\
+        Get-ChildItem -LiteralPath $stageDir -Force |\r\n\
+            Where-Object {{ $_.Name -ne 'strata-apply-update.ps1' }} |\r\n\
+            ForEach-Object {{ Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force }}\r\n\
+        Start-Process -FilePath $targetExe\r\n\
+        Remove-Item -LiteralPath $stageDir -Recurse -Force -ErrorAction SilentlyContinue\r\n",
         current_pid = current_pid,
-        stage = staged_dir.display(),
-        target = target_dir.display(),
-        exe = target_exe.display(),
+        stage = quote(staged_dir),
+        target = quote(target_dir),
+        exe = quote(target_exe),
     );
 
-    fs::write(&script_path, content)
+    let mut encoded = vec![0xEF, 0xBB, 0xBF];
+    encoded.extend_from_slice(content.as_bytes());
+    fs::write(&script_path, encoded)
         .map_err(|e| format!("Windows update verification: Failed writing handoff script: {e}"))?;
 
     Ok(script_path)
+}
+
+fn launch_windows_handoff(script: &Path) -> Result<(), InstallStop> {
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(script)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            InstallStop::Failed(format!(
+                "Windows update verification: Could not start update handoff: {error}"
+            ))
+        })
 }
 
 pub(crate) fn rollback_path(directory: &Path) -> PathBuf {
@@ -764,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_windows_handoff_script_creates_valid_batch() {
+    fn test_prepare_windows_handoff_script_creates_valid_powershell() {
         let temp = tempfile::tempdir().unwrap();
         let target_dir = temp.path().join("app");
         let stage_dir = temp.path().join("stage");
@@ -776,9 +797,9 @@ mod tests {
 
         assert!(script.is_file());
         let content = fs::read_to_string(script).unwrap();
-        assert!(content.contains("OLD_PID=12345"));
-        assert!(content.contains("tasklist"));
-        assert!(content.contains("xcopy"));
+        assert!(content.contains("$oldPid = 12345"));
+        assert!(content.contains("Get-Process -Id $oldPid"));
+        assert!(content.contains("Copy-Item -LiteralPath"));
         assert!(content.contains("strata.exe"));
     }
 
