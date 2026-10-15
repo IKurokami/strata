@@ -344,7 +344,7 @@ impl OperationProvider for LocalOperationProvider {
 
     fn paste(&self, request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         if request.move_sources {
-            return async_move_items(request, emit);
+            return async_move_items(self.state.clone(), request, emit);
         }
         use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
 
@@ -528,7 +528,7 @@ impl OperationProvider for LocalOperationProvider {
                 target.to_path_buf(),
             ));
         }
-        async_move_paths(request.id, operations, emit)
+        async_move_paths(Some(self.state.clone()), request.id, operations, emit)
     }
     fn undo_rename(
         &self,
@@ -608,7 +608,11 @@ impl OperationProvider for LocalOperationProvider {
 /// reports exactly which source items moved if a later item fails. Only native
 /// same-volume renames are attempted: NO_FALLBACK_FOR_MOVE must not degrade
 /// into non-atomic copy/delete, particularly for directories or remote drives.
-fn async_move_items(request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn async_move_items(
+    state: Rc<ProviderState>,
+    request: PasteRequest,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
     let Some(destination_dir) = request.destination.native_path() else {
         return rejected(
             request.id,
@@ -641,12 +645,13 @@ fn async_move_items(request: PasteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> 
         let target = destination_dir.join(name);
         operations.push((item.source.clone(), source.to_path_buf(), target));
     }
-    async_move_paths(request.id, operations, emit)
+    async_move_paths(Some(state), request.id, operations, emit)
 }
 
 /// A single validated executor is shared by move and undo-move, keeping
 /// failure/cancellation accounting consistent across both directions.
 fn async_move_paths(
+    state: Option<Rc<ProviderState>>,
     id: OperationRequestId,
     operations: Vec<(Location, std::path::PathBuf, std::path::PathBuf)>,
     emit: Rc<dyn Fn(OperationEvent)>,
@@ -696,7 +701,20 @@ fn async_move_paths(
             let outcome = if source == target {
                 Ok(())
             } else {
-                move_no_replace(source, target, task_cancel.clone()).await
+                match move_no_replace(source, target, task_cancel.clone()).await {
+                    // A same-volume rename is impossible (other volume or a
+                    // filesystem without rename). Fall back only to the
+                    // no-clobber copy, verify, then delete-source worker.
+                    Err(error) if error.matches(gio::IOErrorEnum::NotSupported) => {
+                        match state.as_ref() {
+                            Some(state) => {
+                                move_verified_native(state, source, target, id, &task_cancel).await
+                            }
+                            None => Err(error),
+                        }
+                    }
+                    outcome => outcome,
+                }
             };
             match outcome {
                 Ok(()) => {
@@ -753,6 +771,60 @@ fn async_move_paths(
         });
     });
     LoadHandle::new(move || cancel.cancel())
+}
+
+/// Cross-volume move on the bounded native worker: the source is deleted only
+/// after the destination copy was published without clobbering and verified.
+async fn move_verified_native(
+    state: &Rc<ProviderState>,
+    source: &Path,
+    target: &Path,
+    id: OperationRequestId,
+    cancel: &gio::Cancellable,
+) -> Result<(), glib::Error> {
+    let (sender, receiver) = futures_channel::oneshot::channel();
+    let sender = Rc::new(RefCell::new(Some(sender)));
+    let callback: Rc<dyn Fn(OperationEvent)> = Rc::new(move |event| {
+        let outcome = match event {
+            OperationEvent::Pasted { .. } => Ok(()),
+            OperationEvent::Failed { message, .. } => Err(message),
+            _ => return,
+        };
+        if let Some(sender) = sender.borrow_mut().take() {
+            let _ = sender.send(outcome);
+        }
+    });
+    // Dropping the handle requests native cancellation; it must stay alive
+    // until the worker reports back.
+    let handle = Rc::new(RefCell::new(Some(state.submit(
+        LocalOperation::MoveVerified {
+            source: source.to_path_buf(),
+            destination: target.to_path_buf(),
+        },
+        id,
+        Success::Copy {
+            source: Location::local(source.to_path_buf()),
+            destination: Location::local(target.to_path_buf()),
+        },
+        callback,
+    ))));
+    let cancel_handle = handle.clone();
+    let signal = cancel.connect_cancelled_local(move |_| {
+        cancel_handle.borrow_mut().take();
+    });
+    let outcome = receiver.await;
+    if let Some(signal) = signal {
+        cancel.disconnect_cancelled(signal);
+    }
+    handle.borrow_mut().take();
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(message)) => Err(glib::Error::new(gio::IOErrorEnum::Failed, &message)),
+        Err(_) => Err(glib::Error::new(
+            gio::IOErrorEnum::Cancelled,
+            "move cancelled",
+        )),
+    }
 }
 
 /// A cancellable native rename with no silent copy/delete fallback.
@@ -1089,6 +1161,54 @@ mod tests {
         );
     }
 
+    fn run_verified_move(source: &Path, target: &Path) -> Result<(), glib::Error> {
+        let state = Rc::new(ProviderState::default());
+        let cancel = gio::Cancellable::new();
+        glib::MainContext::default().block_on(move_verified_native(
+            &state,
+            source,
+            target,
+            OperationRequestId(21),
+            &cancel,
+        ))
+    }
+
+    #[test]
+    fn verified_move_fallback_moves_a_tree_through_the_native_worker() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary tree");
+        let source = root.path().join("folder");
+        let target = root.path().join("moved");
+        std::fs::create_dir_all(source.join("nested")).expect("source tree");
+        std::fs::write(source.join("nested").join("a.txt"), b"payload").expect("source file");
+
+        run_verified_move(&source, &target).expect("verified move");
+
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read(target.join("nested").join("a.txt")).expect("moved file"),
+            b"payload"
+        );
+    }
+
+    #[test]
+    fn verified_move_fallback_keeps_source_and_destination_on_collision() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("temporary tree");
+        let source = root.path().join("a.txt");
+        let target = root.path().join("b.txt");
+        std::fs::write(&source, b"source").expect("source file");
+        std::fs::write(&target, b"protected").expect("existing destination");
+
+        assert!(run_verified_move(&source, &target).is_err());
+
+        assert_eq!(std::fs::read(&source).expect("source kept"), b"source");
+        assert_eq!(std::fs::read(&target).expect("destination kept"), b"protected");
+    }
     #[test]
     fn native_move_batch_reports_partial_completion_without_overwriting() {
         let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
@@ -1109,6 +1229,7 @@ mod tests {
         let emit: Rc<dyn Fn(OperationEvent)> =
             Rc::new(move |event| captured.borrow_mut().push(event));
         let _handle = async_move_paths(
+            None,
             OperationRequestId(12),
             vec![
                 (
