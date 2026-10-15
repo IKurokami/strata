@@ -74,6 +74,21 @@ pub enum LocalOperation {
         source: PathBuf,
         destination: PathBuf,
     },
+    /// Copy `source` into `destination`, reusing directories that already
+    /// exist. A colliding file is never replaced; the merge stops with
+    /// `AlreadyExists`, leaving already-merged entries in place.
+    MergePath {
+        source: PathBuf,
+        destination: PathBuf,
+    },
+    /// Cross-volume move: no-clobber copy, byte-for-byte verification, and
+    /// only then deletion of the source. Any earlier failure leaves the source
+    /// untouched; the partial destination copy is removed when it was created
+    /// by this operation.
+    MoveVerified {
+        source: PathBuf,
+        destination: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -193,6 +208,14 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
         LocalOperation::CopyPath {
             source,
             destination,
+        }
+        | LocalOperation::MergePath {
+            source,
+            destination,
+        }
+        | LocalOperation::MoveVerified {
+            source,
+            destination,
         } => remote(source) || remote(destination),
     }
 }
@@ -235,6 +258,14 @@ fn uncertain_drive_lane(operation: &LocalOperation) -> Option<u8> {
             destination,
         } => non_system(destination).or_else(|| non_system(source)),
         LocalOperation::CopyPath {
+            source,
+            destination,
+        }
+        | LocalOperation::MergePath {
+            source,
+            destination,
+        }
+        | LocalOperation::MoveVerified {
             source,
             destination,
         } => non_system(destination).or_else(|| non_system(source)),
@@ -396,6 +427,23 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
             copy_path_no_clobber(source, destination, cancelled)
+        }
+        LocalOperation::MergePath {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            start_irreversible_step(cancelled)?;
+            merge_path(&source, &destination, cancelled)
+        }
+        LocalOperation::MoveVerified {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            move_verified(&source, &destination, cancelled)
         }
     }
 }
@@ -568,6 +616,10 @@ fn stage_and_publish(
     // concurrently created, and never replaces an existing file.
     fs::hard_link(&staging.path, destination)
 }
+
+#[path = "windows_operations/merge_move.rs"]
+mod merge_move;
+use merge_move::{merge_path, move_verified};
 
 #[cfg(test)]
 #[path = "windows_operations/drive_tests.rs"]
