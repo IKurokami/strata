@@ -50,6 +50,8 @@ try {
     if ($Action -eq "test") {
         & $cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets
         if ($LASTEXITCODE -ne 0) { throw "Native I/O tests failed." }
+        & $cargo test --manifest-path crates/strata-win-shell/Cargo.toml --locked --all-targets
+        if ($LASTEXITCODE -ne 0) { throw "Windows shell integration tests failed." }
         & $cargo test --locked --no-default-features --bin strata --no-run
         if ($LASTEXITCODE -ne 0) { throw "Windows application test compilation failed." }
         $inventory = @(& $cargo test --locked --no-default-features --bin strata -- --list)
