@@ -122,7 +122,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     #[cfg(unix)]
     if operation == "preview-media" || operation == "preview-audio" {
         let audio_only = operation == "preview-audio";
-        return media::run(input, output, value, media_backend, start_tick, audio_only);
+        return media::run(input, output, value, media_backend, _start_tick, audio_only);
     }
     #[cfg(unix)]
     if operation == "audio-peaks" {

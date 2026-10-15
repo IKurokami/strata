@@ -11,7 +11,9 @@ pub mod job;
 pub mod volume;
 
 pub use job::{JobLimits, JobObject, SandboxedOutput, run_in_job};
-pub use volume::{DriveType, VolumeInfo, eject_volume, enumerate_volumes, flush_volume, path_to_dos_device};
+pub use volume::{
+    DriveType, VolumeInfo, eject_volume, enumerate_volumes, flush_volume, path_to_dos_device,
+};
 
 use std::{
     cell::RefCell,

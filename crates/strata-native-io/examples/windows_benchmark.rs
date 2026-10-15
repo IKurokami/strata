@@ -42,7 +42,10 @@ fn benchmark_std_fs_readdir(root: &Path) -> io::Result<Duration> {
     Ok(start.elapsed())
 }
 
-fn benchmark_native_listing(service: &ListingService, root: &Path) -> io::Result<(Duration, Duration, usize)> {
+fn benchmark_native_listing(
+    service: &ListingService,
+    root: &Path,
+) -> io::Result<(Duration, Duration, usize)> {
     let start = Instant::now();
     let generation = service.request(root);
     let mut first_batch = None;
@@ -50,13 +53,19 @@ fn benchmark_native_listing(service: &ListingService, root: &Path) -> io::Result
 
     loop {
         match service.try_recv() {
-            Ok(ListingEvent::Batch { generation: current, entries }) if current == generation => {
+            Ok(ListingEvent::Batch {
+                generation: current,
+                entries,
+            }) if current == generation => {
                 if first_batch.is_none() {
                     first_batch = Some(start.elapsed());
                 }
                 count += entries.len();
             }
-            Ok(ListingEvent::Finished { generation: current, error }) if current == generation => {
+            Ok(ListingEvent::Finished {
+                generation: current,
+                error,
+            }) if current == generation => {
                 if let Some(err) = error {
                     return Err(io::Error::other(err));
                 }
@@ -109,7 +118,10 @@ fn main() -> io::Result<()> {
     let temp = std::env::temp_dir().join(format!("strata-bench-{}", std::process::id()));
     let bench_root = temp.join("listing_1000");
 
-    println!("Setting up test fixture: {BENCHMARK_ITEMS} items at {}", bench_root.display());
+    println!(
+        "Setting up test fixture: {BENCHMARK_ITEMS} items at {}",
+        bench_root.display()
+    );
     create_benchmark_tree(&bench_root, BENCHMARK_ITEMS)?;
 
     let service = ListingService::new();
@@ -137,15 +149,24 @@ fn main() -> io::Result<()> {
     let avg_native_total: f64 = native_total_times.iter().sum::<f64>() / RUNS as f64;
 
     println!("  Baseline (std::fs::read_dir + metadata):  {avg_std:.2} ms");
-    println!("  Strata Native Worker (First batch to UI):  {avg_native_first:.2} ms ({:.1}x faster time-to-first-paint)", avg_std / avg_native_first.max(0.001));
+    println!(
+        "  Strata Native Worker (First batch to UI):  {avg_native_first:.2} ms ({:.1}x faster time-to-first-paint)",
+        avg_std / avg_native_first.max(0.001)
+    );
     println!("  Strata Native Worker (Total completion):   {avg_native_total:.2} ms");
 
     println!("\n[2] Move Operation Benchmark (100 files):");
     let (rename_dur, copy_dur) = benchmark_atomic_move_vs_copy_delete(&temp)?;
     let rename_ms = rename_dur.as_secs_f64() * 1000.0;
     let copy_ms = copy_dur.as_secs_f64() * 1000.0;
-    println!("  Atomic Move (Win32 MoveFile / fs::rename): {rename_ms:.2} ms ({:.0} ops/sec)", 100.0 / rename_dur.as_secs_f64());
-    println!("  Fallback Copy + Delete:                   {copy_ms:.2} ms ({:.0} ops/sec)", 100.0 / copy_dur.as_secs_f64());
+    println!(
+        "  Atomic Move (Win32 MoveFile / fs::rename): {rename_ms:.2} ms ({:.0} ops/sec)",
+        100.0 / rename_dur.as_secs_f64()
+    );
+    println!(
+        "  Fallback Copy + Delete:                   {copy_ms:.2} ms ({:.0} ops/sec)",
+        100.0 / copy_dur.as_secs_f64()
+    );
     println!("  Speedup: {:.1}x faster", copy_ms / rename_ms.max(0.001));
 
     let _ = fs::remove_dir_all(&temp);

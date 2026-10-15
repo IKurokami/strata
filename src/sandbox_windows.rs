@@ -793,9 +793,13 @@ mod tests {
     fn run_in_job_executes_and_terminates() {
         let limits = strata_win_shell::JobLimits::default();
         let cmd = std::path::Path::new("cmd.exe");
-        let args = [std::ffi::OsStr::new("/c"), std::ffi::OsStr::new("echo hello sandbox")];
-        let output = strata_win_shell::run_in_job(cmd, &args, None, &limits, Duration::from_secs(5), None)
-            .expect("run cmd in job");
+        let args = [
+            std::ffi::OsStr::new("/c"),
+            std::ffi::OsStr::new("echo hello sandbox"),
+        ];
+        let output =
+            strata_win_shell::run_in_job(cmd, &args, None, &limits, Duration::from_secs(5), None)
+                .expect("run cmd in job");
 
         assert_eq!(output.exit_code, 0);
         let text = String::from_utf8_lossy(&output.stdout);
@@ -806,7 +810,10 @@ mod tests {
     fn run_in_job_respects_cancellation() {
         let limits = strata_win_shell::JobLimits::default();
         let cmd = std::path::Path::new("cmd.exe");
-        let args = [std::ffi::OsStr::new("/c"), std::ffi::OsStr::new("timeout 10")];
+        let args = [
+            std::ffi::OsStr::new("/c"),
+            std::ffi::OsStr::new("timeout 10"),
+        ];
         let cancelled = std::sync::atomic::AtomicBool::new(true);
         let result = strata_win_shell::run_in_job(
             cmd,

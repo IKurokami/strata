@@ -28,8 +28,8 @@ use std::{
 use ring::{digest, signature};
 use serde::Deserialize;
 
-use crate::services::{InstallSource, ensure_self_managed, installed_executable};
 use super::release_channel::Version;
+use crate::services::{InstallSource, ensure_self_managed, installed_executable};
 
 const RELEASE_DOWNLOAD_ROOT: &str = "https://github.com/lgse/strata/releases/download";
 const REPOSITORY: &str = "lgse/strata";
@@ -107,7 +107,7 @@ impl InstallCancel {
 }
 
 #[derive(Debug)]
-enum InstallStop {
+pub(crate) enum InstallStop {
     Cancelled,
     Failed(String),
 }
@@ -215,14 +215,10 @@ pub(crate) fn is_release_token(value: &str) -> bool {
 }
 
 pub(crate) fn is_valid_windows_archive_name(name: &str, version: &str) -> bool {
-    let prefixes = [
-        format!("strata-{version}-"),
-        format!("strata-v{version}-"),
-    ];
+    let prefixes = [format!("strata-{version}-"), format!("strata-v{version}-")];
     let valid_prefix = prefixes.iter().any(|p| name.starts_with(p));
-    let valid_suffix = name.ends_with(".zip")
-        || name.ends_with(".tar.gz")
-        || name.ends_with(".exe");
+    let valid_suffix =
+        name.ends_with(".zip") || name.ends_with(".tar.gz") || name.ends_with(".exe");
     valid_prefix && valid_suffix
 }
 
@@ -280,7 +276,8 @@ fn authenticate_with_keys(
     let signatures: Signatures = serde_json::from_slice(signatures).map_err(|error| {
         format!("Windows update verification: Invalid update signatures: {error}")
     })?;
-    if signatures.schema != 1 || signatures.signatures.is_empty() || signatures.signatures.len() > 8 {
+    if signatures.schema != 1 || signatures.signatures.is_empty() || signatures.signatures.len() > 8
+    {
         return Err(format!(
             "Windows update verification: {}",
             crate::i18n::tr("Unsupported update signature format")
@@ -414,7 +411,13 @@ fn perform_windows_install(
         total: Some(release.archive_size()),
     });
 
-    download_file_bounded(&download_url, &archive_path, release.archive_size(), cancel, progress)?;
+    download_file_bounded(
+        &download_url,
+        &archive_path,
+        release.archive_size(),
+        cancel,
+        progress,
+    )?;
 
     let _ = progress.send(UpdateInstall::Verifying);
     release.verify_archive(&archive_path, cancel)?;
@@ -425,18 +428,15 @@ fn perform_windows_install(
 
     extract_update_archive(&archive_path, &staged_extract)?;
 
-    let staged_exe = find_executable_in_tree(&staged_extract)
-        .ok_or_else(|| "Windows update verification: Staged package missing strata.exe".to_owned())?;
+    let staged_exe = find_executable_in_tree(&staged_extract).ok_or_else(|| {
+        "Windows update verification: Staged package missing strata.exe".to_owned()
+    })?;
 
     let _ = progress.send(UpdateInstall::Installing);
     cancel.check()?;
 
-    let handoff_script = prepare_windows_handoff_script(
-        exe_dir,
-        &staged_extract,
-        &current_exe,
-        std::process::id(),
-    )?;
+    let handoff_script =
+        prepare_windows_handoff_script(exe_dir, &staged_extract, &current_exe, std::process::id())?;
 
     if !cancel.try_commit() {
         let _ = fs::remove_file(&handoff_script);
@@ -460,13 +460,17 @@ fn fetch_url_bytes(url: &str, cancel: &InstallCancel) -> Result<Vec<u8>, Install
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
         .into();
-    let mut response = agent.get(url).call().map_err(|e| {
-        format!("Windows update verification: Download of metadata failed: {e}")
-    })?;
+    let mut response = agent
+        .get(url)
+        .call()
+        .map_err(|e| format!("Windows update verification: Download of metadata failed: {e}"))?;
     let mut data = Vec::new();
-    response.body_mut().as_reader().take(MAX_MANIFEST_BYTES + 1).read_to_end(&mut data).map_err(|e| {
-        format!("Windows update verification: Read metadata failed: {e}")
-    })?;
+    response
+        .body_mut()
+        .as_reader()
+        .take(MAX_MANIFEST_BYTES + 1)
+        .read_to_end(&mut data)
+        .map_err(|e| format!("Windows update verification: Read metadata failed: {e}"))?;
     Ok(data)
 }
 
@@ -486,9 +490,10 @@ fn download_file_bounded(
         .build()
         .into();
 
-    let mut response = agent.get(url).call().map_err(|e| {
-        format!("Windows update verification: Download request failed: {e}")
-    })?;
+    let mut response = agent
+        .get(url)
+        .call()
+        .map_err(|e| format!("Windows update verification: Download request failed: {e}"))?;
 
     let mut downloaded = 0u64;
     let mut buffer = [0u8; 64 * 1024];
@@ -496,9 +501,9 @@ fn download_file_bounded(
 
     loop {
         cancel.check()?;
-        let n = reader.read(&mut buffer).map_err(|e| {
-            format!("Windows update verification: Download read error: {e}")
-        })?;
+        let n = reader
+            .read(&mut buffer)
+            .map_err(|e| format!("Windows update verification: Download read error: {e}"))?;
         if n == 0 {
             break;
         }
@@ -509,9 +514,9 @@ fn download_file_bounded(
             ));
         }
         use std::io::Write;
-        out_file.write_all(&buffer[..n]).map_err(|e| {
-            format!("Windows update verification: Disk write error: {e}")
-        })?;
+        out_file
+            .write_all(&buffer[..n])
+            .map_err(|e| format!("Windows update verification: Disk write error: {e}"))?;
         let _ = progress.send(UpdateInstall::Downloading {
             downloaded,
             total: Some(expected_size),
@@ -527,16 +532,23 @@ pub(crate) fn sanitize_update_relative_path(path: &Path) -> Result<PathBuf, Stri
         match component {
             Component::Normal(segment) => {
                 let s = segment.to_string_lossy();
-                if s.contains(':') || s.eq_ignore_ascii_case("CON") || s.eq_ignore_ascii_case("PRN")
-                    || s.eq_ignore_ascii_case("AUX") || s.eq_ignore_ascii_case("NUL")
+                if s.contains(':')
+                    || s.eq_ignore_ascii_case("CON")
+                    || s.eq_ignore_ascii_case("PRN")
+                    || s.eq_ignore_ascii_case("AUX")
+                    || s.eq_ignore_ascii_case("NUL")
                 {
-                    return Err(format!("Windows update verification: Invalid path segment: {s}"));
+                    return Err(format!(
+                        "Windows update verification: Invalid path segment: {s}"
+                    ));
                 }
                 clean.push(segment);
             }
             Component::CurDir => {}
             Component::ParentDir => {
-                return Err("Windows update verification: Path traversal ('..') detected".to_owned());
+                return Err(
+                    "Windows update verification: Path traversal ('..') detected".to_owned(),
+                );
             }
             Component::RootDir | Component::Prefix(_) => {
                 return Err("Windows update verification: Absolute path rejected".to_owned());
@@ -558,7 +570,8 @@ fn extract_update_archive(archive: &Path, destination: &Path) -> Result<(), Stri
         let mut zip = zip::ZipArchive::new(file)
             .map_err(|e| format!("Windows update verification: Zip parse failed: {e}"))?;
         for i in 0..zip.len() {
-            let mut item = zip.by_index(i)
+            let mut item = zip
+                .by_index(i)
                 .map_err(|e| format!("Windows update verification: Zip entry error: {e}"))?;
             let enclosed = item.enclosed_name().ok_or_else(|| {
                 "Windows update verification: Zip Slip path traversal detected".to_owned()
@@ -576,17 +589,24 @@ fn extract_update_archive(archive: &Path, destination: &Path) -> Result<(), Stri
                 }
                 let mut out = File::create(&target_path)
                     .map_err(|e| format!("Windows update verification: file create failed: {e}"))?;
-                io::copy(&mut item, &mut out)
-                    .map_err(|e| format!("Windows update verification: file extract failed: {e}"))?;
+                io::copy(&mut item, &mut out).map_err(|e| {
+                    format!("Windows update verification: file extract failed: {e}")
+                })?;
             }
         }
         Ok(())
     } else if name.ends_with(".tar.gz") {
         let gz = flate2::read::GzDecoder::new(file);
         let mut tar = tar::Archive::new(gz);
-        for entry in tar.entries().map_err(|e| format!("Windows update verification: tar entries error: {e}"))? {
-            let mut item = entry.map_err(|e| format!("Windows update verification: tar entry read error: {e}"))?;
-            let path = item.path().map_err(|e| format!("Windows update verification: tar path error: {e}"))?;
+        for entry in tar
+            .entries()
+            .map_err(|e| format!("Windows update verification: tar entries error: {e}"))?
+        {
+            let mut item = entry
+                .map_err(|e| format!("Windows update verification: tar entry read error: {e}"))?;
+            let path = item
+                .path()
+                .map_err(|e| format!("Windows update verification: tar path error: {e}"))?;
             let safe_rel = sanitize_update_relative_path(&path)?;
             let target_path = destination.join(safe_rel);
 
@@ -736,7 +756,9 @@ mod tests {
     fn test_sanitize_update_relative_path_rejects_traversal() {
         assert!(sanitize_update_relative_path(Path::new("../evil.exe")).is_err());
         assert!(sanitize_update_relative_path(Path::new("subdir/../../evil.exe")).is_err());
-        assert!(sanitize_update_relative_path(Path::new("C:\\Windows\\system32\\calc.exe")).is_err());
+        assert!(
+            sanitize_update_relative_path(Path::new("C:\\Windows\\system32\\calc.exe")).is_err()
+        );
         assert!(sanitize_update_relative_path(Path::new("CON")).is_err());
         assert!(sanitize_update_relative_path(Path::new("valid/path/strata.exe")).is_ok());
     }
@@ -749,12 +771,8 @@ mod tests {
         let target_exe = target_dir.join("strata.exe");
         fs::create_dir_all(&stage_dir).unwrap();
 
-        let script = prepare_windows_handoff_script(
-            &target_dir,
-            &stage_dir,
-            &target_exe,
-            12345,
-        ).unwrap();
+        let script =
+            prepare_windows_handoff_script(&target_dir, &stage_dir, &target_exe, 12345).unwrap();
 
         assert!(script.is_file());
         let content = fs::read_to_string(script).unwrap();
@@ -766,9 +784,18 @@ mod tests {
 
     #[test]
     fn test_windows_archive_name_validation() {
-        assert!(is_valid_windows_archive_name("strata-1.2.3-x86_64-pc-windows-msvc.zip", "1.2.3"));
-        assert!(is_valid_windows_archive_name("strata-1.2.3-x86_64-pc-windows-gnu.tar.gz", "1.2.3"));
-        assert!(is_valid_windows_archive_name("strata-v1.2.3-setup.exe", "1.2.3"));
+        assert!(is_valid_windows_archive_name(
+            "strata-1.2.3-x86_64-pc-windows-msvc.zip",
+            "1.2.3"
+        ));
+        assert!(is_valid_windows_archive_name(
+            "strata-1.2.3-x86_64-pc-windows-gnu.tar.gz",
+            "1.2.3"
+        ));
+        assert!(is_valid_windows_archive_name(
+            "strata-v1.2.3-setup.exe",
+            "1.2.3"
+        ));
         assert!(!is_valid_windows_archive_name("malicious.zip", "1.2.3"));
         assert!(!is_valid_windows_archive_name("strata-2.0.0.zip", "1.2.3"));
     }

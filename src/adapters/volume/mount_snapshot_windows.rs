@@ -60,15 +60,21 @@ mod tests {
     fn test_enumerate_volumes_finds_c_drive() {
         let volumes = strata_win_shell::enumerate_volumes();
         assert!(!volumes.is_empty());
-        let c_drive = volumes.iter().find(|v| v.root.to_string_lossy().starts_with("C:"));
+        let c_drive = volumes
+            .iter()
+            .find(|v| v.root.to_string_lossy().starts_with("C:"));
         assert!(c_drive.is_some());
     }
 
     #[test]
     fn test_path_to_dos_device() {
-        let wide = strata_win_shell::path_to_dos_device(std::path::Path::new("C:\\Windows")).unwrap();
+        let wide =
+            strata_win_shell::path_to_dos_device(std::path::Path::new("C:\\Windows")).unwrap();
         let s = String::from_utf16_lossy(&wide);
         assert_eq!(s, "\\\\.\\C:\0");
-        assert!(strata_win_shell::path_to_dos_device(std::path::Path::new("\\\\server\\share")).is_err());
+        assert!(
+            strata_win_shell::path_to_dos_device(std::path::Path::new("\\\\server\\share"))
+                .is_err()
+        );
     }
 }
