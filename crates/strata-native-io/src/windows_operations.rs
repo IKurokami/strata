@@ -81,6 +81,12 @@ pub enum LocalOperation {
         source: PathBuf,
         destination: PathBuf,
     },
+    /// No-clobber copy that tries `name (1).ext`, `name (2).ext`... when
+    /// the destination exists. The chosen path is returned in the completion.
+    CopyPathKeepBoth {
+        source: PathBuf,
+        destination: PathBuf,
+    },
     /// Cross-volume move: no-clobber copy, byte-for-byte verification, and
     /// only then deletion of the source. Any earlier failure leaves the source
     /// untouched; the partial destination copy is removed when it was created
@@ -95,6 +101,8 @@ pub enum LocalOperation {
 pub struct OperationCompletion {
     pub id: u64,
     pub result: io::Result<()>,
+    /// Final path published by operations that choose their own name.
+    pub created: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +221,10 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
             source,
             destination,
         }
+        | LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        }
         | LocalOperation::MoveVerified {
             source,
             destination,
@@ -265,6 +277,10 @@ fn uncertain_drive_lane(operation: &LocalOperation) -> Option<u8> {
             source,
             destination,
         }
+        | LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        }
         | LocalOperation::MoveVerified {
             source,
             destination,
@@ -286,6 +302,7 @@ fn complete_dispatch_error(
         .send(OperationCompletion {
             id,
             result: Err(error),
+            created: None,
         })
         .is_ok()
 }
@@ -361,7 +378,7 @@ fn spawn_operation_worker(
 ) -> io::Result<()> {
     thread::Builder::new().name(name.into()).spawn(move || {
         while let Ok((id, operation, cancelled)) = requests.recv() {
-            let result = if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+            let outcome = if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
                 Err(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "operation cancelled",
@@ -369,12 +386,20 @@ fn spawn_operation_worker(
             } else {
                 execute(operation, &cancelled)
             };
+            let (result, created) = match outcome {
+                Ok(created) => (Ok(()), created),
+                Err(error) => (Err(error), None),
+            };
             outstanding
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&id);
             if completions
-                .send(OperationCompletion { id, result })
+                .send(OperationCompletion {
+                    id,
+                    result,
+                    created,
+                })
                 .is_err()
             {
                 break;
@@ -403,14 +428,14 @@ fn validate_native_file_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
+fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<Option<PathBuf>> {
     #[cfg(test)]
     drive_tests::pause_if_simulated_offline(&operation);
     match operation {
         LocalOperation::CreateDirectory(path) => {
             validate_native_file_path(&path)?;
             start_irreversible_step(cancelled)?;
-            fs::create_dir(path)
+            fs::create_dir(path).map(|()| None)
         }
         LocalOperation::CopyFile {
             source,
@@ -418,7 +443,7 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
         } => {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
-            copy_no_clobber(source, destination, cancelled)
+            copy_no_clobber(source, destination, cancelled).map(|()| None)
         }
         LocalOperation::CopyPath {
             source,
@@ -426,7 +451,7 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
         } => {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
-            copy_path_no_clobber(source, destination, cancelled)
+            copy_path_no_clobber(source, destination, cancelled).map(|()| None)
         }
         LocalOperation::MergePath {
             source,
@@ -435,7 +460,7 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
             start_irreversible_step(cancelled)?;
-            merge_path(&source, &destination, cancelled)
+            merge_path(&source, &destination, cancelled).map(|()| None)
         }
         LocalOperation::MoveVerified {
             source,
@@ -443,7 +468,15 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
         } => {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
-            move_verified(&source, &destination, cancelled)
+            move_verified(&source, &destination, cancelled).map(|()| None)
+        }
+        LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            copy_path_keep_both(&source, &destination, cancelled).map(Some)
         }
     }
 }
@@ -619,7 +652,7 @@ fn stage_and_publish(
 
 #[path = "windows_operations/merge_move.rs"]
 mod merge_move;
-use merge_move::{merge_path, move_verified};
+use merge_move::{copy_path_keep_both, merge_path, move_verified};
 
 #[cfg(test)]
 #[path = "windows_operations/drive_tests.rs"]

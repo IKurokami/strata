@@ -148,3 +148,40 @@ fn source_deletion_keeps_the_folder_when_a_child_cannot_be_removed() {
     assert!(result.is_err());
     assert!(fx.path("src/busy.txt").exists());
 }
+
+#[test]
+fn keep_both_numbers_files_and_directories_without_touching_originals() {
+    let fx = Fixture::new();
+    fs::write(fx.path("a.txt"), "incoming").unwrap();
+    fs::create_dir_all(fx.path("dir")).unwrap();
+    fs::write(fx.path("dir/inner.txt"), "inner").unwrap();
+    fs::create_dir_all(fx.path("out/dir")).unwrap();
+    fs::write(fx.path("out/a.txt"), "first").unwrap();
+    fs::write(fx.path("out/a (1).txt"), "second").unwrap();
+
+    let file = copy_path_keep_both(&fx.path("a.txt"), &fx.path("out/a.txt"), &pending()).unwrap();
+    let directory = copy_path_keep_both(&fx.path("dir"), &fx.path("out/dir"), &pending()).unwrap();
+
+    assert_eq!(file, fx.path("out/a (2).txt"));
+    assert_eq!(directory, fx.path("out/dir (1)"));
+    assert_eq!(fs::read_to_string(fx.path("out/a.txt")).unwrap(), "first");
+    assert_eq!(
+        fs::read_to_string(fx.path("out/a (1).txt")).unwrap(),
+        "second"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "incoming");
+    assert_eq!(
+        fs::read_to_string(fx.path("out/dir (1)/inner.txt")).unwrap(),
+        "inner"
+    );
+}
+
+#[test]
+fn keep_both_uses_the_requested_name_when_it_is_free() {
+    let fx = Fixture::new();
+    fs::write(fx.path("a.txt"), "x").unwrap();
+
+    let created = copy_path_keep_both(&fx.path("a.txt"), &fx.path("b.txt"), &pending()).unwrap();
+
+    assert_eq!(created, fx.path("b.txt"));
+}

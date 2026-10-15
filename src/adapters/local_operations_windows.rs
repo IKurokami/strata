@@ -158,7 +158,12 @@ impl ProviderState {
                 .borrow()
                 .as_ref()
                 .and_then(|service| service.try_recv().ok());
-            let Some(OperationCompletion { id, result }) = next else {
+            let Some(OperationCompletion {
+                id,
+                result,
+                created,
+            }) = next
+            else {
                 break;
             };
             // Drop all RefCell borrows BEFORE invoking user callbacks; a
@@ -186,6 +191,8 @@ impl ProviderState {
                             // Browser operation tracking records the created
                             // destination from progress, but Pasted holds
                             // SOURCE locations (for selection and move undo).
+                            // Keep Both chooses its name on the worker.
+                            let destination = created.map_or(destination, Location::local);
                             emit(OperationEvent::TransferProgress {
                                 request_id,
                                 completed_items: 1,
@@ -356,11 +363,16 @@ impl OperationProvider for LocalOperationProvider {
         }
         let mut operations = Vec::with_capacity(request.items.len());
         for item in &request.items {
-            if item.conflict != TransferConflict::FailIfExists {
+            // Replace and Merge discard existing data, so they stay unavailable
+            // until the originals can be recovered from the Recycle Bin.
+            if !matches!(
+                item.conflict,
+                TransferConflict::FailIfExists | TransferConflict::KeepBoth
+            ) {
                 return rejected(
                     request.id,
                     emit,
-                    "Windows overwrite, merge and Keep Both are not available yet",
+                    "Windows overwrite and merge are not available yet",
                 );
             }
             let Some(source) = item.source.native_path() else {
@@ -375,7 +387,12 @@ impl OperationProvider for LocalOperationProvider {
             }
             let name = source.file_name().expect("validated");
             let destination = destination_dir.join(name);
-            operations.push((item.source.clone(), source.to_path_buf(), destination));
+            operations.push((
+                item.source.clone(),
+                source.to_path_buf(),
+                destination,
+                item.conflict,
+            ));
         }
         // No inline filesystem calls. Each native request goes through the
         // existing bounded mutation service, with atomic no-clobber publish.
@@ -394,7 +411,7 @@ impl OperationProvider for LocalOperationProvider {
             error: None,
         }));
         let mut handles = Vec::with_capacity(total);
-        for (index, (source, path, destination)) in operations.into_iter().enumerate() {
+        for (index, (source, path, destination, conflict)) in operations.into_iter().enumerate() {
             let progress = batch.clone();
             let outer = emit.clone();
             let callback: Rc<dyn Fn(OperationEvent)> = Rc::new(move |event| {
@@ -445,11 +462,19 @@ impl OperationProvider for LocalOperationProvider {
                     outer(event);
                 }
             });
-            handles.push(self.state.submit(
+            let operation = if conflict == TransferConflict::KeepBoth {
+                LocalOperation::CopyPathKeepBoth {
+                    source: path,
+                    destination: destination.clone(),
+                }
+            } else {
                 LocalOperation::CopyPath {
                     source: path,
                     destination: destination.clone(),
-                },
+                }
+            };
+            handles.push(self.state.submit(
+                operation,
                 request.id,
                 Success::Copy {
                     source,
