@@ -80,6 +80,7 @@ enum Success {
 struct WindowsMergePlan {
     created: Vec<PathBuf>,
     overwritten: Vec<PathBuf>,
+    recycled: Vec<strata_win_shell::RecycledItem>,
 }
 
 fn classify_merge_windows(
@@ -124,6 +125,7 @@ struct Pending {
 struct ProviderState {
     service: RefCell<Option<LocalOperationService>>,
     pending: RefCell<HashMap<u64, Pending>>,
+    recycled_overwrites: RefCell<HashMap<PathBuf, strata_win_shell::RecycledItem>>,
     polling: Cell<bool>,
 }
 // A huge batch of tiny files can complete while GTK is drawing. Never drain
@@ -133,6 +135,13 @@ const MAX_COMPLETIONS_PER_TICK: usize = 64;
 const MAX_COMPLETION_TICK_TIME: Duration = Duration::from_millis(3);
 
 impl ProviderState {
+    fn remember_recycled(&self, items: &[strata_win_shell::RecycledItem]) {
+        let mut remembered = self.recycled_overwrites.borrow_mut();
+        for item in items {
+            remembered.insert(item.original.clone(), item.clone());
+        }
+    }
+
     fn ensure_polling(self: &Rc<Self>) {
         if self.polling.replace(true) {
             return;
@@ -431,7 +440,7 @@ impl OperationProvider for LocalOperationProvider {
         request: UndoMergeRequest,
         emit: Rc<dyn Fn(OperationEvent)>,
     ) -> LoadHandle {
-        run_undo_merge(request, emit)
+        run_undo_merge(self.state.clone(), request, emit)
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         if request.permanent {
@@ -610,11 +619,12 @@ fn async_copy_items(
                         TransferConflict::ReplaceExisting => {
                             let mut plan = None;
                             if dst.exists() {
-                                strata_win_shell::recycle(&[dst.clone()])
+                                let recycled = strata_win_shell::recycle(&[dst.clone()])
                                     .map_err(|e| e.to_string())?;
                                 plan = Some(WindowsMergePlan {
                                     created: Vec::new(),
                                     overwritten: vec![dst.clone()],
+                                    recycled,
                                 });
                             }
                             Ok((
@@ -630,7 +640,7 @@ fn async_copy_items(
                                 let mut plan = WindowsMergePlan::default();
                                 classify_merge_windows(&src, &dst, &mut plan)?;
                                 if !plan.overwritten.is_empty() {
-                                    strata_win_shell::recycle(&plan.overwritten)
+                                    plan.recycled = strata_win_shell::recycle(&plan.overwritten)
                                         .map_err(|e| e.to_string())?;
                                 }
                                 Ok((
@@ -644,6 +654,7 @@ fn async_copy_items(
                                 let plan = WindowsMergePlan {
                                     created: vec![dst.clone()],
                                     overwritten: Vec::new(),
+                                    recycled: Vec::new(),
                                 };
                                 Ok((
                                     LocalOperation::CopyPath {
@@ -680,6 +691,7 @@ fn async_copy_items(
             };
 
             if let Some(plan) = merge_plan {
+                state.remember_recycled(&plan.recycled);
                 emit(OperationEvent::Merged {
                     request_id: request.id,
                     source: source_loc.clone(),
@@ -849,11 +861,12 @@ fn async_move_items(
                         TransferConflict::ReplaceExisting => {
                             let mut plan = None;
                             if dst.exists() {
-                                strata_win_shell::recycle(&[dst.clone()])
+                                let recycled = strata_win_shell::recycle(&[dst.clone()])
                                     .map_err(|e| e.to_string())?;
                                 plan = Some(WindowsMergePlan {
                                     created: Vec::new(),
                                     overwritten: vec![dst.clone()],
+                                    recycled,
                                 });
                             }
                             Ok((dst, false, plan))
@@ -863,7 +876,7 @@ fn async_move_items(
                                 let mut plan = WindowsMergePlan::default();
                                 classify_merge_windows(&src, &dst, &mut plan)?;
                                 if !plan.overwritten.is_empty() {
-                                    strata_win_shell::recycle(&plan.overwritten)
+                                    plan.recycled = strata_win_shell::recycle(&plan.overwritten)
                                         .map_err(|e| e.to_string())?;
                                 }
                                 Ok((dst, true, Some(plan)))
@@ -871,6 +884,7 @@ fn async_move_items(
                                 let plan = WindowsMergePlan {
                                     created: vec![dst.clone()],
                                     overwritten: Vec::new(),
+                                    recycled: Vec::new(),
                                 };
                                 Ok((dst, false, Some(plan)))
                             }
@@ -902,6 +916,7 @@ fn async_move_items(
             target = resolved_target;
 
             if let Some(plan) = merge_plan {
+                state.remember_recycled(&plan.recycled);
                 emit(OperationEvent::Merged {
                     request_id: request.id,
                     source: location.clone(),
@@ -1334,12 +1349,27 @@ fn restore_locations(
     LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
 }
 
-fn run_undo_merge(request: UndoMergeRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn run_undo_merge(
+    state: Rc<ProviderState>,
+    request: UndoMergeRequest,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = cancelled.clone();
     let task_cancelled = cancelled.clone();
     let total = request.overwritten.len() + request.created.len();
     let id = request.id;
+    let remembered = {
+        let mut remembered = state.recycled_overwrites.borrow_mut();
+        request
+            .overwritten
+            .iter()
+            .filter_map(|location| {
+                let path = location.native_path()?.to_path_buf();
+                remembered.remove(&path).map(|item| (path, item))
+            })
+            .collect::<HashMap<_, _>>()
+    };
     glib::MainContext::default().spawn_local(async move {
         let outcome = gio::spawn_blocking(move || {
             let mut completed_count = 0usize;
@@ -1358,18 +1388,17 @@ fn run_undo_merge(request: UndoMergeRequest, emit: Rc<dyn Fn(OperationEvent)>) -
                     ));
                     continue;
                 };
-                if path.exists() {
-                    let remove_res = if path.is_dir() {
-                        std::fs::remove_dir_all(path)
-                    } else {
-                        std::fs::remove_file(path)
-                    };
-                    if let Err(e) = remove_res {
+                if path.symlink_metadata().is_ok() {
+                    if let Err(e) = strata_win_shell::recycle(&[path.to_path_buf()]) {
                         failed.push((location.clone(), e));
                         continue;
                     }
                 }
-                match strata_win_shell::restore_by_original_path(path) {
+                let restore_result = match remembered.get(path) {
+                    Some(item) => strata_win_shell::restore(item).map(|()| item.original.clone()),
+                    None => strata_win_shell::restore_by_original_path(path),
+                };
+                match restore_result {
                     Ok(dest) => {
                         completed_count += 1;
                         restored.push(Location::local(dest));
