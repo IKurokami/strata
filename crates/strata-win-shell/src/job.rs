@@ -9,17 +9,21 @@
 #![cfg(windows)]
 
 use std::{
-    ffi::OsStr,
+    ffi::{OsStr, c_void},
     io,
     os::windows::ffi::OsStrExt,
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
+    thread,
     time::{Duration, Instant},
 };
 
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        Foundation::{
+            CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, HANDLE_FLAGS, SetHandleInformation, TRUE,
+            WAIT_OBJECT_0, WAIT_TIMEOUT,
+        },
         Security::SECURITY_ATTRIBUTES,
         Storage::FileSystem::{ReadFile, WriteFile},
         System::{
@@ -210,6 +214,14 @@ pub struct SandboxedOutput {
     pub stderr: Vec<u8>,
 }
 
+const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug)]
+struct PipeCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
 fn to_wide_null(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain(std::iter::once(0)).collect()
 }
@@ -261,6 +273,73 @@ fn build_command_line(executable: &Path, args: &[&OsStr]) -> Vec<u16> {
     cmd
 }
 
+fn make_non_inheritable(handle: HANDLE) -> io::Result<()> {
+    // SAFETY: `handle` is an open pipe handle owned by this function's caller.
+    unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0)) }
+        .map_err(|error| io::Error::other(format!("SetHandleInformation failed: {error}")))
+}
+
+fn handle_from_thread_token(token: usize) -> HANDLE {
+    HANDLE(token as *mut c_void)
+}
+
+fn read_pipe(handle: HANDLE) -> PipeCapture {
+    let mut capture = PipeCapture {
+        bytes: Vec::new(),
+        truncated: false,
+    };
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let mut read_bytes = 0u32;
+        // SAFETY: The reader thread owns no other handle and the pipe handle remains
+        // open until the thread has joined.
+        let result = unsafe { ReadFile(handle, Some(&mut buffer), Some(&mut read_bytes), None) };
+        if result.is_err() || read_bytes == 0 {
+            break;
+        }
+
+        let available = MAX_CAPTURE_BYTES.saturating_sub(capture.bytes.len());
+        let retained = (read_bytes as usize).min(available);
+        capture.bytes.extend_from_slice(&buffer[..retained]);
+        capture.truncated |= retained < read_bytes as usize;
+    }
+
+    capture
+}
+
+fn write_pipe(handle: HANDLE, data: &[u8]) {
+    let mut offset = 0;
+    while offset < data.len() {
+        let remaining = &data[offset..];
+        let chunk_len = remaining.len().min(u32::MAX as usize);
+        let mut written = 0u32;
+        // SAFETY: The writer thread owns the pipe handle and `remaining` is valid.
+        let result = unsafe {
+            WriteFile(
+                handle,
+                Some(&remaining[..chunk_len]),
+                Some(&mut written),
+                None,
+            )
+        };
+        if result.is_err() || written == 0 {
+            break;
+        }
+        offset += written as usize;
+    }
+}
+
+fn terminate_and_wait(job: &JobObject, process: HANDLE) {
+    let _ = job.terminate(1);
+    for _ in 0..40 {
+        // SAFETY: `process` is a valid process handle owned by the caller.
+        if unsafe { WaitForSingleObject(process, 25) } == WAIT_OBJECT_0 {
+            break;
+        }
+    }
+}
+
 /// Execute a command in a dedicated, isolated Job Object with timeout and cancellation.
 pub fn run_in_job(
     executable: &Path,
@@ -286,6 +365,7 @@ pub fn run_in_job(
         .map_err(|e| io::Error::other(format!("CreatePipe stdout failed: {e}")))?;
     let stdout_read = SafeHandle::new(stdout_read);
     let stdout_write = SafeHandle::new(stdout_write);
+    make_non_inheritable(stdout_read.handle())?;
 
     let mut stderr_read = HANDLE::default();
     let mut stderr_write = HANDLE::default();
@@ -294,6 +374,7 @@ pub fn run_in_job(
         .map_err(|e| io::Error::other(format!("CreatePipe stderr failed: {e}")))?;
     let stderr_read = SafeHandle::new(stderr_read);
     let stderr_write = SafeHandle::new(stderr_write);
+    make_non_inheritable(stderr_read.handle())?;
 
     let mut stdin_read = HANDLE::default();
     let mut stdin_write = HANDLE::default();
@@ -304,16 +385,8 @@ pub fn run_in_job(
     }
     let stdin_read = SafeHandle::new(stdin_read);
     let stdin_write = SafeHandle::new(stdin_write);
-
-    // Write stdin data and close write end so child receives EOF
-    if let Some(data) = stdin_data {
-        if !data.is_empty() {
-            let mut written = 0u32;
-            // SAFETY: stdin_write is valid, data buffer is valid.
-            let _ =
-                unsafe { WriteFile(stdin_write.handle(), Some(data), Some(&mut written), None) };
-        }
-        drop(stdin_write);
+    if stdin_write.is_valid() {
+        make_non_inheritable(stdin_write.handle())?;
     }
 
     let startup_info = STARTUPINFOW {
@@ -374,24 +447,48 @@ pub fn run_in_job(
     drop(stderr_write);
     drop(stdin_read);
 
+    let stdout_token = stdout_read.handle().0 as usize;
+    let stderr_token = stderr_read.handle().0 as usize;
+    let stdout_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stdout_token)));
+    let stderr_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token)));
+    let stdin_writer = if let Some(data) = stdin_data {
+        let data = data.to_vec();
+        let stdin_token = stdin_write.handle().0 as usize;
+        std::mem::forget(stdin_write);
+        Some(thread::spawn(move || {
+            let handle = handle_from_thread_token(stdin_token);
+            write_pipe(handle, &data);
+            // SAFETY: Ownership of the writer handle was transferred to this thread.
+            unsafe {
+                let _ = CloseHandle(handle);
+            }
+        }))
+    } else {
+        drop(stdin_write);
+        None
+    };
+
     // Supervise process with timeout and cancellation checks.
     let start_time = Instant::now();
+    let mut failure = None;
 
     loop {
         if cancellation.is_some_and(|c| c.load(Ordering::Acquire)) {
-            let _ = job.terminate(1);
-            return Err(io::Error::new(
+            failure = Some(io::Error::new(
                 io::ErrorKind::Interrupted,
                 "Preview cancelled",
             ));
+            terminate_and_wait(&job, process_handle.handle());
+            break;
         }
 
         if start_time.elapsed() >= timeout {
-            let _ = job.terminate(1);
-            return Err(io::Error::new(
+            failure = Some(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "Sandboxed process exceeded timeout",
             ));
+            terminate_and_wait(&job, process_handle.handle());
+            break;
         }
 
         // SAFETY: process_handle is valid.
@@ -399,8 +496,9 @@ pub fn run_in_job(
         if wait_result == WAIT_OBJECT_0 {
             break;
         } else if wait_result != WAIT_TIMEOUT {
-            let _ = job.terminate(1);
-            return Err(io::Error::other("WaitForSingleObject error"));
+            failure = Some(io::Error::other("WaitForSingleObject error"));
+            terminate_and_wait(&job, process_handle.handle());
+            break;
         }
     }
 
@@ -409,48 +507,30 @@ pub fn run_in_job(
     unsafe { GetExitCodeProcess(process_handle.handle(), &mut exit_code) }
         .map_err(|e| io::Error::other(format!("GetExitCodeProcess failed: {e}")))?;
 
-    // Read remaining stdout and stderr.
-    let mut stdout = Vec::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let mut read_bytes = 0u32;
-        // SAFETY: ReadFile on valid pipe handle.
-        let ok = unsafe {
-            ReadFile(
-                stdout_read.handle(),
-                Some(&mut buffer),
-                Some(&mut read_bytes),
-                None,
-            )
-        };
-        if ok.is_err() || read_bytes == 0 {
-            break;
-        }
-        stdout.extend_from_slice(&buffer[..read_bytes as usize]);
+    let stdout_capture = stdout_reader
+        .join()
+        .map_err(|_| io::Error::other("stdout reader thread panicked"))?;
+    let stderr_capture = stderr_reader
+        .join()
+        .map_err(|_| io::Error::other("stderr reader thread panicked"))?;
+    if let Some(writer) = stdin_writer {
+        let _ = writer.join();
     }
 
-    let mut stderr = Vec::new();
-    loop {
-        let mut read_bytes = 0u32;
-        // SAFETY: ReadFile on valid pipe handle.
-        let ok = unsafe {
-            ReadFile(
-                stderr_read.handle(),
-                Some(&mut buffer),
-                Some(&mut read_bytes),
-                None,
-            )
-        };
-        if ok.is_err() || read_bytes == 0 {
-            break;
-        }
-        stderr.extend_from_slice(&buffer[..read_bytes as usize]);
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    if stdout_capture.truncated || stderr_capture.truncated {
+        return Err(io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            "Sandboxed process output exceeded the capture limit",
+        ));
     }
 
     Ok(SandboxedOutput {
         exit_code,
-        stdout,
-        stderr,
+        stdout: stdout_capture.bytes,
+        stderr: stderr_capture.bytes,
     })
 }
 
@@ -494,5 +574,22 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn run_in_job_drains_large_output_without_deadlocking() {
+        let limits = JobLimits::default();
+        let cmd = std::path::Path::new("cmd.exe");
+        let args = [
+            OsStr::new("/c"),
+            OsStr::new("for /L %i in (1,1,100000) do @echo 012345678901234567890123456789"),
+        ];
+        let result = run_in_job(cmd, &args, None, &limits, Duration::from_secs(20), None);
+
+        assert_eq!(
+            result.unwrap_err().kind(),
+            io::ErrorKind::OutOfMemory,
+            "large untrusted output must be bounded without blocking the child"
+        );
     }
 }
