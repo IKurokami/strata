@@ -195,6 +195,11 @@ impl JobObject {
         unsafe { TerminateJobObject(self.handle.handle(), exit_code) }
             .map_err(|error| io::Error::other(format!("TerminateJobObject failed: {error}")))
     }
+
+    /// Check if the underlying Job Object handle is valid.
+    pub fn is_valid(&self) -> bool {
+        self.handle.is_valid()
+    }
 }
 
 /// Output captured from a sandboxed process.

@@ -781,4 +781,42 @@ mod tests {
 
         assert!(crate::adapters::archive_payload_valid(&output.data));
     }
+
+    #[test]
+    fn job_object_creation_and_limits() {
+        let limits = strata_win_shell::JobLimits::default();
+        let job = strata_win_shell::JobObject::create(&limits).expect("create job object");
+        assert!(job.is_valid());
+    }
+
+    #[test]
+    fn run_in_job_executes_and_terminates() {
+        let limits = strata_win_shell::JobLimits::default();
+        let cmd = std::path::Path::new("cmd.exe");
+        let args = [std::ffi::OsStr::new("/c"), std::ffi::OsStr::new("echo hello sandbox")];
+        let output = strata_win_shell::run_in_job(cmd, &args, None, &limits, Duration::from_secs(5), None)
+            .expect("run cmd in job");
+
+        assert_eq!(output.exit_code, 0);
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(text.contains("hello sandbox"), "got output: {text}");
+    }
+
+    #[test]
+    fn run_in_job_respects_cancellation() {
+        let limits = strata_win_shell::JobLimits::default();
+        let cmd = std::path::Path::new("cmd.exe");
+        let args = [std::ffi::OsStr::new("/c"), std::ffi::OsStr::new("timeout 10")];
+        let cancelled = std::sync::atomic::AtomicBool::new(true);
+        let result = strata_win_shell::run_in_job(
+            cmd,
+            &args,
+            None,
+            &limits,
+            Duration::from_secs(5),
+            Some(&cancelled),
+        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+    }
 }

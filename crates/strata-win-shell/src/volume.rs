@@ -132,7 +132,7 @@ fn null_term_to_string(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..len])
 }
 
-fn path_to_dos_device(path: &Path) -> io::Result<Vec<u16>> {
+pub fn path_to_dos_device(path: &Path) -> io::Result<Vec<u16>> {
     let path_str = path.to_string_lossy();
     let bytes = path_str.as_bytes();
 
