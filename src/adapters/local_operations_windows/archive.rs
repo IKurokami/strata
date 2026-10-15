@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::File,
-    io::{self, Read, Seek, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{

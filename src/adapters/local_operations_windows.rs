@@ -64,13 +64,9 @@ pub(crate) fn list_archive_entries_direct(
     Err(ARCHIVE_UNSUPPORTED_MESSAGE.to_owned())
 }
 
-/// Linux fsync and removable-device flush do not map to Windows volume cache
-/// semantics. Do not claim that Windows removable media is safe to eject.
-pub(crate) fn flush_filesystem(_root: &Path) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "native Windows removable-device flush is not implemented",
-    ))
+/// Flushes filesystem buffers on Windows removable volumes before ejection.
+pub(crate) fn flush_filesystem(root: &Path) -> io::Result<()> {
+    strata_win_shell::flush_volume(root)
 }
 
 enum Success {

@@ -24,11 +24,22 @@ thread_local! {
 pub(crate) fn with_mount_snapshot<T>(read: impl FnOnce(&MountSnapshot) -> T) -> T {
     MOUNTS.with(|cache| {
         let mut cache = cache.borrow_mut();
-        read(cache.get_or_insert_with(|| MountSnapshot {
-            table: MountTable::current(),
-            // Never misreport a local drive as removable based on its letter.
-            // Native drive enumeration is pending and will run off the UI thread.
-            removable: Vec::new(),
+        read(cache.get_or_insert_with(|| {
+            let removable = strata_win_shell::enumerate_volumes()
+                .into_iter()
+                .filter(|v| v.drive_type.is_removable())
+                .map(|v| RemovableRoot {
+                    uuid: v
+                        .serial_number
+                        .map(|s| format!("{:08X}", s))
+                        .unwrap_or_else(|| "00000000".to_string()),
+                    path: v.root,
+                })
+                .collect();
+            MountSnapshot {
+                table: MountTable::current(),
+                removable,
+            }
         }))
     })
 }

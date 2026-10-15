@@ -8,6 +8,9 @@
 #![cfg(windows)]
 
 pub mod job;
+pub mod volume;
+
+pub use volume::{DriveType, VolumeInfo, eject_volume, enumerate_volumes, flush_volume};
 
 use std::{
     cell::RefCell,

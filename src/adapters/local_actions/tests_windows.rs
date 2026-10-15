@@ -3,7 +3,10 @@
 use super::*;
 use std::sync::{Arc, Mutex};
 
-use crate::services::{ActionRunEvent, ActionRunRequest, ActionRunner, InvocationSource};
+use crate::model::ArgumentToken;
+use crate::services::{
+    ActionProgram, ActionRunEvent, ActionRunRequest, ActionRunner, InvocationSource,
+};
 
 const MANIFEST: &str = r#"
 schema_version = 1
@@ -70,5 +73,51 @@ fn windows_refuses_reparse_action_roots_without_following_them() {
         let store = LocalActionStore::at(linked);
         assert!(store.load().actions().is_empty());
         assert!(ensure_private_directory(&store.root).is_err());
+    }
+}
+
+#[test]
+fn windows_job_object_action_runner_executes_command() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let action = Rc::new(ActionHandle {
+        definition: ActionDefinition::parse(MANIFEST).expect("valid manifest"),
+        directory: fixture.path().to_path_buf(),
+        availability: ActionAvailability::Available(ActionProgram::Command {
+            program: "cmd.exe".into(),
+            arguments: vec![
+                ArgumentToken::Literal("/C".into()),
+                ArgumentToken::Literal("echo action-success".into()),
+            ],
+        }),
+    });
+
+    let events: Arc<Mutex<Vec<ActionRunEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let received = Arc::clone(&events);
+    let _cancel = crate::adapters::LocalActionRunner::new().run(
+        &ActionRunRequest {
+            action,
+            inputs: vec![fixture.path().join("sample.txt")],
+            parent: fixture.path().to_path_buf(),
+            source: InvocationSource::Selection,
+            position: None,
+        },
+        Arc::new(move |event| received.lock().unwrap().push(event)),
+    );
+
+    for _ in 0..50 {
+        if !events.lock().unwrap().is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        ActionRunEvent::Exited { code, log, .. } => {
+            assert_eq!(*code, Some(0));
+            assert!(log.contains("action-success"));
+        }
+        other => panic!("Unexpected event: {:?}", other),
     }
 }
