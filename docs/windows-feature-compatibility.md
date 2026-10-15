@@ -19,11 +19,11 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | Filename search | Preserve Rust matching/scoring; scan without startup index; optional opt-in search index later | Main-app integration pending |
 | Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Recursive directory copy now uses the native worker; reparse points are rejected and existing destinations are preserved |
 | Rename / move | Keep same-volume functionality using safe native rename semantics; add collision and cross-volume handling separately | Same-volume rename/undo and no-clobber batch move are tested; collision policies and cross-volume move remain pending |
-| Recycle Bin | Port to Windows shell recycle semantics | Not yet implemented; **never** fall back to permanent delete |
-| USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Not yet implemented |
+| Recycle Bin | Port to Windows shell recycle semantics | Native Shell recycle/restore and explicit permanent delete run on COM STA workers |
+| USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Cached Win32 removable-volume snapshot refreshes off the UI thread |
 | SMB and network paths | Prefer native UNC; avoid blocking initial local listing on network volumes | Path classification implemented, remote operations unverified |
-| SFTP | Optional network backend, on-demand only | Not yet implemented |
-| Preview / PDF / video / RAW | Retain, with Windows-compatible hardened helper isolation before enabling untrusted parsers | Raw-byte prefetch exists; sandbox not ported |
+| SFTP | Optional network backend, on-demand only | Provider discovery and per-request Job Object transport are implemented; provider availability remains opt-in |
+| Preview / PDF / video / RAW | Retain, with Windows-compatible hardened helper isolation before enabling untrusted parsers | Sandboxed helper and bounded media session are enabled; GUI acceptance remains pending |
 | Open With | Keep GIO AppInfo associations; avoid `gio_unix::DesktopAppInfo` on Windows | Conditional Unix implementation removed; GUI unverified |
 | Show hidden files | Keep Windows hidden attribute behavior; do not read GNOME `.hidden` | Windows skips Linux-only probe |
 | D-Bus / XDG portals / FileManager1 | Not applicable on Windows; use Windows shell integration separately | Linux-only Settings controls excluded from Windows |
@@ -48,10 +48,10 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 
 ## Phase 6: Windows volume and mount snapshots
 
-- Linux retains `/proc/self/mountinfo` and `gio_unix::MountMonitor`; Windows now selects separate zero-I/O adapters so no Unix mount parsing or GIO mount-monitor setup occurs during ordinary Windows navigation.
+- Linux retains `/proc/self/mountinfo` and `gio_unix::MountMonitor`; Windows now selects separate cached adapters so no Unix mount parsing or synchronous Win32 volume enumeration occurs during ordinary Windows navigation.
 - Explicit UNC roots are recognized lexically as potentially blocking network paths. Remote volume queries are still delegated to the asynchronous path, not the hot UI thread.
-- Unknown drive types, mapped network letters, removable volumes and their stable identities are **not** guessed. The Windows snapshot intentionally has no removable entries until a real asynchronous Win32 enumerator exists; an empty snapshot must not be mistaken for proof that no removable disks exist.
-- Windows Recycle Bin remains disabled rather than using Linux's trash mount scan or silently substituting permanent deletion. Native volume APIs and mapped network drive classification remain necessary before feature parity.
+- Unknown drive types and mapped network letters are **not** guessed. Removable roots arrive through a bounded background snapshot and are invalidated when navigation changes volume context.
+- Windows Recycle Bin uses Shell identity rather than Linux trash metadata; permanent deletion is a separately requested Shell operation.
 
 ## CI and blockers
 
