@@ -48,8 +48,11 @@ pub(crate) use listing::{
     decode_archive_listing, encode_archive_result,
 };
 
-pub(crate) const PASSWORD_REQUIRED: &str = "A password is required to extract this archive.";
-pub(crate) const MAYBE_BAD_PASSWORD: &str = "The password may be incorrect.";
+#[path = "local_operations_windows/archive.rs"]
+mod archive;
+
+pub(crate) const PASSWORD_REQUIRED: &str = archive::PASSWORD_REQUIRED;
+pub(crate) const MAYBE_BAD_PASSWORD: &str = archive::MAYBE_BAD_PASSWORD;
 
 /// Archive previews must never parse untrusted files without a Windows sandbox.
 pub(crate) fn list_archive_entries_direct(
@@ -456,18 +459,10 @@ impl OperationProvider for LocalOperationProvider {
         restore_locations(request.id, locations, emit)
     }
     fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows archive compression needs a secure native writer",
-        )
+        archive::compress(request, emit)
     }
     fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows archive extraction needs a sandboxed decoder",
-        )
+        archive::extract(request, emit)
     }
 }
 
