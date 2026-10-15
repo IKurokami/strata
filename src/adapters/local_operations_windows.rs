@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     io,
-    path::Path,
+    path::{Path, PathBuf},
     rc::{Rc, Weak},
     sync::{
         Arc,
@@ -77,37 +77,41 @@ enum Success {
         destination: Location,
     },
 }
-/// Collect a bounded worker batch into one truthful terminal event.
-/// Successful sources are ordered by the user's request, not worker timing.
-struct BatchCopyState {
-    remaining: usize,
-    completed: Vec<(usize, Location)>,
-    error: Option<String>,
+#[derive(Default, Debug)]
+struct WindowsMergePlan {
+    created: Vec<PathBuf>,
+    overwritten: Vec<PathBuf>,
 }
-impl BatchCopyState {
-    fn terminal(&mut self, request_id: OperationRequestId) -> Option<OperationEvent> {
-        if self.remaining != 0 {
-            return None;
-        }
-        self.completed.sort_by_key(|(index, _)| *index);
-        let completed = self
-            .completed
-            .iter()
-            .map(|(_, location)| location.clone())
-            .collect();
-        Some(if let Some(message) = &self.error {
-            OperationEvent::TransferFailed {
-                request_id,
-                completed_locations: completed,
-                message: message.clone(),
-            }
-        } else {
-            OperationEvent::Pasted {
-                request_id,
-                locations: completed,
-            }
-        })
+
+fn classify_merge_windows(
+    source: &Path,
+    destination: &Path,
+    plan: &mut WindowsMergePlan,
+) -> Result<(), String> {
+    if !source.is_dir() {
+        return Err("Only folders can be merged".to_string());
     }
+    if destination.exists() && !destination.is_dir() {
+        return Err("A file and a folder cannot safely replace one another".to_string());
+    }
+    let entries = std::fs::read_dir(source).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let child_source = entry.path();
+        let name = entry.file_name();
+        let child_dest = destination.join(&name);
+        let source_is_dir = entry.file_type().map_err(|e| e.to_string())?.is_dir();
+        if !child_dest.exists() {
+            plan.created.push(child_dest);
+        } else if child_dest.is_dir() && source_is_dir {
+            classify_merge_windows(&child_source, &child_dest, plan)?;
+        } else if child_dest.is_dir() != source_is_dir {
+            return Err("A file and a folder cannot safely replace one another".to_string());
+        } else {
+            plan.overwritten.push(child_dest);
+        }
+    }
+    Ok(())
 }
 struct Pending {
     request_id: OperationRequestId,
@@ -350,144 +354,7 @@ impl OperationProvider for LocalOperationProvider {
         if request.move_sources {
             return async_move_items(self.state.clone(), request, emit);
         }
-        use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
-
-        let Some(destination_dir) = request.destination.native_path() else {
-            return rejected(
-                request.id,
-                emit,
-                "Windows copy requires a local destination",
-            );
-        };
-        if !matches!(
-            classify(destination_dir),
-            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
-        ) {
-            return rejected(request.id, emit, "Invalid Windows destination");
-        }
-        let mut operations = Vec::with_capacity(request.items.len());
-        for item in &request.items {
-            // Replace and Merge discard existing data, so they stay unavailable
-            // until the originals can be recovered from the Recycle Bin.
-            if !matches!(
-                item.conflict,
-                TransferConflict::FailIfExists | TransferConflict::KeepBoth
-            ) {
-                return rejected(
-                    request.id,
-                    emit,
-                    "Windows overwrite and merge are not available yet",
-                );
-            }
-            let Some(source) = item.source.native_path() else {
-                return rejected(request.id, emit, "Windows copy requires local source paths");
-            };
-            if !matches!(
-                classify(source),
-                PathKind::LocalAbsolute | PathKind::NetworkAbsolute
-            ) || !source.file_name().is_some_and(valid_child_name)
-            {
-                return rejected(request.id, emit, "Invalid Windows source filename");
-            }
-            let name = source.file_name().expect("validated");
-            let destination = destination_dir.join(name);
-            operations.push((
-                item.source.clone(),
-                source.to_path_buf(),
-                destination,
-                item.conflict,
-            ));
-        }
-        // No inline filesystem calls. Each native request goes through the
-        // existing bounded mutation service, with atomic no-clobber publish.
-        // Aggregate multiple out-of-order completions into one terminal event.
-        let total = operations.len();
-        if total == 0 {
-            emit(OperationEvent::Pasted {
-                request_id: request.id,
-                locations: Vec::new(),
-            });
-            return LoadHandle::new(|| {});
-        }
-        let batch = Rc::new(RefCell::new(BatchCopyState {
-            remaining: total,
-            completed: Vec::with_capacity(total),
-            error: None,
-        }));
-        let mut handles = Vec::with_capacity(total);
-        for (index, (source, path, destination, conflict)) in operations.into_iter().enumerate() {
-            let progress = batch.clone();
-            let outer = emit.clone();
-            let callback: Rc<dyn Fn(OperationEvent)> = Rc::new(move |event| {
-                // Release the RefCell borrow before calling the browser: it
-                // can start another transfer synchronously from an event.
-                let mut forwarded = None;
-                let terminal = {
-                    let mut state = progress.borrow_mut();
-                    match event {
-                        OperationEvent::TransferProgress {
-                            request_id,
-                            created_location,
-                            ..
-                        } => {
-                            forwarded = Some(OperationEvent::TransferProgress {
-                                request_id,
-                                completed_items: state.completed.len() + 1,
-                                completed_files: state.completed.len() + 1,
-                                total_files: Some(total),
-                                current_file: None,
-                                transferred_bytes: 0,
-                                total_bytes: None,
-                                created_location,
-                            });
-                            None
-                        }
-                        OperationEvent::Pasted { locations, .. } => {
-                            if let Some(location) = locations.into_iter().next() {
-                                state.completed.push((index, location));
-                            }
-                            state.remaining -= 1;
-                            state.terminal(request.id)
-                        }
-                        OperationEvent::Failed { message, .. } => {
-                            if state.error.is_none() {
-                                state.error = Some(message);
-                            }
-                            state.remaining -= 1;
-                            state.terminal(request.id)
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some(event) = forwarded {
-                    outer(event);
-                }
-                if let Some(event) = terminal {
-                    outer(event);
-                }
-            });
-            let operation = if conflict == TransferConflict::KeepBoth {
-                LocalOperation::CopyPathKeepBoth {
-                    source: path,
-                    destination: destination.clone(),
-                }
-            } else {
-                LocalOperation::CopyPath {
-                    source: path,
-                    destination: destination.clone(),
-                }
-            };
-            handles.push(self.state.submit(
-                operation,
-                request.id,
-                Success::Copy {
-                    source,
-                    destination: Location::local(destination),
-                },
-                callback,
-            ));
-        }
-        LoadHandle::new(move || drop(handles))
+        async_copy_items(self.state.clone(), request, emit)
     }
 
     fn rename(&self, request: RenameRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
@@ -509,15 +376,6 @@ impl OperationProvider for LocalOperationProvider {
         async_rename_no_replace(source.to_path_buf(), target, request.id, emit)
     }
     fn undo_move(&self, request: UndoMoveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        // Undo that requires trashing merge-created folders must wait for a
-        // verified Recycle Bin adapter; never destroy those folders silently.
-        if !request.cleanup_locations.is_empty() {
-            return rejected(
-                request.id,
-                emit,
-                "Windows undo merge cleanup requires Recycle Bin integration",
-            );
-        }
         let mut operations = Vec::with_capacity(request.items.len());
         for item in &request.items {
             let (Some(source), Some(target)) = (
@@ -532,7 +390,13 @@ impl OperationProvider for LocalOperationProvider {
                 target.to_path_buf(),
             ));
         }
-        async_move_paths(Some(self.state.clone()), request.id, operations, emit)
+        async_move_paths(
+            Some(self.state.clone()),
+            request.id,
+            operations,
+            request.cleanup_locations,
+            emit,
+        )
     }
     fn undo_rename(
         &self,
@@ -568,11 +432,7 @@ impl OperationProvider for LocalOperationProvider {
         request: UndoMergeRequest,
         emit: Rc<dyn Fn(OperationEvent)>,
     ) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows undo merge requires Recycle Bin integration",
-        )
+        run_undo_merge(request, emit)
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         if request.permanent {
@@ -611,15 +471,302 @@ impl OperationProvider for LocalOperationProvider {
     }
 }
 
+async fn submit_copy_and_await(
+    state: &Rc<ProviderState>,
+    operation: LocalOperation,
+    id: OperationRequestId,
+    source: &Location,
+    destination: &Path,
+    cancel: &gio::Cancellable,
+) -> Result<Option<Location>, String> {
+    let (sender, receiver) = futures_channel::oneshot::channel();
+    let sender = Rc::new(RefCell::new(Some(sender)));
+    let destination_loc = Location::local(destination.to_path_buf());
+    let callback: Rc<dyn Fn(OperationEvent)> = Rc::new(move |event| {
+        let outcome = match event {
+            OperationEvent::TransferProgress {
+                created_location, ..
+            } => Ok(created_location),
+            OperationEvent::Pasted { .. } => Ok(None),
+            OperationEvent::Failed { message, .. } => Err(message),
+            _ => return,
+        };
+        if let Some(sender) = sender.borrow_mut().take() {
+            let _ = sender.send(outcome);
+        }
+    });
+
+    let handle = Rc::new(RefCell::new(Some(state.submit(
+        operation,
+        id,
+        Success::Copy {
+            source: source.clone(),
+            destination: destination_loc,
+        },
+        callback,
+    ))));
+
+    let cancel_handle = handle.clone();
+    let signal = cancel.connect_cancelled_local(move |_| {
+        cancel_handle.borrow_mut().take();
+    });
+    let outcome = receiver.await;
+    if let Some(signal) = signal {
+        cancel.disconnect_cancelled(signal);
+    }
+    handle.borrow_mut().take();
+    match outcome {
+        Ok(res) => res,
+        Err(_) => Err("Operation cancelled or worker channel dropped".to_string()),
+    }
+}
+
+fn async_copy_items(
+    state: Rc<ProviderState>,
+    request: PasteRequest,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
+
+    let Some(destination_dir) = request.destination.native_path() else {
+        return rejected(
+            request.id,
+            emit,
+            "Windows copy requires a local destination",
+        );
+    };
+    if !matches!(
+        classify(destination_dir),
+        PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+    ) {
+        return rejected(request.id, emit, "Invalid Windows destination");
+    }
+
+    let mut operations = Vec::with_capacity(request.items.len());
+    for item in &request.items {
+        let Some(source) = item.source.native_path() else {
+            return rejected(request.id, emit, "Windows copy requires local source paths");
+        };
+        if !matches!(
+            classify(source),
+            PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+        ) || !source.file_name().is_some_and(valid_child_name)
+        {
+            return rejected(request.id, emit, "Invalid Windows source filename");
+        }
+        let name = source.file_name().expect("validated");
+        let destination = destination_dir.join(name);
+        operations.push((
+            item.source.clone(),
+            source.to_path_buf(),
+            destination,
+            item.conflict,
+        ));
+    }
+
+    let total = operations.len();
+    if total == 0 {
+        emit(OperationEvent::Pasted {
+            request_id: request.id,
+            locations: Vec::new(),
+        });
+        return LoadHandle::new(|| {});
+    }
+
+    let cancel = gio::Cancellable::new();
+    let task_cancel = cancel.clone();
+    glib::MainContext::default().spawn_local(async move {
+        let mut completed = Vec::new();
+        let not_attempted_items = operations.clone();
+        for (index, (source_loc, source_path, destination_path, conflict)) in
+            operations.into_iter().enumerate()
+        {
+            if task_cancel.is_cancelled() {
+                emit(OperationEvent::Cancelled {
+                    request_id: request.id,
+                    result: crate::services::CancelledOperation {
+                        completed,
+                        not_attempted: not_attempted_items[index..]
+                            .iter()
+                            .map(|item| item.0.clone())
+                            .collect(),
+                        affected_locations: std::collections::HashSet::new(),
+                        ..Default::default()
+                    },
+                });
+                return;
+            }
+
+            let pre_res = gio::spawn_blocking({
+                let src = source_path.clone();
+                let dst = destination_path.clone();
+                move || -> Result<(LocalOperation, Option<WindowsMergePlan>), String> {
+                    match conflict {
+                        TransferConflict::FailIfExists => Ok((
+                            LocalOperation::CopyPath {
+                                source: src,
+                                destination: dst,
+                            },
+                            None,
+                        )),
+                        TransferConflict::KeepBoth => Ok((
+                            LocalOperation::CopyPathKeepBoth {
+                                source: src,
+                                destination: dst,
+                            },
+                            None,
+                        )),
+                        TransferConflict::ReplaceExisting => {
+                            let mut plan = None;
+                            if dst.exists() {
+                                strata_win_shell::recycle(&[dst.clone()])
+                                    .map_err(|e| e.to_string())?;
+                                plan = Some(WindowsMergePlan {
+                                    created: Vec::new(),
+                                    overwritten: vec![dst.clone()],
+                                });
+                            }
+                            Ok((
+                                LocalOperation::CopyPath {
+                                    source: src,
+                                    destination: dst,
+                                },
+                                plan,
+                            ))
+                        }
+                        TransferConflict::Merge => {
+                            if dst.exists() {
+                                let mut plan = WindowsMergePlan::default();
+                                classify_merge_windows(&src, &dst, &mut plan)?;
+                                if !plan.overwritten.is_empty() {
+                                    strata_win_shell::recycle(&plan.overwritten)
+                                        .map_err(|e| e.to_string())?;
+                                }
+                                Ok((
+                                    LocalOperation::MergePath {
+                                        source: src,
+                                        destination: dst,
+                                    },
+                                    Some(plan),
+                                ))
+                            } else {
+                                let plan = WindowsMergePlan {
+                                    created: vec![dst.clone()],
+                                    overwritten: Vec::new(),
+                                };
+                                Ok((
+                                    LocalOperation::CopyPath {
+                                        source: src,
+                                        destination: dst,
+                                    },
+                                    Some(plan),
+                                ))
+                            }
+                        }
+                    }
+                }
+            })
+            .await;
+
+            let (operation, merge_plan) = match pre_res {
+                Ok(Ok(pair)) => pair,
+                Ok(Err(err)) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: request.id,
+                        completed_locations: completed,
+                        message: err,
+                    });
+                    return;
+                }
+                Err(_) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: request.id,
+                        completed_locations: completed,
+                        message: "Pre-copy worker error".to_string(),
+                    });
+                    return;
+                }
+            };
+
+            if let Some(plan) = merge_plan {
+                emit(OperationEvent::Merged {
+                    request_id: request.id,
+                    source: source_loc.clone(),
+                    created: plan.created.into_iter().map(Location::local).collect(),
+                    overwritten: plan.overwritten.into_iter().map(Location::local).collect(),
+                });
+            }
+
+            let submit_res = submit_copy_and_await(
+                &state,
+                operation,
+                request.id,
+                &source_loc,
+                &destination_path,
+                &task_cancel,
+            )
+            .await;
+            match submit_res {
+                Ok(created_dest) => {
+                    let dest_location =
+                        created_dest.unwrap_or_else(|| Location::local(destination_path));
+                    completed.push(source_loc);
+                    emit(OperationEvent::TransferProgress {
+                        request_id: request.id,
+                        completed_items: completed.len(),
+                        completed_files: completed.len(),
+                        total_files: Some(total),
+                        current_file: None,
+                        transferred_bytes: 0,
+                        total_bytes: None,
+                        created_location: Some(dest_location),
+                    });
+                }
+                Err(error) => {
+                    if task_cancel.is_cancelled() {
+                        emit(OperationEvent::Cancelled {
+                            request_id: request.id,
+                            result: crate::services::CancelledOperation {
+                                completed,
+                                not_attempted: not_attempted_items[index..]
+                                    .iter()
+                                    .map(|item| item.0.clone())
+                                    .collect(),
+                                affected_locations: std::collections::HashSet::new(),
+                                ..Default::default()
+                            },
+                        });
+                    } else {
+                        emit(OperationEvent::TransferFailed {
+                            request_id: request.id,
+                            completed_locations: completed,
+                            message: error,
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+        emit(OperationEvent::Pasted {
+            request_id: request.id,
+            locations: completed,
+        });
+    });
+
+    LoadHandle::new(move || cancel.cancel())
+}
+
 /// All transfer paths are validated before the first mutation. A batch
-/// reports exactly which source items moved if a later item fails. Only native
-/// same-volume renames are attempted: NO_FALLBACK_FOR_MOVE must not degrade
-/// into non-atomic copy/delete, particularly for directories or remote drives.
+/// reports exactly which source items moved if a later item fails.
 fn async_move_items(
     state: Rc<ProviderState>,
     request: PasteRequest,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
+    use strata_native_io::windows_paths::{
+        PathKind, classify, numbered_candidate, valid_child_name,
+    };
+
     let Some(destination_dir) = request.destination.native_path() else {
         return rejected(
             request.id,
@@ -627,18 +774,14 @@ fn async_move_items(
             "Windows move requires a local destination",
         );
     };
-    if request
-        .items
-        .iter()
-        .any(|item| item.conflict != TransferConflict::FailIfExists)
-    {
-        return rejected(
-            request.id,
-            emit,
-            "Windows move conflict resolution is not implemented",
-        );
+    if !matches!(
+        classify(destination_dir),
+        PathKind::LocalAbsolute | PathKind::NetworkAbsolute
+    ) {
+        return rejected(request.id, emit, "Invalid Windows destination");
     }
-    let mut operations = Vec::with_capacity(request.items.len());
+
+    let mut items = Vec::with_capacity(request.items.len());
     for item in &request.items {
         let Some(source) = item.source.native_path() else {
             return rejected(request.id, emit, "Windows move requires local source paths");
@@ -646,13 +789,234 @@ fn async_move_items(
         let Some(name) = source.file_name() else {
             return rejected(request.id, emit, "Cannot move a volume root");
         };
-        if !strata_native_io::windows_paths::valid_child_name(name) {
+        if !valid_child_name(name) {
             return rejected(request.id, emit, "Invalid Windows filename");
         }
         let target = destination_dir.join(name);
-        operations.push((item.source.clone(), source.to_path_buf(), target));
+        items.push((
+            item.source.clone(),
+            source.to_path_buf(),
+            target,
+            item.conflict,
+        ));
     }
-    async_move_paths(Some(state), request.id, operations, emit)
+
+    let cancel = gio::Cancellable::new();
+    let task_cancel = cancel.clone();
+    let total = items.len();
+    if total == 0 {
+        emit(OperationEvent::Pasted {
+            request_id: request.id,
+            locations: Vec::new(),
+        });
+        return LoadHandle::new(|| {});
+    }
+
+    glib::MainContext::default().spawn_local(async move {
+        let mut completed = Vec::new();
+        let not_attempted_items = items.clone();
+        for (index, (location, source, mut target, conflict)) in items.into_iter().enumerate() {
+            if task_cancel.is_cancelled() {
+                emit(OperationEvent::Cancelled {
+                    request_id: request.id,
+                    result: crate::services::CancelledOperation {
+                        completed,
+                        not_attempted: not_attempted_items[index..]
+                            .iter()
+                            .map(|item| item.0.clone())
+                            .collect(),
+                        affected_locations: std::collections::HashSet::new(),
+                        ..Default::default()
+                    },
+                });
+                return;
+            }
+
+            let pre_res = gio::spawn_blocking({
+                let src = source.clone();
+                let dst = target.clone();
+                move || -> Result<(PathBuf, bool, Option<WindowsMergePlan>), String> {
+                    match conflict {
+                        TransferConflict::FailIfExists => Ok((dst, false, None)),
+                        TransferConflict::KeepBoth => {
+                            if dst.exists() {
+                                let is_file = std::fs::symlink_metadata(&src)
+                                    .map(|m| m.is_file())
+                                    .unwrap_or(true);
+                                let mut candidate = dst.clone();
+                                for idx in 1..=10_000 {
+                                    candidate = numbered_candidate(&dst, idx, is_file);
+                                    if !candidate.exists() {
+                                        break;
+                                    }
+                                }
+                                Ok((candidate, false, None))
+                            } else {
+                                Ok((dst, false, None))
+                            }
+                        }
+                        TransferConflict::ReplaceExisting => {
+                            let mut plan = None;
+                            if dst.exists() {
+                                strata_win_shell::recycle(&[dst.clone()])
+                                    .map_err(|e| e.to_string())?;
+                                plan = Some(WindowsMergePlan {
+                                    created: Vec::new(),
+                                    overwritten: vec![dst.clone()],
+                                });
+                            }
+                            Ok((dst, false, plan))
+                        }
+                        TransferConflict::Merge => {
+                            if dst.exists() {
+                                let mut plan = WindowsMergePlan::default();
+                                classify_merge_windows(&src, &dst, &mut plan)?;
+                                if !plan.overwritten.is_empty() {
+                                    strata_win_shell::recycle(&plan.overwritten)
+                                        .map_err(|e| e.to_string())?;
+                                }
+                                Ok((dst, true, Some(plan)))
+                            } else {
+                                let plan = WindowsMergePlan {
+                                    created: vec![dst.clone()],
+                                    overwritten: Vec::new(),
+                                };
+                                Ok((dst, false, Some(plan)))
+                            }
+                        }
+                    }
+                }
+            })
+            .await;
+
+            let (resolved_target, is_merge_dir, merge_plan) = match pre_res {
+                Ok(Ok(triplet)) => triplet,
+                Ok(Err(err)) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: request.id,
+                        completed_locations: completed,
+                        message: err,
+                    });
+                    return;
+                }
+                Err(_) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: request.id,
+                        completed_locations: completed,
+                        message: "Pre-move worker error".to_string(),
+                    });
+                    return;
+                }
+            };
+            target = resolved_target;
+
+            if let Some(plan) = merge_plan {
+                emit(OperationEvent::Merged {
+                    request_id: request.id,
+                    source: location.clone(),
+                    created: plan.created.into_iter().map(Location::local).collect(),
+                    overwritten: plan.overwritten.into_iter().map(Location::local).collect(),
+                });
+            }
+
+            let move_outcome = if is_merge_dir {
+                let merge_res = submit_copy_and_await(
+                    &state,
+                    LocalOperation::MergePath {
+                        source: source.clone(),
+                        destination: target.clone(),
+                    },
+                    request.id,
+                    &location,
+                    &target,
+                    &task_cancel,
+                )
+                .await;
+                match merge_res {
+                    Ok(_) => {
+                        let del_res = gio::spawn_blocking({
+                            let src = source.clone();
+                            move || std::fs::remove_dir_all(&src)
+                        })
+                        .await;
+                        match del_res {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(e)) => {
+                                Err(glib::Error::new(gio::IOErrorEnum::Failed, &e.to_string()))
+                            }
+                            Err(_) => Err(glib::Error::new(
+                                gio::IOErrorEnum::Failed,
+                                "Delete source folder failed",
+                            )),
+                        }
+                    }
+                    Err(e) => Err(glib::Error::new(gio::IOErrorEnum::Failed, &e)),
+                }
+            } else if source == target {
+                Ok(())
+            } else {
+                match move_no_replace(&source, &target, task_cancel.clone()).await {
+                    Err(error) if error.matches(gio::IOErrorEnum::NotSupported) => {
+                        move_verified_native(&state, &source, &target, request.id, &task_cancel)
+                            .await
+                    }
+                    outcome => outcome,
+                }
+            };
+
+            match move_outcome {
+                Ok(()) => {
+                    let target_location = Location::local(target.clone());
+                    emit(OperationEvent::ItemMoved {
+                        request_id: request.id,
+                        from: location.clone(),
+                        to: target_location,
+                        merged: is_merge_dir,
+                    });
+                    completed.push(location.clone());
+                    emit(OperationEvent::TransferProgress {
+                        request_id: request.id,
+                        completed_items: completed.len(),
+                        completed_files: completed.len(),
+                        total_files: Some(total),
+                        current_file: None,
+                        transferred_bytes: 0,
+                        total_bytes: None,
+                        created_location: None,
+                    });
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {
+                    emit(OperationEvent::Cancelled {
+                        request_id: request.id,
+                        result: crate::services::CancelledOperation {
+                            completed,
+                            not_attempted: not_attempted_items[index..]
+                                .iter()
+                                .map(|op| op.0.clone())
+                                .collect(),
+                            affected_locations: std::collections::HashSet::new(),
+                            ..Default::default()
+                        },
+                    });
+                    return;
+                }
+                Err(error) => {
+                    emit(OperationEvent::TransferFailed {
+                        request_id: request.id,
+                        completed_locations: completed,
+                        message: crate::services::gio_error_message(&error),
+                    });
+                    return;
+                }
+            }
+        }
+        emit(OperationEvent::Pasted {
+            request_id: request.id,
+            locations: completed,
+        });
+    });
+
+    LoadHandle::new(move || cancel.cancel())
 }
 
 /// A single validated executor is shared by move and undo-move, keeping
@@ -661,6 +1025,7 @@ fn async_move_paths(
     state: Option<Rc<ProviderState>>,
     id: OperationRequestId,
     operations: Vec<(Location, std::path::PathBuf, std::path::PathBuf)>,
+    cleanup_locations: Vec<Location>,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
     use strata_native_io::windows_paths::{PathKind, classify, valid_child_name};
@@ -770,6 +1135,22 @@ fn async_move_paths(
                     });
                     return;
                 }
+            }
+        }
+        if !cleanup_locations.is_empty() {
+            let mut cleanup_paths = Vec::new();
+            for loc in cleanup_locations {
+                if let Some(path) = loc.native_path()
+                    && path.exists()
+                {
+                    cleanup_paths.push(path.to_path_buf());
+                }
+            }
+            if !cleanup_paths.is_empty() {
+                let _ = gio::spawn_blocking(move || {
+                    let _ = strata_win_shell::recycle(&cleanup_paths);
+                })
+                .await;
             }
         }
         emit(OperationEvent::Pasted {
@@ -956,6 +1337,140 @@ fn restore_locations(
                 request_id: id,
                 locations: restored_srcs,
                 restored: restored_dests,
+            });
+        }
+    });
+    LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
+}
+
+fn run_undo_merge(request: UndoMergeRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let task_cancelled = cancelled.clone();
+    let total = request.overwritten.len() + request.created.len();
+    let id = request.id;
+    glib::MainContext::default().spawn_local(async move {
+        let outcome = gio::spawn_blocking(move || {
+            let mut completed_count = 0usize;
+            let mut failed = Vec::new();
+            let mut restored = Vec::new();
+
+            // 1. Overwritten items: delete the incoming copy, then restore original from Recycle Bin
+            for location in &request.overwritten {
+                if worker_cancelled.load(AtomicOrdering::Acquire) {
+                    break;
+                }
+                let Some(path) = location.native_path() else {
+                    failed.push((
+                        location.clone(),
+                        io::Error::new(io::ErrorKind::InvalidInput, "non-native path"),
+                    ));
+                    continue;
+                };
+                if path.exists() {
+                    let remove_res = if path.is_dir() {
+                        std::fs::remove_dir_all(path)
+                    } else {
+                        std::fs::remove_file(path)
+                    };
+                    if let Err(e) = remove_res {
+                        failed.push((location.clone(), e));
+                        continue;
+                    }
+                }
+                match strata_win_shell::restore_by_original_path(path) {
+                    Ok(dest) => {
+                        completed_count += 1;
+                        restored.push(Location::local(dest));
+                    }
+                    Err(e) => {
+                        failed.push((location.clone(), e));
+                    }
+                }
+            }
+
+            // 2. Created items: send to Recycle Bin
+            for location in &request.created {
+                if worker_cancelled.load(AtomicOrdering::Acquire) {
+                    break;
+                }
+                let Some(path) = location.native_path() else {
+                    failed.push((
+                        location.clone(),
+                        io::Error::new(io::ErrorKind::InvalidInput, "non-native path"),
+                    ));
+                    continue;
+                };
+                if path.exists() {
+                    match strata_win_shell::recycle(&[path.to_path_buf()]) {
+                        Ok(_) => {
+                            completed_count += 1;
+                        }
+                        Err(e) => {
+                            failed.push((location.clone(), e));
+                        }
+                    }
+                } else {
+                    completed_count += 1;
+                }
+            }
+
+            (completed_count, restored, failed)
+        })
+        .await;
+
+        let Ok((completed_count, restored, failed)) = outcome else {
+            emit(OperationEvent::Failed {
+                request_id: id,
+                message: "Undo merge worker stopped".to_string(),
+                password_failure: None,
+            });
+            return;
+        };
+
+        if task_cancelled.load(AtomicOrdering::Acquire) {
+            emit(OperationEvent::Cancelled {
+                request_id: id,
+                result: crate::services::CancelledOperation {
+                    completed: restored,
+                    failed: failed.into_iter().map(|(l, _)| l).collect(),
+                    not_attempted: Vec::new(),
+                    affected_locations: std::collections::HashSet::new(),
+                },
+            });
+            return;
+        }
+
+        if let Some((_, error)) = failed.first() {
+            let message = crate::services::io_error_message(error);
+            if completed_count == 0 {
+                emit(OperationEvent::Failed {
+                    request_id: id,
+                    message,
+                    password_failure: None,
+                });
+            } else {
+                emit(OperationEvent::CompletedWithErrors {
+                    request_id: id,
+                    deleted_locations: Vec::new(),
+                    retryable_locations: Vec::new(),
+                    has_non_retryable_failures: true,
+                    message,
+                });
+            }
+        } else {
+            for (i, dst) in restored.iter().enumerate() {
+                emit(OperationEvent::RestoreProgress {
+                    request_id: id,
+                    completed: i + 1,
+                    total,
+                    restored_location: Some(dst.clone()),
+                });
+            }
+            emit(OperationEvent::Restored {
+                request_id: id,
+                locations: Vec::new(),
+                restored,
             });
         }
     });
@@ -1434,6 +1949,7 @@ mod tests {
                     target.join("second.txt"),
                 ),
             ],
+            Vec::new(),
             emit,
         );
         let context = glib::MainContext::default();
@@ -1694,6 +2210,361 @@ mod tests {
         assert_eq!(
             std::fs::read(&file).expect("read restored file"),
             b"content to be recycled"
+        );
+    }
+
+    #[test]
+    fn native_paste_replace_existing_and_undo_merge() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_dir = root.path().join("source");
+        let dest_dir = root.path().join("dest");
+        std::fs::create_dir_all(&source_dir).expect("create source");
+        std::fs::create_dir_all(&dest_dir).expect("create dest");
+
+        let source_file = source_dir.join("file.txt");
+        let dest_file = dest_dir.join("file.txt");
+        std::fs::write(&source_file, b"incoming content").expect("write source");
+        std::fs::write(&dest_file, b"original content").expect("write dest");
+
+        let provider = LocalOperationProvider::default();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+
+        let _handle = provider.paste(
+            PasteRequest {
+                id: OperationRequestId(300),
+                destination: Location::local(dest_dir.clone()),
+                items: vec![crate::services::PasteItem {
+                    source: Location::local(source_file.clone()),
+                    conflict: TransferConflict::ReplaceExisting,
+                }],
+                move_sources: false,
+            },
+            emit.clone(),
+        );
+
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Pasted { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "paste timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            std::fs::read(&dest_file).expect("read replaced file"),
+            b"incoming content"
+        );
+
+        // Find the Merged event to verify overwritten path
+        let merged_event = events
+            .borrow()
+            .iter()
+            .find(|e| matches!(e, OperationEvent::Merged { .. }))
+            .cloned();
+        let Some(OperationEvent::Merged { overwritten, .. }) = merged_event else {
+            panic!("Expected OperationEvent::Merged event");
+        };
+        assert_eq!(overwritten, vec![Location::local(dest_file.clone())]);
+
+        // Now undo the merge: original should be restored
+        events.borrow_mut().clear();
+        let _undo_handle = provider.undo_merge(
+            UndoMergeRequest {
+                id: OperationRequestId(301),
+                created: Vec::new(),
+                overwritten: vec![Location::local(dest_file.clone())],
+                originals: HashMap::new(),
+            },
+            emit,
+        );
+
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Restored { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "undo_merge timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            std::fs::read(&dest_file).expect("read restored file"),
+            b"original content"
+        );
+    }
+
+    #[test]
+    fn native_paste_merge_directory_and_undo_merge() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_dir = root.path().join("source");
+        let dest_dir = root.path().join("dest");
+        std::fs::create_dir_all(source_dir.join("folder")).expect("create source/folder");
+        std::fs::create_dir_all(dest_dir.join("folder")).expect("create dest/folder");
+
+        let source_new = source_dir.join("folder").join("new.txt");
+        let source_shared = source_dir.join("folder").join("shared.txt");
+        let dest_existing = dest_dir.join("folder").join("existing.txt");
+        let dest_shared = dest_dir.join("folder").join("shared.txt");
+        let dest_new = dest_dir.join("folder").join("new.txt");
+
+        std::fs::write(&source_new, b"new from source").expect("write source_new");
+        std::fs::write(&source_shared, b"shared incoming").expect("write source_shared");
+        std::fs::write(&dest_existing, b"dest existing").expect("write dest_existing");
+        std::fs::write(&dest_shared, b"dest shared original").expect("write dest_shared");
+
+        let provider = LocalOperationProvider::default();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+
+        let _handle = provider.paste(
+            PasteRequest {
+                id: OperationRequestId(400),
+                destination: Location::local(dest_dir.clone()),
+                items: vec![crate::services::PasteItem {
+                    source: Location::local(source_dir.join("folder")),
+                    conflict: TransferConflict::Merge,
+                }],
+                move_sources: false,
+            },
+            emit.clone(),
+        );
+
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Pasted { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "merge paste timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // Verify merge results
+        assert_eq!(
+            std::fs::read(&dest_existing).expect("existing kept"),
+            b"dest existing"
+        );
+        assert_eq!(
+            std::fs::read(&dest_new).expect("new file created"),
+            b"new from source"
+        );
+        assert_eq!(
+            std::fs::read(&dest_shared).expect("shared overwritten"),
+            b"shared incoming"
+        );
+
+        // Find Merged event
+        let merged_event = events
+            .borrow()
+            .iter()
+            .find(|e| matches!(e, OperationEvent::Merged { .. }))
+            .cloned();
+        let Some(OperationEvent::Merged {
+            created,
+            overwritten,
+            ..
+        }) = merged_event
+        else {
+            panic!("Expected OperationEvent::Merged");
+        };
+        assert_eq!(created, vec![Location::local(dest_new.clone())]);
+        assert_eq!(overwritten, vec![Location::local(dest_shared.clone())]);
+
+        // Undo merge
+        events.borrow_mut().clear();
+        let _undo_handle = provider.undo_merge(
+            UndoMergeRequest {
+                id: OperationRequestId(401),
+                created: vec![Location::local(dest_new.clone())],
+                overwritten: vec![Location::local(dest_shared.clone())],
+                originals: HashMap::new(),
+            },
+            emit,
+        );
+
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Restored { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "undo_merge timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // Verify pre-merge state is restored
+        assert_eq!(
+            std::fs::read(&dest_shared).expect("shared restored"),
+            b"dest shared original"
+        );
+        assert!(!dest_new.exists(), "new file should be removed by undo");
+        assert_eq!(
+            std::fs::read(&dest_existing).expect("existing untouched"),
+            b"dest existing"
+        );
+    }
+
+    #[test]
+    fn native_move_keep_both_auto_numbers_without_overwriting() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_dir = root.path().join("source");
+        let dest_dir = root.path().join("dest");
+        std::fs::create_dir_all(&source_dir).expect("create source");
+        std::fs::create_dir_all(&dest_dir).expect("create dest");
+
+        let source_file = source_dir.join("doc.txt");
+        let dest_file = dest_dir.join("doc.txt");
+        let expected_numbered = dest_dir.join("doc (1).txt");
+
+        std::fs::write(&source_file, b"moved content").expect("write source");
+        std::fs::write(&dest_file, b"original content").expect("write dest");
+
+        let provider = LocalOperationProvider::default();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+
+        let _handle = provider.paste(
+            PasteRequest {
+                id: OperationRequestId(500),
+                destination: Location::local(dest_dir.clone()),
+                items: vec![crate::services::PasteItem {
+                    source: Location::local(source_file.clone()),
+                    conflict: TransferConflict::KeepBoth,
+                }],
+                move_sources: true,
+            },
+            emit,
+        );
+
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Pasted { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "move timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            std::fs::read(&dest_file).expect("original untouched"),
+            b"original content"
+        );
+        assert_eq!(
+            std::fs::read(&expected_numbered).expect("numbered candidate created"),
+            b"moved content"
+        );
+        assert!(!source_file.exists(), "source should be moved");
+    }
+
+    #[test]
+    fn native_undo_move_cleans_up_folders() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("tempdir");
+        let source_file = root.path().join("source.txt");
+        let moved_file = root.path().join("moved.txt");
+        let cleanup_folder = root.path().join("cleanup_folder");
+
+        std::fs::write(&moved_file, b"content").expect("write moved");
+        std::fs::create_dir_all(&cleanup_folder).expect("create cleanup folder");
+
+        let provider = LocalOperationProvider::default();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+
+        let _handle = provider.undo_move(
+            UndoMoveRequest {
+                id: OperationRequestId(600),
+                items: vec![crate::services::UndoMoveItem {
+                    record: crate::services::MoveRecord {
+                        original: Location::local(source_file.clone()),
+                        current: Location::local(moved_file.clone()),
+                    },
+                    conflict: TransferConflict::FailIfExists,
+                }],
+                cleanup_locations: vec![Location::local(cleanup_folder.clone())],
+            },
+            emit,
+        );
+
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Pasted { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "undo_move timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(source_file.exists(), "file should be moved back");
+        assert!(!moved_file.exists(), "moved file should be gone");
+        assert!(
+            !cleanup_folder.exists(),
+            "cleanup folder should be recycled"
         );
     }
 }

@@ -177,23 +177,7 @@ fn delete_verified_source(path: &Path) -> io::Result<()> {
 
 const MAX_KEEP_BOTH_ATTEMPTS: u32 = 10_000;
 
-/// `name (n).ext` for files, `name (n)` for directories and dotfiles.
-fn numbered_candidate(destination: &Path, index: u32, split_extension: bool) -> PathBuf {
-    let name = destination.file_name().unwrap_or_default();
-    let path = Path::new(name);
-    let (stem, extension) = if split_extension {
-        (path.file_stem(), path.extension())
-    } else {
-        (Some(name), None)
-    };
-    let mut numbered = stem.unwrap_or(name).to_os_string();
-    numbered.push(format!(" ({index})"));
-    if let Some(extension) = extension {
-        numbered.push(".");
-        numbered.push(extension);
-    }
-    destination.with_file_name(numbered)
-}
+use crate::windows_paths::numbered_candidate;
 
 /// Copy without replacing anything, choosing the first free numbered name.
 /// Returns the path that was actually published. `AlreadyExists` from the
