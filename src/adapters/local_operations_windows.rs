@@ -15,6 +15,10 @@ use std::{
     io,
     path::Path,
     rc::{Rc, Weak},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering as AtomicOrdering},
+    },
     time::{Duration, Instant},
 };
 
@@ -557,11 +561,7 @@ impl OperationProvider for LocalOperationProvider {
         async_rename_no_replace(source.to_path_buf(), target.to_path_buf(), request.id, emit)
     }
     fn undo_copy(&self, request: UndoCopyRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows undo copy requires Recycle Bin integration",
-        )
+        recycle_locations(request.id, request.locations, emit)
     }
     fn undo_merge(
         &self,
@@ -575,18 +575,25 @@ impl OperationProvider for LocalOperationProvider {
         )
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows Recycle Bin and permanent deletion are not yet supported",
-        )
+        if request.permanent {
+            return rejected(
+                request.id,
+                emit,
+                "Windows permanent deletion is not yet supported",
+            );
+        }
+        let locations = request.entries.into_iter().map(|e| e.location).collect();
+        recycle_locations(request.id, locations, emit)
     }
     fn restore(&self, request: RestoreRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        rejected(
-            request.id,
-            emit,
-            "Windows Recycle Bin restore is not yet supported",
-        )
+        let locations = match request.source {
+            crate::services::RestoreSource::OriginalLocations(locations) => locations,
+            crate::services::RestoreSource::TrashEntries(items) => items
+                .into_iter()
+                .map(|item| Location::local(item.destination))
+                .collect(),
+        };
+        restore_locations(request.id, locations, emit)
     }
     fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         rejected(
@@ -773,6 +780,187 @@ fn async_move_paths(
     LoadHandle::new(move || cancel.cancel())
 }
 
+/// Move entries to the Recycle Bin one at a time on a blocking worker, so a
+/// partial failure reports exactly which items are in the bin. Nothing here
+/// falls back to permanent deletion.
+fn recycle_locations(
+    id: OperationRequestId,
+    locations: Vec<Location>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    let mut items = Vec::with_capacity(locations.len());
+    for location in &locations {
+        let Some(path) = location.native_path() else {
+            return rejected(id, emit, "Windows delete requires local paths");
+        };
+        items.push((location.clone(), path.to_path_buf()));
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let affected: std::collections::HashSet<Location> = items
+        .iter()
+        .filter_map(|(_, path)| {
+            path.parent()
+                .map(|parent| Location::local(parent.to_path_buf()))
+        })
+        .collect();
+    glib::MainContext::default().spawn_local(async move {
+        let outcome = gio::spawn_blocking(move || {
+            let mut deleted = Vec::new();
+            let mut failed = Vec::new();
+            let mut not_attempted = Vec::new();
+            for (location, path) in items {
+                if worker_cancelled.load(AtomicOrdering::Acquire) {
+                    not_attempted.push(location);
+                    continue;
+                }
+                match strata_win_shell::recycle(&[path]) {
+                    Ok(_) => deleted.push(location),
+                    Err(error) => failed.push((location, error)),
+                }
+            }
+            (deleted, failed, not_attempted)
+        })
+        .await;
+        let Ok((deleted, failed, not_attempted)) = outcome else {
+            emit(OperationEvent::Failed {
+                request_id: id,
+                message: crate::services::io_error_message(&io::Error::other(
+                    "Recycle Bin worker stopped",
+                )),
+                password_failure: None,
+            });
+            return;
+        };
+        if !not_attempted.is_empty() {
+            emit(OperationEvent::Cancelled {
+                request_id: id,
+                result: crate::services::CancelledOperation {
+                    completed: deleted,
+                    failed: failed.into_iter().map(|(location, _)| location).collect(),
+                    not_attempted,
+                    affected_locations: affected,
+                },
+            });
+        } else if let Some((_, error)) = failed.first() {
+            let message = crate::services::io_error_message(error);
+            if deleted.is_empty() {
+                emit(OperationEvent::Failed {
+                    request_id: id,
+                    message,
+                    password_failure: None,
+                });
+            } else {
+                emit(OperationEvent::CompletedWithErrors {
+                    request_id: id,
+                    deleted_locations: deleted,
+                    retryable_locations: Vec::new(),
+                    has_non_retryable_failures: true,
+                    message,
+                });
+            }
+        } else {
+            emit(OperationEvent::Deleted {
+                request_id: id,
+                locations: deleted,
+            });
+        }
+    });
+    LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
+}
+
+fn restore_locations(
+    id: OperationRequestId,
+    locations: Vec<Location>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
+    let mut paths = Vec::with_capacity(locations.len());
+    for location in &locations {
+        let Some(path) = location.native_path() else {
+            return rejected(id, emit, "Windows restore requires local paths");
+        };
+        paths.push((location.clone(), path.to_path_buf()));
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let total = paths.len();
+    glib::MainContext::default().spawn_local(async move {
+        let outcome = gio::spawn_blocking(move || {
+            let mut restored = Vec::new();
+            let mut failed = Vec::new();
+            let mut not_attempted = Vec::new();
+            for (location, path) in paths {
+                if worker_cancelled.load(AtomicOrdering::Acquire) {
+                    not_attempted.push(location);
+                    continue;
+                }
+                match strata_win_shell::restore_by_original_path(&path) {
+                    Ok(dest) => restored.push((location, Location::local(dest))),
+                    Err(error) => failed.push((location, error)),
+                }
+            }
+            (restored, failed, not_attempted)
+        })
+        .await;
+
+        let Ok((restored, failed, not_attempted)) = outcome else {
+            emit(OperationEvent::Failed {
+                request_id: id,
+                message: crate::services::io_error_message(&io::Error::other(
+                    "Recycle Bin restore worker stopped",
+                )),
+                password_failure: None,
+            });
+            return;
+        };
+
+        let restored_srcs: Vec<Location> = restored.iter().map(|(src, _)| src.clone()).collect();
+        let restored_dests: Vec<Location> = restored.iter().map(|(_, dst)| dst.clone()).collect();
+
+        if !not_attempted.is_empty() {
+            emit(OperationEvent::Cancelled {
+                request_id: id,
+                result: crate::services::CancelledOperation {
+                    completed: restored_dests,
+                    failed: failed.into_iter().map(|(location, _)| location).collect(),
+                    not_attempted,
+                    affected_locations: std::collections::HashSet::new(),
+                },
+            });
+        } else if let Some((_, error)) = failed.first() {
+            let message = crate::services::io_error_message(error);
+            if restored.is_empty() {
+                emit(OperationEvent::Failed {
+                    request_id: id,
+                    message,
+                    password_failure: None,
+                });
+            } else {
+                emit(OperationEvent::RestoreCompletedWithErrors {
+                    request_id: id,
+                    restored_locations: restored_srcs,
+                    restored: restored_dests,
+                    message,
+                });
+            }
+        } else {
+            for (i, (_, dst)) in restored.iter().enumerate() {
+                emit(OperationEvent::RestoreProgress {
+                    request_id: id,
+                    completed: i + 1,
+                    total,
+                    restored_location: Some(dst.clone()),
+                });
+            }
+            emit(OperationEvent::Restored {
+                request_id: id,
+                locations: restored_srcs,
+                restored: restored_dests,
+            });
+        }
+    });
+    LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
+}
 /// Cross-volume move on the bounded native worker: the source is deleted only
 /// after the destination copy was published without clobbering and verified.
 async fn move_verified_native(
@@ -1207,7 +1395,10 @@ mod tests {
         assert!(run_verified_move(&source, &target).is_err());
 
         assert_eq!(std::fs::read(&source).expect("source kept"), b"source");
-        assert_eq!(std::fs::read(&target).expect("destination kept"), b"protected");
+        assert_eq!(
+            std::fs::read(&target).expect("destination kept"),
+            b"protected"
+        );
     }
     #[test]
     fn native_move_batch_reports_partial_completion_without_overwriting() {
@@ -1442,5 +1633,67 @@ mod tests {
                 request_id: OperationRequestId(1000)
             }
         )));
+    }
+
+    #[test]
+    fn native_recycle_and_restore_cycle_recovers_files() {
+        let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+            .lock()
+            .expect("serialize main context tests");
+        let root = tempfile::tempdir().expect("tempdir");
+        let file = root.path().join("recycle-me.txt");
+        std::fs::write(&file, b"content to be recycled").expect("write file");
+        let loc = Location::local(file.clone());
+
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let emit: Rc<dyn Fn(OperationEvent)> =
+            Rc::new(move |event| captured.borrow_mut().push(event));
+
+        let _handle = recycle_locations(OperationRequestId(200), vec![loc.clone()], emit.clone());
+
+        let context = glib::MainContext::default();
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Deleted { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "delete timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(!file.exists(), "file should be moved to recycle bin");
+
+        events.borrow_mut().clear();
+        let _restore_handle = restore_locations(OperationRequestId(201), vec![loc.clone()], emit);
+
+        let started = Instant::now();
+        while !events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, OperationEvent::Restored { .. }))
+        {
+            while context.pending() {
+                context.iteration(false);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "restore timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(file.exists(), "file should be restored");
+        assert_eq!(
+            std::fs::read(&file).expect("read restored file"),
+            b"content to be recycled"
+        );
     }
 }
