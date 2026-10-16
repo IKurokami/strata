@@ -3,7 +3,7 @@ use std::os::fd::RawFd;
 use std::{
     fs,
     io::{self, Read, Seek},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     sync::mpsc,
     thread,
@@ -1298,7 +1298,7 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let output_path = directory.path().join("thumbnail.png");
     let output = bounded_output(
-        Command::new("ffmpegthumbnailer")
+        Command::new(media_tool("ffmpegthumbnailer"))
             .arg("-i")
             .arg(path)
             .arg("-o")
@@ -1310,7 +1310,7 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     );
     if !output.is_ok_and(|output| output.status.success()) {
         let fallback = bounded_output(
-            Command::new("ffmpeg")
+            Command::new(media_tool("ffmpeg"))
                 .args(["-v", "error", "-y", "-threads", "1", "-i"])
                 .arg(path)
                 .args([
@@ -1340,6 +1340,19 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
         return Err("Empty media thumbnail".into());
     }
     Ok(png)
+}
+
+fn media_tool(name: &str) -> PathBuf {
+    let executable = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(&executable)))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from(executable))
 }
 
 fn read_limited(reader: impl Read, max_bytes: u64) -> io::Result<Vec<u8>> {

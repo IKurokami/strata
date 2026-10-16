@@ -25,9 +25,19 @@ const RESPONSE_MAGIC: &[u8; 4] = b"STR1";
 const MAX_REQUEST_FIELD: usize = 16 * 1024;
 const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 const PREVIEW_WORKERS: usize = 1;
+const VIDEO_WORKERS: usize = 2;
 const WORKER_LIMITS: strata_win_shell::job::JobLimits = strata_win_shell::job::JobLimits {
     memory_limit_bytes: Some(1024 * 1024 * 1024),
     active_process_limit: Some(1),
+    kill_on_job_close: true,
+    restrict_ui: true,
+};
+// Video thumbnails use one bounded ffmpeg child inside the decoder worker.
+// Keeping the active-process limit at two still prevents a decoder from
+// creating an unbounded process tree while allowing the required media tool.
+const VIDEO_WORKER_LIMITS: strata_win_shell::job::JobLimits = strata_win_shell::job::JobLimits {
+    memory_limit_bytes: Some(1024 * 1024 * 1024),
+    active_process_limit: Some(2),
     kill_on_job_close: true,
     restrict_ui: true,
 };
@@ -57,6 +67,7 @@ struct WorkerPool {
     state: Mutex<PoolState>,
     changed: Condvar,
     limit: usize,
+    limits: &'static strata_win_shell::job::JobLimits,
 }
 
 struct PoolState {
@@ -80,7 +91,7 @@ impl WorkerPool {
             if state.count < self.limit {
                 state.count += 1;
                 drop(state);
-                let worker = Worker::spawn();
+                let worker = Worker::spawn(self.limits);
                 if worker.is_err() {
                     let mut state = self
                         .state
@@ -123,6 +134,7 @@ fn pool() -> &'static WorkerPool {
         }),
         changed: Condvar::new(),
         limit: PERSISTENT_WORKERS,
+        limits: &WORKER_LIMITS,
     })
 }
 
@@ -135,18 +147,29 @@ fn preview_pool() -> &'static WorkerPool {
         }),
         changed: Condvar::new(),
         limit: PREVIEW_WORKERS,
+        limits: &WORKER_LIMITS,
+    })
+}
+
+fn video_pool() -> &'static WorkerPool {
+    static POOL: OnceLock<WorkerPool> = OnceLock::new();
+    POOL.get_or_init(|| WorkerPool {
+        state: Mutex::new(PoolState {
+            idle: Vec::new(),
+            count: 0,
+        }),
+        changed: Condvar::new(),
+        limit: VIDEO_WORKERS,
+        limits: &VIDEO_WORKER_LIMITS,
     })
 }
 
 impl Worker {
-    fn spawn() -> Result<Self, String> {
+    fn spawn(limits: &'static strata_win_shell::job::JobLimits) -> Result<Self, String> {
         let executable = super::resolve_executable()?;
         let args = [OsStr::new("--browser-worker")];
-        let child =
-            strata_win_shell::job::spawn_interactive_in_job(&executable, &args, &WORKER_LIMITS)
-                .map_err(|error| {
-                    format!("Unable to start the persistent thumbnail worker: {error}")
-                })?;
+        let child = strata_win_shell::job::spawn_interactive_in_job(&executable, &args, limits)
+            .map_err(|error| format!("Unable to start the persistent thumbnail worker: {error}"))?;
         Ok(Self { child })
     }
 
@@ -226,10 +249,15 @@ pub(crate) fn thumbnail(
     if cancellation.is_cancelled() {
         return Err("Preview cancelled".into());
     }
-    let mut worker = pool().acquire(cancellation)?;
+    let workers = if operation == ParseOperation::ThumbnailVideo {
+        video_pool()
+    } else {
+        pool()
+    };
+    let mut worker = workers.acquire(cancellation)?;
     let result = worker.execute(path, &operation, cancellation);
     let healthy = result.is_ok();
-    pool().release(worker, healthy);
+    workers.release(worker, healthy);
     result.map(|png| Thumbnail {
         png,
         metadata: None,
@@ -450,5 +478,57 @@ mod tests {
             .expect("second persistent worker request");
         assert!(!first.png.is_empty());
         assert_eq!(first.png, second.png);
+    }
+
+    #[test]
+    fn persistent_video_worker_renders_a_thumbnail() {
+        let directory = tempfile::tempdir().expect("video fixture directory");
+        let path = directory.path().join("sample.mp4");
+        let ffmpeg = std::env::var_os("STRATA_FFMPEG")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|executable| {
+                        executable.parent().map(|parent| parent.join("ffmpeg.exe"))
+                    })
+                    .filter(|executable| executable.is_file())
+            })
+            .unwrap_or_else(|| PathBuf::from("ffmpeg.exe"));
+        let output = std::process::Command::new(ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=320x180:r=12:d=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-threads",
+                "1",
+            ])
+            .arg(&path)
+            .output()
+            .expect("ffmpeg must be available for the video thumbnail regression");
+        assert!(
+            output.status.success(),
+            "video fixture encoder failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let thumbnail = thumbnail(
+            &path,
+            ParseOperation::ThumbnailVideo,
+            &Cancellation::default(),
+        )
+        .expect("persistent video worker thumbnail");
+        let image = image::load_from_memory(&thumbnail.png).expect("valid video thumbnail PNG");
+        assert!(image.width() > 0 && image.height() > 0);
     }
 }
