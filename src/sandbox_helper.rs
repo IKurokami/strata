@@ -288,6 +288,16 @@ pub(crate) fn render_browser_thumbnail(
     if cancellation.is_cancelled() {
         return Err("Preview cancelled".to_owned());
     }
+    let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Preview input is not a regular file".to_owned());
+    }
+    if operation
+        .input_size_limit()
+        .is_some_and(|limit| metadata.len() > limit)
+    {
+        return Err("Preview input exceeds the supported size limit".to_owned());
+    }
     let png = match operation {
         crate::sandbox::ParseOperation::ThumbnailImage => render_raw(input, 256)?,
         crate::sandbox::ParseOperation::ThumbnailRaw => render_raw_thumbnail(input, 256)?,
