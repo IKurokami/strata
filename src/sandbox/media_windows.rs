@@ -338,7 +338,7 @@ fn decode_video(
     );
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let audio = has_audio(&source.path);
-    let mut pixels_pipe = spawn_decoder(
+    let pixels_pipe = spawn_decoder(
         &mut video_command(&source, start_tick, width, height),
         cancelled,
         children,
@@ -418,7 +418,7 @@ fn decode_audio(
     children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
-    let mut pipe = spawn_decoder(&mut audio_command(&source, start_tick), cancelled, children)?;
+    let pipe = spawn_decoder(&mut audio_command(&source, start_tick), cancelled, children)?;
     let header = Header {
         width: 0,
         height: 0,

@@ -10,19 +10,43 @@
 pub mod job;
 pub mod volume;
 
-pub use job::{JobLimits, JobObject, SandboxedOutput, run_in_job};
+pub use job::{
+    JobLimits, JobObject, SandboxedChild, SandboxedOutput, run_in_job, spawn_streaming_in_job,
+};
 pub use volume::{
     DriveType, VolumeInfo, eject_volume, enumerate_volumes, flush_volume, path_to_dos_device,
 };
 
 use std::{
     cell::RefCell,
+    fs::File,
     io,
     os::windows::ffi::OsStrExt,
+    os::windows::io::AsRawHandle,
     path::{Path, PathBuf},
     rc::Rc,
     thread,
 };
+
+/// Return the stable volume serial and file-index identity assigned by NTFS or
+/// the underlying Windows file system.
+///
+/// The handle is opened only for identity inspection; callers still perform
+/// their own metadata/reparse checks before using the result for caching.
+pub fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+    let file = File::open(path)?;
+    let handle = windows::Win32::Foundation::HANDLE(file.as_raw_handle() as *mut _);
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `handle` remains valid for the duration of this call and `info`
+    // points to writable storage of the documented structure size.
+    unsafe { GetFileInformationByHandle(handle, &mut info) }
+        .map_err(|error| io::Error::other(format!("GetFileInformationByHandle failed: {error}")))?;
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((info.dwVolumeSerialNumber, index))
+}
 
 use windows::{
     Win32::{

@@ -13,6 +13,7 @@ use std::{
     io,
     os::windows::ffi::OsStrExt,
     path::Path,
+    sync::Arc,
     sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
@@ -21,8 +22,8 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{
-            CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, HANDLE_FLAGS, SetHandleInformation, TRUE,
-            WAIT_OBJECT_0, WAIT_TIMEOUT,
+            CloseHandle, ERROR_BROKEN_PIPE, ERROR_NO_DATA, HANDLE, HANDLE_FLAG_INHERIT,
+            HANDLE_FLAGS, SetHandleInformation, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         Security::SECURITY_ATTRIBUTES,
         Storage::FileSystem::{ReadFile, WriteFile},
@@ -47,7 +48,7 @@ use windows::{
             },
         },
     },
-    core::PCWSTR,
+    core::{HRESULT, PCWSTR},
 };
 
 /// RAII wrapper for Win32 `HANDLE`.
@@ -291,7 +292,8 @@ fn handle_from_thread_token(token: usize) -> HANDLE {
     HANDLE(token as *mut c_void)
 }
 
-fn read_pipe(handle: HANDLE) -> PipeCapture {
+fn read_pipe(handle: HANDLE, truncated_signal: Option<Arc<AtomicBool>>) -> PipeCapture {
+    let _handle = SafeHandle::new(handle);
     let mut capture = PipeCapture {
         bytes: Vec::new(),
         truncated: false,
@@ -311,6 +313,12 @@ fn read_pipe(handle: HANDLE) -> PipeCapture {
         let retained = (read_bytes as usize).min(available);
         capture.bytes.extend_from_slice(&buffer[..retained]);
         capture.truncated |= retained < read_bytes as usize;
+        if capture.truncated {
+            if let Some(signal) = &truncated_signal {
+                signal.store(true, Ordering::Release);
+            }
+            break;
+        }
     }
 
     capture
@@ -457,8 +465,18 @@ pub fn run_in_job(
 
     let stdout_token = stdout_read.handle().0 as usize;
     let stderr_token = stderr_read.handle().0 as usize;
-    let stdout_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stdout_token)));
-    let stderr_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token)));
+    std::mem::forget(stdout_read);
+    std::mem::forget(stderr_read);
+    let stdout_truncated = Arc::new(AtomicBool::new(false));
+    let stderr_truncated = Arc::new(AtomicBool::new(false));
+    let stdout_reader = {
+        let signal = Arc::clone(&stdout_truncated);
+        thread::spawn(move || read_pipe(handle_from_thread_token(stdout_token), Some(signal)))
+    };
+    let stderr_reader = {
+        let signal = Arc::clone(&stderr_truncated);
+        thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token), Some(signal)))
+    };
     let stdin_writer = if let Some(data) = stdin_data {
         let data = data.to_vec();
         let stdin_token = stdin_write.handle().0 as usize;
@@ -481,6 +499,14 @@ pub fn run_in_job(
     let mut failure = None;
 
     loop {
+        if stdout_truncated.load(Ordering::Acquire) || stderr_truncated.load(Ordering::Acquire) {
+            failure = Some(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "Sandboxed process output exceeded the capture limit",
+            ));
+            terminate_and_wait(&job, process_handle.handle());
+            break;
+        }
         if cancellation.is_some_and(|c| c.load(Ordering::Acquire)) {
             failure = Some(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -564,16 +590,28 @@ impl SandboxedChild {
         let mut read_bytes = 0u32;
         // SAFETY: The process owns the read end for the lifetime of this value;
         // the caller supplied a valid writable buffer.
-        unsafe {
+        let result = unsafe {
             ReadFile(
                 self.stdout.handle(),
                 Some(buffer),
                 Some(&mut read_bytes),
                 None,
             )
+        };
+        match result {
+            Ok(()) => Ok(read_bytes as usize),
+            // A decoder that exits closes its pipe. Win32 reports that normal
+            // EOF as ERROR_BROKEN_PIPE (or ERROR_NO_DATA for a raced close).
+            Err(error)
+                if error.code() == HRESULT::from_win32(ERROR_BROKEN_PIPE.0)
+                    || error.code() == HRESULT::from_win32(ERROR_NO_DATA.0) =>
+            {
+                Ok(0)
+            }
+            Err(error) => Err(io::Error::other(format!(
+                "sandboxed stdout read failed: {error}"
+            ))),
         }
-        .map(|_| read_bytes as usize)
-        .map_err(|error| io::Error::other(format!("sandboxed stdout read failed: {error}")))
     }
 
     /// Terminate the process tree immediately.
@@ -678,7 +716,8 @@ pub fn spawn_streaming_in_job(
 
     let stderr_token = stderr_read.handle().0 as usize;
     std::mem::forget(stderr_read);
-    let stderr_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token)));
+    let stderr_reader =
+        thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token), None));
     Ok(SandboxedChild {
         job,
         process,
@@ -751,7 +790,7 @@ mod tests {
         let limits = JobLimits::default();
         let cmd = std::path::Path::new("cmd.exe");
         let args = [OsStr::new("/c"), OsStr::new("echo streamed")];
-        let mut child = spawn_streaming_in_job(cmd, &args, &limits).expect("spawn stream");
+        let child = spawn_streaming_in_job(cmd, &args, &limits).expect("spawn stream");
         let mut output = Vec::new();
         let mut buffer = [0u8; 64];
         loop {

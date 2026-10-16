@@ -48,6 +48,12 @@ try {
         throw "GStreamer autoaudiosink is unavailable. Install mingw-w64-ucrt-x86_64-gst-plugins-good."
     }
     if ($Action -eq "test") {
+        # Preview regression tests launch the installed-style executable in a
+        # contained Job Object; build that executable before compiling the test
+        # harness so a stale or missing target/debug/strata.exe cannot mask the
+        # helper operation under test.
+        & $cargo build --locked --no-default-features --bin strata
+        if ($LASTEXITCODE -ne 0) { throw "Windows application helper build failed." }
         & $cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets
         if ($LASTEXITCODE -ne 0) { throw "Native I/O tests failed." }
         & $cargo test --manifest-path crates/strata-win-shell/Cargo.toml --locked --all-targets

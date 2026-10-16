@@ -38,9 +38,10 @@ impl FileIdentity {
         if metadata.file_attributes() & 0x0000_0400 != 0 {
             return None;
         }
+        let (volume, index) = strata_win_shell::file_identity(path).ok()?;
         Some(Self {
-            volume: metadata.volume_serial_number()?,
-            index: metadata.file_index()?,
+            volume,
+            index,
             modified: metadata.last_write_time(),
             size: metadata.file_size(),
         })
@@ -172,7 +173,7 @@ fn cache_path_in(directory: &Path, identity: &FileIdentity) -> PathBuf {
     hasher.update(identity.index.to_le_bytes());
     hasher.update(identity.modified.to_le_bytes());
     hasher.update(identity.size.to_le_bytes());
-    directory.join(format!("{:x}.thumb", hasher.finalize()))
+    directory.join(format!("{}.thumb", hex::encode(hasher.finalize())))
 }
 
 fn trim_cache(directory: &Path) {
