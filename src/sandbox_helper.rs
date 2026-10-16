@@ -275,6 +275,41 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Render one browser thumbnail without going through the command-line/output-file
+/// adapter. Windows' persistent browser worker uses this entry point so each
+/// request keeps the Job Object boundary while avoiding a fresh process and GTK
+/// startup for every image.
+#[cfg(windows)]
+pub(crate) fn render_browser_thumbnail(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+    cancellation: &crate::sandbox::Cancellation,
+) -> Result<Vec<u8>, String> {
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    let png = match operation {
+        crate::sandbox::ParseOperation::ThumbnailImage => render_raw(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailRaw => render_raw_thumbnail(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailPdf => render_pdf_thumbnail(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailVideo => render_media(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailModel(format) => {
+            model::thumbnail(input, *format, 256, 256, &|_| {})?
+        }
+        crate::sandbox::ParseOperation::ThumbnailCover(format) => {
+            archive_cover::thumbnail(input, *format)?
+        }
+        crate::sandbox::ParseOperation::ThumbnailAppImage => {
+            return Err("AppImage thumbnails are unavailable on Windows".to_owned());
+        }
+        _ => return Err("Not a browser thumbnail operation".to_owned()),
+    };
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    Ok(png)
+}
+
 #[cfg(unix)]
 fn run_archive_list(
     input: &Path,
@@ -667,7 +702,8 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 }
 
 fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
-    if let Some((width, height)) = image_dimensions(path)
+    let dimensions = image_dimensions(path);
+    if let Some((width, height)) = dimensions
         && (width <= 0
             || height <= 0
             || width > 16_384
@@ -685,7 +721,12 @@ fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
     // full-resolution RGBA allocation performed by image::DynamicImage::thumbnail.
     // Keep the image crate path below for formats that are not installed as a Pixbuf
     // loader on the current platform.
-    if let Ok(pixbuf) = gdk_pixbuf::Pixbuf::from_file_at_scale(path, 1280, 1280, true) {
+    let (target_width, target_height) = dimensions
+        .map(|(width, height)| (width.clamp(1, 1280), height.clamp(1, 1280)))
+        .unwrap_or((1280, 1280));
+    if let Ok(pixbuf) =
+        gdk_pixbuf::Pixbuf::from_file_at_scale(path, target_width, target_height, true)
+    {
         let width = pixbuf.width();
         let height = pixbuf.height();
         let channels = pixbuf.n_channels();

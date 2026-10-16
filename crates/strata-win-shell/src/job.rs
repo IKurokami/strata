@@ -40,7 +40,7 @@ use windows::{
                 JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation,
                 SetInformationJobObject, TerminateJobObject,
             },
-            Pipes::CreatePipe,
+            Pipes::{CreatePipe, PeekNamedPipe},
             Threading::{
                 CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess,
                 PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW,
@@ -581,6 +581,153 @@ pub struct SandboxedChild {
     stderr_reader: std::sync::Mutex<Option<thread::JoinHandle<PipeCapture>>>,
 }
 
+/// A contained child with bidirectional byte streams. The process starts
+/// suspended and is assigned to its Job Object before the first instruction
+/// executes, just like [`spawn_streaming_in_job`].
+pub struct InteractiveSandboxedChild {
+    job: JobObject,
+    process: SafeHandle,
+    stdin: SafeHandle,
+    stdout: SafeHandle,
+    stderr_reader: std::sync::Mutex<Option<thread::JoinHandle<PipeCapture>>>,
+}
+
+impl InteractiveSandboxedChild {
+    /// Write one complete request to the child's stdin pipe.
+    pub fn write_stdin(&self, data: &[u8]) -> io::Result<()> {
+        let mut offset = 0;
+        while offset < data.len() {
+            let remaining = &data[offset..];
+            let chunk_len = remaining.len().min(u32::MAX as usize);
+            let mut written = 0u32;
+            // SAFETY: The handle is a live pipe owned by this value and the slice
+            // remains valid for the duration of the synchronous call.
+            unsafe {
+                WriteFile(
+                    self.stdin.handle(),
+                    Some(&remaining[..chunk_len]),
+                    Some(&mut written),
+                    None,
+                )
+            }
+            .map_err(|error| io::Error::other(format!("sandboxed stdin write failed: {error}")))?;
+            if written == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "sandboxed stdin pipe made no progress",
+                ));
+            }
+            offset += written as usize;
+        }
+        Ok(())
+    }
+
+    /// Read exactly one response frame while retaining the existing wall-time
+    /// and cancellation guarantees of one-shot preview helpers.
+    pub fn read_stdout_exact(
+        &self,
+        buffer: &mut [u8],
+        deadline: Instant,
+        cancellation: Option<&AtomicBool>,
+    ) -> io::Result<()> {
+        let mut offset = 0;
+        while offset < buffer.len() {
+            if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Preview cancelled",
+                ));
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Sandboxed process exceeded timeout",
+                ));
+            }
+            let mut available = 0u32;
+            // SAFETY: `stdout` is the read end of an anonymous pipe owned by this
+            // value. We only ask for the number of currently available bytes.
+            unsafe {
+                PeekNamedPipe(
+                    self.stdout.handle(),
+                    None,
+                    0,
+                    None,
+                    Some(&mut available),
+                    None,
+                )
+            }
+            .map_err(|error| io::Error::other(format!("sandboxed stdout probe failed: {error}")))?;
+            if available == 0 {
+                // A completed worker closes its pipe. Avoid sleeping until the
+                // deadline when the process has already exited.
+                if unsafe { WaitForSingleObject(self.process.handle(), 0) } == WAIT_OBJECT_0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "sandboxed worker exited before responding",
+                    ));
+                }
+                thread::sleep(Duration::from_millis(5));
+                continue;
+            }
+            let count = available.min((buffer.len() - offset) as u32);
+            let mut read = 0u32;
+            // SAFETY: The destination points into the caller's writable buffer and
+            // the pipe handle is exclusively read by this worker lease.
+            unsafe {
+                ReadFile(
+                    self.stdout.handle(),
+                    Some(&mut buffer[offset..offset + count as usize]),
+                    Some(&mut read),
+                    None,
+                )
+            }
+            .map_err(|error| io::Error::other(format!("sandboxed stdout read failed: {error}")))?;
+            if read == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "sandboxed worker closed its response pipe",
+                ));
+            }
+            offset += read as usize;
+        }
+        Ok(())
+    }
+
+    /// Terminate the worker and all descendants immediately.
+    pub fn terminate(&self) {
+        let _ = self.job.terminate(1);
+    }
+
+    /// Collect diagnostics after the child has exited. This is intentionally
+    /// bounded by the same capture limit as one-shot helpers.
+    pub fn stderr(&self) -> Vec<u8> {
+        self.stderr_reader
+            .lock()
+            .ok()
+            .and_then(|mut reader| reader.take())
+            .and_then(|reader| reader.join().ok())
+            .map(|capture| capture.bytes)
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for InteractiveSandboxedChild {
+    fn drop(&mut self) {
+        self.terminate();
+        // SAFETY: process is a valid handle owned by this value.
+        while unsafe { WaitForSingleObject(self.process.handle(), 25) } == WAIT_TIMEOUT {}
+        if let Some(reader) = self
+            .stderr_reader
+            .lock()
+            .ok()
+            .and_then(|mut reader| reader.take())
+        {
+            let _ = reader.join();
+        }
+    }
+}
+
 impl SandboxedChild {
     /// Read decoded bytes from the child's stdout pipe.
     pub fn read_stdout(&self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -721,6 +868,106 @@ pub fn spawn_streaming_in_job(
     Ok(SandboxedChild {
         job,
         process,
+        stdout: stdout_read,
+        stderr_reader: std::sync::Mutex::new(Some(stderr_reader)),
+    })
+}
+
+/// Spawn a contained helper that accepts multiple framed requests over stdin.
+/// The caller owns request serialization and must keep requests serialized per
+/// child; the returned streams are intentionally unbuffered.
+pub fn spawn_interactive_in_job(
+    executable: &Path,
+    args: &[&OsStr],
+    limits: &JobLimits,
+) -> io::Result<InteractiveSandboxedChild> {
+    let job = JobObject::create(limits)?;
+    let mut sa = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        bInheritHandle: TRUE,
+        lpSecurityDescriptor: std::ptr::null_mut(),
+    };
+
+    let mut stdin_read = HANDLE::default();
+    let mut stdin_write = HANDLE::default();
+    // SAFETY: output pointers and inheritable security attributes are valid.
+    unsafe { CreatePipe(&mut stdin_read, &mut stdin_write, Some(&mut sa), 0) }
+        .map_err(|error| io::Error::other(format!("CreatePipe stdin failed: {error}")))?;
+    let stdin_read = SafeHandle::new(stdin_read);
+    let stdin_write = SafeHandle::new(stdin_write);
+    make_non_inheritable(stdin_write.handle())?;
+
+    let mut stdout_read = HANDLE::default();
+    let mut stdout_write = HANDLE::default();
+    // SAFETY: output pointers and inheritable security attributes are valid.
+    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&mut sa), 0) }
+        .map_err(|error| io::Error::other(format!("CreatePipe stdout failed: {error}")))?;
+    let stdout_read = SafeHandle::new(stdout_read);
+    let stdout_write = SafeHandle::new(stdout_write);
+    make_non_inheritable(stdout_read.handle())?;
+
+    let mut stderr_read = HANDLE::default();
+    let mut stderr_write = HANDLE::default();
+    // SAFETY: output pointers and inheritable security attributes are valid.
+    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&mut sa), 0) }
+        .map_err(|error| io::Error::other(format!("CreatePipe stderr failed: {error}")))?;
+    let stderr_read = SafeHandle::new(stderr_read);
+    let stderr_write = SafeHandle::new(stderr_write);
+    make_non_inheritable(stderr_read.handle())?;
+
+    let startup_info = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        dwFlags: STARTF_USESTDHANDLES,
+        hStdInput: stdin_read.handle(),
+        hStdOutput: stdout_write.handle(),
+        hStdError: stderr_write.handle(),
+        ..Default::default()
+    };
+    let mut process_info = PROCESS_INFORMATION::default();
+    let mut command_line = build_command_line(executable, args);
+    // SAFETY: all pointers reference live handles and a mutable NUL-terminated
+    // command line for the duration of CreateProcessW.
+    let created = unsafe {
+        CreateProcessW(
+            PCWSTR::null(),
+            Some(windows::core::PWSTR(command_line.as_mut_ptr())),
+            None,
+            None,
+            true,
+            CREATE_SUSPENDED | CREATE_NO_WINDOW,
+            None,
+            PCWSTR::null(),
+            &startup_info,
+            &mut process_info,
+        )
+    };
+    if let Err(error) = created {
+        return Err(io::Error::other(format!("CreateProcessW failed: {error}")));
+    }
+    let process = SafeHandle::new(process_info.hProcess);
+    let thread_handle = SafeHandle::new(process_info.hThread);
+    if let Err(error) = job.assign_process(process.handle()) {
+        let _ = job.terminate(1);
+        return Err(error);
+    }
+    // SAFETY: the primary thread is valid and was created suspended.
+    if unsafe { ResumeThread(thread_handle.handle()) } == u32::MAX {
+        let _ = job.terminate(1);
+        return Err(io::Error::other("ResumeThread failed"));
+    }
+    // The child owns these ends after CreateProcessW; retain only the parent ends.
+    drop(stdin_read);
+    drop(stdout_write);
+    drop(stderr_write);
+
+    let stderr_token = stderr_read.handle().0 as usize;
+    std::mem::forget(stderr_read);
+    let stderr_reader =
+        thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token), None));
+    Ok(InteractiveSandboxedChild {
+        job,
+        process,
+        stdin: stdin_write,
         stdout: stdout_read,
         stderr_reader: std::sync::Mutex::new(Some(stderr_reader)),
     })
