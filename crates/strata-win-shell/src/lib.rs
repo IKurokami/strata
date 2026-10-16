@@ -18,6 +18,7 @@ pub use volume::{
 use std::{
     cell::RefCell,
     io,
+    os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     rc::Rc,
     thread,
@@ -60,6 +61,94 @@ pub struct RecycledItem {
 
 fn io_error(context: &str, error: &windows::core::Error) -> io::Error {
     io::Error::other(format!("{context}: {error}"))
+}
+
+/// Return whether the current Windows token owns `path`.
+///
+/// Provider manifests and executables are user-installed inputs. Requiring
+/// the owner SID to match the current token prevents a different local user
+/// from planting a provider in a shared configuration directory. Fail closed
+/// when Windows cannot read either security descriptor.
+pub fn path_owned_by_current_user(path: &Path) -> bool {
+    use windows::Win32::{
+        Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree, WIN32_ERROR},
+        Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
+        Security::{
+            EqualSid, GetSecurityDescriptorOwner, GetTokenInformation, OWNER_SECURITY_INFORMATION,
+            OpenProcessToken, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+        },
+        System::Threading::GetCurrentProcess,
+    };
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    let mut owner = PSID::default();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            windows::core::PCWSTR(wide.as_ptr()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some((&mut owner) as *mut _),
+            None,
+            None,
+            None,
+            &mut descriptor,
+        )
+    };
+    if status != WIN32_ERROR(0) || owner.0.is_null() || descriptor.0.is_null() {
+        return false;
+    }
+
+    let mut token = HANDLE::default();
+    let token_opened = unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) };
+    if token_opened.is_err() {
+        unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+        return false;
+    }
+
+    let mut required = 0u32;
+    let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut required) };
+    if required == 0 {
+        unsafe {
+            CloseHandle(token);
+            LocalFree(Some(HLOCAL(descriptor.0)));
+        }
+        return false;
+    }
+    let mut buffer = vec![0u8; required as usize];
+    let token_result = unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buffer.as_mut_ptr().cast()),
+            required,
+            &mut required,
+        )
+    };
+    if token_result.is_err() {
+        unsafe {
+            CloseHandle(token);
+            LocalFree(Some(HLOCAL(descriptor.0)));
+        }
+        return false;
+    }
+    let token_user = unsafe { &*(buffer.as_ptr() as *const TOKEN_USER) };
+    let mut descriptor_owner = PSID::default();
+    let mut defaulted = windows::core::BOOL(0);
+    let owner_result =
+        unsafe { GetSecurityDescriptorOwner(descriptor, &mut descriptor_owner, &mut defaulted) };
+    let matches = owner_result.is_ok()
+        && !descriptor_owner.0.is_null()
+        && unsafe { EqualSid(descriptor_owner, token_user.User.Sid).is_ok() };
+    unsafe {
+        CloseHandle(token);
+        LocalFree(Some(HLOCAL(descriptor.0)));
+    }
+    matches
 }
 
 /// Run `work` on a fresh COM STA thread and return its result.

@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: MIT
-# Developer-only relocatable Windows/UCRT64 runtime bundle. Must run on a
-# Windows MSYS2 UCRT64 build runner after strata.exe is linked.
+# Relocatable Windows/UCRT64 runtime bundle. Must run on a Windows MSYS2
+# UCRT64 build runner after strata.exe is linked. Use -Release after the
+# blocking GUI and native regression gates have passed.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string]$UcrtRoot,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [switch]$Release
 )
 
 $ErrorActionPreference = "Stop"
@@ -193,19 +195,31 @@ exit /b %ERRORLEVEL%
 '@
 Set-Content -LiteralPath (Join-Path $Destination "Start-Strata.cmd") -Value $launcher -Encoding ASCII
 
-$warning = @'
+$warning = if ($Release) {
+@'
+STRATA WINDOWS PORTABLE RELEASE
+
+Start with Start-Strata.cmd. The bundle contains the recursively linked UCRT64
+runtime, GTK resources, GStreamer plugins and bundled FFmpeg tools; it does not
+require MSYS2 on PATH. Keep this directory together when moving the application.
+
+This portable build does not install shell registration or request UAC. The
+runtime DLLs and plugins are open-source third-party components with their own
+licenses (see share/licenses).
+'@
+} else {
+@'
 STRATA WINDOWS DEVELOPER BUILD — NOT A RELEASE
 
 Start with Start-Strata.cmd, not from a globally installed MSYS2 terminal.
-This bundle contains the recursively linked UCRT64 runtime and GTK resources,
-but full GTK first-paint and filesystem integration tests remain outstanding.
-Isolated rich previews, Recycle Bin/undo, package updates and external providers are
-deliberately unavailable until secure Windows-native implementations exist.
-Do not install this bundle as a system-level file manager or request UAC.
+This bundle contains the recursively linked UCRT64 runtime and GTK resources.
+Use the release switch only after the isolated GUI smoke and native regression
+gates have passed on the same build.
 
 The runtime DLLs and plugins are open-source third-party components with their
 own licenses (see share/licenses); they are not authored by OpenAI or Strata.
 '@
+}
 Set-Content -LiteralPath (Join-Path $Destination "READ-ME-FIRST.txt") -Value $warning -Encoding UTF8
 
 # Run both the PE and launcher with only staged DLLs plus Windows system DLLs.

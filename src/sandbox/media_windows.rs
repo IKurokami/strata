@@ -6,8 +6,9 @@ use crate::{
     services::SandboxedMedia,
 };
 use std::{
-    io::Read,
-    process::{Child, ChildStdout, Command, Stdio},
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::Command,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -33,7 +34,7 @@ pub(crate) struct Session {
     cancelled: Arc<AtomicBool>,
     receiver: mpsc::Receiver<Event>,
     worker: Option<thread::JoinHandle<()>>,
-    children: Arc<Mutex<Vec<Child>>>,
+    children: Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 }
 
 impl Session {
@@ -104,22 +105,20 @@ fn send(
     }
 }
 
-fn kill_children(children: &Arc<Mutex<Vec<Child>>>) {
+fn kill_children(children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>) {
     if let Ok(mut jobs) = children.lock() {
         for child in jobs.iter_mut() {
-            let _ = child.kill();
+            child.terminate();
         }
     }
 }
 
-fn terminate_children(children: &Arc<Mutex<Vec<Child>>>) {
+fn terminate_children(children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>) {
     // Called from the worker, never the GTK event loop: reap all subprocesses.
     if let Ok(mut jobs) = children.lock() {
         for child in jobs.iter_mut() {
-            let _ = child.kill();
-        }
-        for child in jobs.iter_mut() {
-            let _ = child.wait();
+            child.terminate();
+            child.wait();
         }
         jobs.clear();
     }
@@ -128,37 +127,40 @@ fn terminate_children(children: &Arc<Mutex<Vec<Child>>>) {
 fn spawn_decoder(
     command: &mut Command,
     cancelled: &AtomicBool,
-    children: &Arc<Mutex<Vec<Child>>>,
-) -> Result<ChildStdout, String> {
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
+) -> Result<Arc<strata_win_shell::SandboxedChild>, String> {
     if cancelled.load(Ordering::Acquire) {
         return Err("Preview cancelled".into());
     }
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Unable to start bundled media decoder: {error}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or("Media decoder did not open a pipe")?;
+    let executable = PathBuf::from(command.get_program());
+    let args: Vec<OsString> = command.get_args().map(OsString::from).collect();
+    let arg_refs: Vec<&std::ffi::OsStr> = args.iter().map(OsString::as_os_str).collect();
+    let limits = strata_win_shell::JobLimits {
+        memory_limit_bytes: Some(1024 * 1024 * 1024),
+        active_process_limit: Some(1),
+        kill_on_job_close: true,
+        restrict_ui: true,
+    };
+    let child = Arc::new(
+        strata_win_shell::spawn_streaming_in_job(&executable, &arg_refs, &limits)
+            .map_err(|error| format!("Unable to start contained media decoder: {error}"))?,
+    );
     children
         .lock()
         .map_err(|_| "Media decoder process lock poisoned".to_owned())?
-        .push(child);
+        .push(child.clone());
     if cancelled.load(Ordering::Acquire) {
         terminate_children(children);
         return Err("Preview cancelled".into());
     }
-    Ok(stdout)
+    Ok(child)
 }
 
-fn read_chunk(reader: &mut impl Read, count: usize) -> Result<Vec<u8>, String> {
+fn read_chunk(reader: &strata_win_shell::SandboxedChild, count: usize) -> Result<Vec<u8>, String> {
     let mut bytes = vec![0u8; count];
     let mut read = 0;
     while read < count {
-        match reader.read(&mut bytes[read..]) {
+        match reader.read_stdout(&mut bytes[read..]) {
             Ok(0) => break,
             Ok(n) => read += n,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -213,10 +215,31 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
     cmd
 }
 
+fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::SandboxedOutput> {
+    let executable = PathBuf::from(media_tool("STRATA_FFPROBE", "ffprobe.exe"));
+    let mut args: Vec<OsString> = arguments.iter().map(OsString::from).collect();
+    args.push(path.as_os_str().to_owned());
+    let arg_refs: Vec<&std::ffi::OsStr> = args.iter().map(OsString::as_os_str).collect();
+    let limits = strata_win_shell::JobLimits {
+        memory_limit_bytes: Some(256 * 1024 * 1024),
+        active_process_limit: Some(1),
+        kill_on_job_close: true,
+        restrict_ui: true,
+    };
+    strata_win_shell::run_in_job(
+        &executable,
+        &arg_refs,
+        None,
+        &limits,
+        std::time::Duration::from_secs(5),
+        None,
+    )
+    .ok()
+}
+
 fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> {
-    let ffprobe = media_tool("STRATA_FFPROBE", "ffprobe.exe");
-    let output = Command::new(ffprobe)
-        .args([
+    let output = run_ffprobe(
+        &[
             "-v",
             "error",
             "-select_streams",
@@ -225,16 +248,16 @@ fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> 
             "stream=width,height,sample_aspect_ratio:stream_side_data=rotation",
             "-of",
             "json",
-        ])
-        .arg(path)
-        .output()
-        .map_err(|error| error.to_string())?;
+        ],
+        path,
+    )
+    .ok_or_else(|| crate::i18n::tr("Unable to inspect media dimensions"))?;
     let value: serde_json::Value =
         serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
     let stream = &value["streams"][0];
     let width = stream["width"].as_u64().unwrap_or(0);
     let height = stream["height"].as_u64().unwrap_or(0);
-    if !output.status.success()
+    if output.exit_code != 0
         || width == 0
         || height == 0
         || width
@@ -278,8 +301,8 @@ fn fitted_video_size(
 }
 
 fn has_audio(path: &std::path::Path) -> bool {
-    Command::new(media_tool("STRATA_FFPROBE", "ffprobe.exe"))
-        .args([
+    run_ffprobe(
+        &[
             "-v",
             "error",
             "-select_streams",
@@ -288,10 +311,10 @@ fn has_audio(path: &std::path::Path) -> bool {
             "stream=index",
             "-of",
             "csv=p=0",
-        ])
-        .arg(path)
-        .output()
-        .is_ok_and(|result| result.status.success() && !result.stdout.is_empty())
+        ],
+        path,
+    )
+    .is_some_and(|result| result.exit_code == 0 && !result.stdout.is_empty())
 }
 
 fn decode_video(
@@ -299,7 +322,7 @@ fn decode_video(
     start_tick: u32,
     cancelled: &AtomicBool,
     sender: &mpsc::SyncSender<Event>,
-    children: &Arc<Mutex<Vec<Child>>>,
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
     if source.audio_only {
         return decode_audio(source, start_tick, cancelled, sender, children);
@@ -345,7 +368,7 @@ fn decode_video(
         if cancelled.load(Ordering::Acquire) {
             return Ok(());
         }
-        let pixels = read_chunk(&mut pixels_pipe, frame_bytes)?;
+        let pixels = read_chunk(pixels_pipe.as_ref(), frame_bytes)?;
         if pixels.is_empty() {
             break;
         }
@@ -354,7 +377,7 @@ fn decode_video(
         }
         let samples = if let Some(pipe) = audio_pipe.as_mut() {
             let count = crate::media::audio_bytes(header, tick);
-            let mut pcm = read_chunk(pipe, count)?;
+            let mut pcm = read_chunk(pipe.as_ref(), count)?;
             // Silence-pad a missing/short track instead of blocking the video
             // and keep the wire protocol's exact, contiguous PCM frame sizes.
             pcm.resize(count, 0);
@@ -392,7 +415,7 @@ fn decode_audio(
     start_tick: u32,
     cancelled: &AtomicBool,
     sender: &mpsc::SyncSender<Event>,
-    children: &Arc<Mutex<Vec<Child>>>,
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
     let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
     let mut pipe = spawn_decoder(&mut audio_command(&source, start_tick), cancelled, children)?;
@@ -411,7 +434,7 @@ fn decode_audio(
             return Ok(());
         }
         let wanted = crate::media::audio_bytes(header, tick);
-        let mut samples = read_chunk(&mut pipe, wanted)?;
+        let mut samples = read_chunk(pipe.as_ref(), wanted)?;
         if samples.is_empty() {
             break;
         }
@@ -471,19 +494,20 @@ fn media_tool(override_name: &str, executable: &str) -> std::ffi::OsString {
 }
 
 fn probe_duration(path: &std::path::Path) -> Option<u64> {
-    let ffprobe = media_tool("STRATA_FFPROBE", "ffprobe.exe");
-    let output = Command::new(ffprobe)
-        .args([
+    let output = run_ffprobe(
+        &[
             "-v",
             "error",
             "-show_entries",
             "format=duration",
             "-of",
             "default=noprint_wrappers=1:nokey=1",
-        ])
-        .arg(path)
-        .output()
-        .ok()?;
+        ],
+        path,
+    )?;
+    if output.exit_code != 0 {
+        return None;
+    }
     let seconds = String::from_utf8_lossy(&output.stdout)
         .trim()
         .parse::<f64>()
@@ -498,13 +522,54 @@ pub(crate) enum PeaksEvent {
     Failed,
 }
 
-pub(crate) struct PeaksSession;
+static ACTIVE_BACKGROUND: AtomicBool = AtomicBool::new(false);
+
+pub(crate) struct PeaksSession {
+    cancelled: Arc<AtomicBool>,
+    receiver: mpsc::Receiver<PeaksEvent>,
+}
+
 impl PeaksSession {
-    pub fn start(_source: SandboxedMedia) -> Option<Self> {
-        None
+    pub fn start(source: SandboxedMedia) -> Option<Self> {
+        if ACTIVE_BACKGROUND
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return None;
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = cancelled.clone();
+        let (sender, receiver) = mpsc::sync_channel(64);
+        thread::Builder::new()
+            .name("windows-audio-peaks".into())
+            .spawn(move || {
+                let result = render_peaks(&source, &stop, &sender);
+                ACTIVE_BACKGROUND.store(false, Ordering::Release);
+                let event = if result.is_ok() {
+                    PeaksEvent::Finished
+                } else {
+                    PeaksEvent::Failed
+                };
+                let _ = sender.send(event);
+            })
+            .ok()?;
+        Some(Self {
+            cancelled,
+            receiver,
+        })
     }
     pub fn receive(&self) -> Option<PeaksEvent> {
-        Some(PeaksEvent::Failed)
+        match self.receiver.try_recv() {
+            Ok(event) => Some(event),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(PeaksEvent::Failed),
+        }
+    }
+}
+
+impl Drop for PeaksSession {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
     }
 }
 
@@ -515,12 +580,153 @@ pub(crate) enum StoryboardEvent {
     Failed,
 }
 
-pub(crate) struct StoryboardSession;
+pub(crate) struct StoryboardSession {
+    cancelled: Arc<AtomicBool>,
+    receiver: mpsc::Receiver<StoryboardEvent>,
+}
+
 impl StoryboardSession {
-    pub fn start(_source: SandboxedMedia, _cell_edge: u32) -> Option<Self> {
-        None
+    pub fn start(source: SandboxedMedia, cell_edge: u32) -> Option<Self> {
+        if ACTIVE_BACKGROUND
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return None;
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = cancelled.clone();
+        let (sender, receiver) = mpsc::sync_channel(64);
+        thread::Builder::new()
+            .name("windows-video-storyboard".into())
+            .spawn(move || {
+                let result = render_storyboard(&source, cell_edge, &stop, &sender);
+                ACTIVE_BACKGROUND.store(false, Ordering::Release);
+                let event = if result.is_ok() {
+                    StoryboardEvent::Finished
+                } else {
+                    StoryboardEvent::Failed
+                };
+                let _ = sender.send(event);
+            })
+            .ok()?;
+        Some(Self {
+            cancelled,
+            receiver,
+        })
     }
     pub fn receive(&self) -> Option<StoryboardEvent> {
-        Some(StoryboardEvent::Failed)
+        match self.receiver.try_recv() {
+            Ok(event) => Some(event),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(StoryboardEvent::Failed),
+        }
     }
+}
+
+impl Drop for StoryboardSession {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+fn render_peaks(
+    source: &SandboxedMedia,
+    cancelled: &AtomicBool,
+    sender: &mpsc::SyncSender<PeaksEvent>,
+) -> Result<(), String> {
+    let duration = probe_duration(&source.path).unwrap_or(MAX_DURATION_US - 1);
+    let mut command = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
+    command
+        .args(["-v", "error", "-i"])
+        .arg(&source.path)
+        .args(["-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"]);
+    let children = Arc::new(Mutex::new(Vec::new()));
+    let child = spawn_decoder(&mut command, cancelled, &children)?;
+    let mut accumulator = crate::media::peaks::Accumulator::new(duration);
+    let mut wire = Vec::new();
+    let mut decoded_any = false;
+    crate::media::peaks::write_header(&mut wire, duration).map_err(|e| e.to_string())?;
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Preview cancelled".into());
+        }
+        let pcm = read_chunk(child.as_ref(), 64 * 1024)?;
+        if pcm.is_empty() {
+            break;
+        }
+        decoded_any = true;
+        accumulator
+            .push(&pcm, &mut wire)
+            .map_err(|error| error.to_string())?;
+    }
+    accumulator
+        .finish(&mut wire)
+        .map_err(|error| error.to_string())?;
+    if !decoded_any {
+        terminate_children(&children);
+        return Err("Audio decoder returned no PCM samples".into());
+    }
+    terminate_children(&children);
+    let mut cursor = std::io::Cursor::new(wire);
+    crate::media::peaks::read_header(&mut cursor).map_err(|e| e.to_string())?;
+    let mut runs = crate::media::peaks::RunReader::default();
+    while let Some((start, levels)) = runs.read(&mut cursor).map_err(|e| e.to_string())? {
+        sender
+            .send(PeaksEvent::Levels { start, levels })
+            .map_err(|_| "Waveform preview closed".to_owned())?;
+    }
+    Ok(())
+}
+
+fn render_storyboard(
+    source: &SandboxedMedia,
+    cell_edge: u32,
+    cancelled: &AtomicBool,
+    sender: &mpsc::SyncSender<StoryboardEvent>,
+) -> Result<(), String> {
+    let duration = probe_duration(&source.path).unwrap_or(MAX_DURATION_US - 1);
+    let count = crate::media::storyboard::cell_count(duration);
+    let edge = cell_edge.clamp(
+        crate::media::storyboard::MIN_CELL_EDGE,
+        crate::media::storyboard::MAX_CELL_EDGE,
+    );
+    let sheet = crate::media::storyboard::Sheet {
+        width: edge,
+        height: edge,
+        count,
+        duration_us: duration,
+    }
+    .validate()
+    .map_err(|error| error.to_string())?;
+    sender
+        .send(StoryboardEvent::Sheet(sheet))
+        .map_err(|_| "Storyboard preview closed".to_owned())?;
+    let order = crate::media::storyboard::subdivision_order(count);
+    for index in order {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Preview cancelled".into());
+        }
+        let timestamp = sheet.cell_time_us(index);
+        let mut command = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
+        command
+            .args(["-v", "error", "-ss"])
+            .arg(format!("{:.3}", timestamp as f64 / 1_000_000.0))
+            .args(["-i"])
+            .arg(&source.path)
+            .args(["-frames:v", "1", "-vf"])
+            .arg(format!(
+                "scale={edge}:{edge}:force_original_aspect_ratio=decrease,pad={edge}:{edge}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgba"
+            ))
+            .args(["-f", "rawvideo", "pipe:1"]);
+        let children = Arc::new(Mutex::new(Vec::new()));
+        let child = spawn_decoder(&mut command, cancelled, &children)?;
+        let pixels = read_chunk(child.as_ref(), sheet.cell_bytes())?;
+        terminate_children(&children);
+        if pixels.len() == sheet.cell_bytes() {
+            sender
+                .send(StoryboardEvent::Cell { index, pixels })
+                .map_err(|_| "Storyboard preview closed".to_owned())?;
+        }
+    }
+    Ok(())
 }

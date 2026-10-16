@@ -182,7 +182,7 @@ impl ParseOperation {
             Self::ThumbnailModel(_) => "thumbnail-model",
             Self::ThumbnailCover(_) => "thumbnail-cover",
             Self::PreviewCover(_) => "preview-cover",
-            Self::PreviewImage => "preview-image",
+            Self::PreviewImage => "preview-image-rgba",
             Self::InspectImage => "inspect-image",
             Self::ConvertImage => "convert-image",
             Self::DocumentImage => "document-image",
@@ -368,6 +368,8 @@ fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
         serde_json::from_slice::<serde_json::Value>(data).is_ok()
     } else if matches!(operation, ParseOperation::ArchiveList { .. }) {
         crate::adapters::archive_payload_valid(data)
+    } else if matches!(operation, ParseOperation::PreviewImage) {
+        rgba_dimensions(data).is_some()
     } else {
         png_dimensions(data).is_some()
     }
@@ -475,39 +477,6 @@ fn parse_sandboxed(
                 "Preview input exceeds the supported size limit".to_owned()
             },
         );
-    }
-
-    // Fast path: in-process direct RGBA decoding for PreviewImage if supported without PNG roundtrip.
-    if matches!(operation, ParseOperation::PreviewImage) {
-        if let Ok(reader) = image::ImageReader::open(input) {
-            if let Ok(reader) = reader.with_guessed_format() {
-                let mut limits = image::Limits::default();
-                limits.max_image_width = Some(16_384);
-                limits.max_image_height = Some(16_384);
-                limits.max_alloc = Some(256 * 1024 * 1024);
-                let mut reader = reader;
-                reader.limits(limits);
-                if let Ok(decoded) = reader.decode() {
-                    let image = if decoded.width() > 1280 || decoded.height() > 1280 {
-                        decoded.thumbnail(1280, 1280)
-                    } else {
-                        decoded
-                    }
-                    .into_rgba8();
-                    if cancellation.is_cancelled() {
-                        return Err("Preview cancelled".to_owned());
-                    }
-                    let dimensions = image.dimensions();
-                    return Ok(ParseOutput {
-                        data: image.into_raw(),
-                        page: 0,
-                        pages: 0,
-                        text_layer: None,
-                        raster_dimensions: Some(dimensions),
-                    });
-                }
-            }
-        }
     }
 
     let output =
@@ -637,12 +606,19 @@ fn parse_sandboxed(
     let (page, pages) = read_meta(&output.path().join("result.meta"));
     let text_layer = read_text_layer(&output.path().join("result.text"));
 
+    let (data, raster_dimensions) = if matches!(operation, ParseOperation::PreviewImage) {
+        let (dimensions, pixels) = decode_rgba_output(&data)?;
+        (pixels, Some(dimensions))
+    } else {
+        (data, None)
+    };
+
     Ok(ParseOutput {
         data,
         page,
         pages,
         text_layer,
-        raster_dimensions: None,
+        raster_dimensions,
     })
 }
 
@@ -680,6 +656,25 @@ pub(crate) fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     let width = u32::from_be_bytes(data.get(16..20)?.try_into().ok()?);
     let height = u32::from_be_bytes(data.get(20..24)?.try_into().ok()?);
     (width > 0 && height > 0).then_some((width, height))
+}
+
+fn rgba_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    if data.get(..8)? != b"STRGBA01" {
+        return None;
+    }
+    let width = u32::from_le_bytes(data.get(8..12)?.try_into().ok()?);
+    let height = u32::from_le_bytes(data.get(12..16)?.try_into().ok()?);
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))?
+        .checked_mul(4)?;
+    (width > 0 && height > 0 && pixels == data.len().saturating_sub(16) as u64)
+        .then_some((width, height))
+}
+
+fn decode_rgba_output(data: &[u8]) -> Result<((u32, u32), Vec<u8>), String> {
+    let dimensions =
+        rgba_dimensions(data).ok_or("The preview renderer returned invalid RGBA data")?;
+    Ok((dimensions, data[16..].to_vec()))
 }
 
 #[cfg(test)]

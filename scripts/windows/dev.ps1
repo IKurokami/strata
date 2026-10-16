@@ -73,7 +73,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Strata exited with code $LASTEXITCODE." }
         } elseif ($Action -eq "package") {
             $destination = Join-Path $repository ("target/Strata-Windows-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-            & (Join-Path $PSScriptRoot "package-portable.ps1") `
+            & (Join-Path $PSScriptRoot "package-release.ps1") `
                 -Executable (Join-Path $repository "target/debug/strata.exe") `
                 -UcrtRoot $prefix -Destination $destination
             Write-Host "Portable Windows build: $destination"

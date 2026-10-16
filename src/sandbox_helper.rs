@@ -232,6 +232,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             )?,
             None,
         ),
+        "preview-image-rgba" => (render_rgba_envelope(input)?, None),
         "preview-image" | "document-image" => (document_media::image(input, 800)?, None),
         "document-mermaid" => (document_media::mermaid(input)?, None),
         "document-math" => (document_media::math(input, true)?, None),
@@ -653,6 +654,34 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
             .or_else(|_| render_dcraw(path, size));
     }
     render_imagemagick(path, size).or_else(|_| render_dcraw(path, size))
+}
+
+fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
+    let reader = image::ImageReader::open(path)
+        .map_err(|error| error.to_string())?
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    let mut reader = reader;
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|error| error.to_string())?;
+    let image = if decoded.width() > 1280 || decoded.height() > 1280 {
+        decoded.thumbnail(1280, 1280)
+    } else {
+        decoded
+    }
+    .into_rgba8();
+    let (width, height) = image.dimensions();
+    let pixels = image.into_raw();
+    let mut output = Vec::with_capacity(16 + pixels.len());
+    output.extend_from_slice(b"STRGBA01");
+    output.extend_from_slice(&width.to_le_bytes());
+    output.extend_from_slice(&height.to_le_bytes());
+    output.extend_from_slice(&pixels);
+    Ok(output)
 }
 
 fn render_raw_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {

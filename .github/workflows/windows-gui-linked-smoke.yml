@@ -86,6 +86,45 @@ jobs:
           esac
           echo 'Windows strata.exe executed successfully under UCRT64.'
 
+      - name: Run isolated Windows first-paint GUI smoke
+        shell: pwsh
+        env:
+          STRATA_SMOKE_OUTPUT: ${{ runner.temp }}\strata-windows-gui-smoke.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = "$env:STRATA_UCRT_ROOT\bin;$env:Path"
+          & .\scripts\windows\gui-smoke.ps1 -Executable .\target\debug\strata.exe -WorkingDirectory $env:GITHUB_WORKSPACE -OutputJson $env:STRATA_SMOKE_OUTPUT
+          if (!(Test-Path -LiteralPath $env:STRATA_SMOKE_OUTPUT)) {
+            throw 'GUI smoke did not write timing evidence'
+          }
+
+      - name: Upload Windows GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+        with:
+          name: strata-windows-gui-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/strata-windows-gui-smoke.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Measure Windows first-paint baseline
+        shell: pwsh
+        env:
+          STRATA_BENCHMARK_OUTPUT: ${{ runner.temp }}\strata-windows-gui-benchmark.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = "$env:STRATA_UCRT_ROOT\bin;$env:Path"
+          & .\scripts\windows\gui-benchmark.ps1 -Executable .\target\debug\strata.exe -WorkingDirectory $env:GITHUB_WORKSPACE -OutputJson $env:STRATA_BENCHMARK_OUTPUT -Samples 5
+
+      - name: Upload Windows first-paint baseline
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+        with:
+          name: strata-windows-gui-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/strata-windows-gui-benchmark.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Compile all Windows GUI unit tests
         shell: msys2 {0}
         env:
@@ -114,50 +153,48 @@ jobs:
             cargo test --locked --no-default-features --bin strata "${name}" -- --test-threads=1
           done < scripts/windows/regression-tests.txt
 
-      - name: Package UCRT64 runtime and test executable without MSYS2 PATH
+      - name: Package self-contained Windows portable release and test without MSYS2 PATH
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\windows\package-portable.ps1 `
+          & .\scripts\windows\package-release.ps1 `
             -Executable '.\target\debug\strata.exe' `
             -UcrtRoot $env:STRATA_UCRT_ROOT `
-            -Destination (Join-Path $env:RUNNER_TEMP 'Strata-Windows-Developer')
-          $zip = Join-Path $env:RUNNER_TEMP 'strata-windows-ucrt64-dev.zip'
-          Compress-Archive -Path (Join-Path $env:RUNNER_TEMP 'Strata-Windows-Developer\*') `
+            -Destination (Join-Path $env:RUNNER_TEMP 'Strata-Windows-Portable')
+          $zip = Join-Path $env:RUNNER_TEMP 'strata-windows-portable.zip'
+          Compress-Archive -Path (Join-Path $env:RUNNER_TEMP 'Strata-Windows-Portable\*') `
             -DestinationPath $zip -CompressionLevel Optimal -Force
           if (!(Test-Path -LiteralPath $zip)) {
             throw 'Portable Windows archive missing'
           }
-          Write-Host "Developer-only Windows runtime zip: $zip"
+          Write-Host "Self-contained Windows portable release: $zip"
 
-      - name: Upload developer-only portable runtime zip
+      - name: Upload self-contained Windows portable release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
         with:
-          name: strata-windows-ucrt64-developer-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/strata-windows-ucrt64-dev.zip
+          name: strata-windows-portable-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/strata-windows-portable.zip
           if-no-files-found: error
           retention-days: 7
 
-      - name: Label executable as developer-only until runtime bundling
+      - name: Record portable release provenance
         if: success()
         shell: msys2 {0}
         run: |
-          cat > target/debug/WINDOWS-DEVELOPER-BUILD.txt <<'NOTE'
-          Strata Windows experimental development binary.
-          The executable dynamically requires GTK4, GtkSourceView5, GLib,
-          GStreamer, Poppler, Fontconfig and MSYS2 UCRT64 DLLs.
-          This is NOT a standalone portable zip/installer. Full GUI startup,
-          file operations and secure media previews need integration testing.
-          The --version smoke proves linking and process launch only.
+          cat > target/debug/WINDOWS-PORTABLE-RELEASE.txt <<'NOTE'
+          Strata Windows self-contained portable release.
+          The package includes the recursive native DLL closure, GTK/GStreamer
+          resources, bundled FFmpeg tools, and a release-manifest.json hash list.
+          The GUI smoke and native regression steps ran on this same build.
           NOTE
 
-      - name: Upload linked executable for developer evaluation
+      - name: Upload linked executable for portable release evaluation
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
         with:
           name: strata-windows-linked-dev-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             target/debug/strata.exe
-            target/debug/WINDOWS-DEVELOPER-BUILD.txt
+            target/debug/WINDOWS-PORTABLE-RELEASE.txt
           if-no-files-found: error
           retention-days: 7

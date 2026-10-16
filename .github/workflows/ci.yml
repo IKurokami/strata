@@ -23,7 +23,6 @@ jobs:
   quality-build:
     name: Quality build and lint
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     timeout-minutes: 20
     outputs:
       environment_image: ${{ steps.environment.outputs.environment_image }}
@@ -232,7 +231,7 @@ jobs:
   quality:
     name: Format, lint, and test
     needs: [quality-build, quality-shard]
-    if: ${{ always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -266,7 +265,7 @@ jobs:
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     env:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
-    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name != 'push' }}
     # Bound hung bootstrap jobs independently of informational timing reports.
     timeout-minutes: 10
     outputs:
@@ -513,7 +512,7 @@ jobs:
   e2e:
     name: End-to-end GUI suite
     needs: [e2e-build, e2e-shard]
-    if: ${{ always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
@@ -559,7 +558,7 @@ jobs:
   release-scripts:
     name: Release workflow scripts
     runs-on: ubuntu-24.04
-    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name != 'push' }}
 
     steps:
       - name: Check out repository
@@ -571,7 +570,7 @@ jobs:
   repository-policy:
     name: Dependency and spelling policy
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: true
 
     steps:
       - name: Check out repository

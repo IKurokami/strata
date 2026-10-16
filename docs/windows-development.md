@@ -43,17 +43,17 @@ rename, move, batch copy and cancellation queue draining. GTK interaction tests 
 need a separately isolated display/session; this command does not run them on
 the user's desktop. A successful `--version` alone does not prove first paint.
 
-The package action creates a fresh timestamped directory under `target/`.
+The package action creates a fresh timestamped self-contained portable release
+directory under `target/` and writes `release-manifest.json` with SHA-256 hashes.
 Copy or extract the complete directory, then launch `Start-Strata.cmd`.
 The executable depends on the adjacent `bin`, `lib`, `libexec`, `share`, and
 `etc` directories. The package smoke checks exclude MSYS2 from PATH.
 
 ## Current limits
 
-This is a developer build. Local navigation, filename search, new files/folders,
-and no-overwrite single-file copy are available. Rename/move, batch paste,
-Recycle Bin/undo, archive operations, rich previews, custom action execution,
-external providers, and automatic update installation remain incomplete or
-explicitly unavailable on Windows. See [feature compatibility](windows-feature-compatibility.md)
-and [port milestones](windows-port.md). Do not report these features as verified
-because the executable compiles or the native I/O tests pass.
+The native paths for navigation, rename/move, batch paste, Recycle Bin/undo,
+archive operations, rich previews, custom actions, external providers and
+verified updates are implemented in this branch. They still require the
+isolated Windows GUI smoke, fault-injection matrix and clean-machine evidence
+before being called release-verified. See [feature compatibility](windows-feature-compatibility.md)
+and [port milestones](windows-port.md).

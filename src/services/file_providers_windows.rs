@@ -58,6 +58,7 @@ fn trusted(path: &Path, directory: bool) -> bool {
         metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
             && metadata.file_type().is_dir() == directory
             && (directory || metadata.is_file())
+            && strata_win_shell::path_owned_by_current_user(path)
     })
 }
 

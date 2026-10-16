@@ -79,6 +79,14 @@ impl Drop for SafeHandle {
     }
 }
 
+// SAFETY: Win32 HANDLE values are process-wide kernel references. Moving the
+// owning wrapper between Rust threads does not transfer or duplicate the
+// handle, and all access is mediated by the Win32 APIs above.
+unsafe impl Send for SafeHandle {}
+// SAFETY: The wrapper only closes its handle during Drop; concurrent API calls
+// on a live process/job/pipe handle are supported by Win32.
+unsafe impl Sync for SafeHandle {}
+
 /// Limits applied to the sandboxed Job Object.
 #[derive(Clone, Debug)]
 pub struct JobLimits {
@@ -534,6 +542,151 @@ pub fn run_in_job(
     })
 }
 
+/// A child process whose lifetime and descendants are owned by a Job Object.
+///
+/// The streaming variant is used for media decoders: unlike [`run_in_job`], it
+/// does not buffer stdout before returning, so a bounded frame reader can apply
+/// back-pressure while the process remains contained. The child is terminated
+/// when this value is dropped.
+pub struct SandboxedChild {
+    job: JobObject,
+    process: SafeHandle,
+    stdout: SafeHandle,
+    stderr_reader: std::sync::Mutex<Option<thread::JoinHandle<PipeCapture>>>,
+}
+
+impl SandboxedChild {
+    /// Read decoded bytes from the child's stdout pipe.
+    pub fn read_stdout(&self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let mut read_bytes = 0u32;
+        // SAFETY: The process owns the read end for the lifetime of this value;
+        // the caller supplied a valid writable buffer.
+        unsafe {
+            ReadFile(
+                self.stdout.handle(),
+                Some(buffer),
+                Some(&mut read_bytes),
+                None,
+            )
+        }
+        .map(|_| read_bytes as usize)
+        .map_err(|error| io::Error::other(format!("sandboxed stdout read failed: {error}")))
+    }
+
+    /// Terminate the process tree immediately.
+    pub fn terminate(&self) {
+        let _ = self.job.terminate(1);
+    }
+
+    /// Wait for process termination and drain the stderr reader.
+    pub fn wait(&self) {
+        // SAFETY: process is a valid handle owned by this value.
+        while unsafe { WaitForSingleObject(self.process.handle(), 25) } == WAIT_TIMEOUT {}
+        if let Some(reader) = self
+            .stderr_reader
+            .lock()
+            .ok()
+            .and_then(|mut reader| reader.take())
+        {
+            let _ = reader.join();
+        }
+    }
+}
+
+impl Drop for SandboxedChild {
+    fn drop(&mut self) {
+        self.terminate();
+        self.wait();
+    }
+}
+
+/// Spawn a process suspended, attach it to a Job Object, and return a
+/// streaming stdout handle. The process cannot execute before containment is
+/// installed, and stderr is drained by a bounded helper thread.
+pub fn spawn_streaming_in_job(
+    executable: &Path,
+    args: &[&OsStr],
+    limits: &JobLimits,
+) -> io::Result<SandboxedChild> {
+    let job = JobObject::create(limits)?;
+    let mut sa = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        bInheritHandle: TRUE,
+        lpSecurityDescriptor: std::ptr::null_mut(),
+    };
+
+    let mut stdout_read = HANDLE::default();
+    let mut stdout_write = HANDLE::default();
+    // SAFETY: output pointers and inheritable security attributes are valid.
+    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&mut sa), 0) }
+        .map_err(|error| io::Error::other(format!("CreatePipe stdout failed: {error}")))?;
+    let stdout_read = SafeHandle::new(stdout_read);
+    let stdout_write = SafeHandle::new(stdout_write);
+    make_non_inheritable(stdout_read.handle())?;
+
+    let mut stderr_read = HANDLE::default();
+    let mut stderr_write = HANDLE::default();
+    // SAFETY: output pointers and inheritable security attributes are valid.
+    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&mut sa), 0) }
+        .map_err(|error| io::Error::other(format!("CreatePipe stderr failed: {error}")))?;
+    let stderr_read = SafeHandle::new(stderr_read);
+    let stderr_write = SafeHandle::new(stderr_write);
+    make_non_inheritable(stderr_read.handle())?;
+
+    let startup_info = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        dwFlags: STARTF_USESTDHANDLES,
+        hStdInput: HANDLE::default(),
+        hStdOutput: stdout_write.handle(),
+        hStdError: stderr_write.handle(),
+        ..Default::default()
+    };
+    let mut process_info = PROCESS_INFORMATION::default();
+    let mut command_line = build_command_line(executable, args);
+    // SAFETY: all pointers reference live handles and a mutable NUL-terminated
+    // command line for the duration of CreateProcessW.
+    let created = unsafe {
+        CreateProcessW(
+            PCWSTR::null(),
+            Some(windows::core::PWSTR(command_line.as_mut_ptr())),
+            None,
+            None,
+            true,
+            CREATE_SUSPENDED | CREATE_NO_WINDOW,
+            None,
+            PCWSTR::null(),
+            &startup_info,
+            &mut process_info,
+        )
+    };
+    if let Err(error) = created {
+        return Err(io::Error::other(format!("CreateProcessW failed: {error}")));
+    }
+    let process = SafeHandle::new(process_info.hProcess);
+    let thread_handle = SafeHandle::new(process_info.hThread);
+    job.assign_process(process.handle())?;
+    // SAFETY: the primary thread is valid and was created suspended.
+    if unsafe { ResumeThread(thread_handle.handle()) } == u32::MAX {
+        job.terminate(1);
+        return Err(io::Error::other("ResumeThread failed"));
+    }
+    drop(stdout_write);
+    drop(stderr_write);
+
+    let stderr_token = stderr_read.handle().0 as usize;
+    std::mem::forget(stderr_read);
+    let stderr_reader = thread::spawn(move || read_pipe(handle_from_thread_token(stderr_token)));
+    Ok(SandboxedChild {
+        job,
+        process,
+        stdout: stdout_read,
+        stderr_reader: std::sync::Mutex::new(Some(stderr_reader)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +744,24 @@ mod tests {
             io::ErrorKind::OutOfMemory,
             "large untrusted output must be bounded without blocking the child"
         );
+    }
+
+    #[test]
+    fn streaming_job_keeps_decoder_output_contained() {
+        let limits = JobLimits::default();
+        let cmd = std::path::Path::new("cmd.exe");
+        let args = [OsStr::new("/c"), OsStr::new("echo streamed")];
+        let mut child = spawn_streaming_in_job(cmd, &args, &limits).expect("spawn stream");
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 64];
+        loop {
+            let count = child.read_stdout(&mut buffer).expect("read stream");
+            if count == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..count]);
+        }
+        child.wait();
+        assert!(String::from_utf8_lossy(&output).contains("streamed"));
     }
 }
