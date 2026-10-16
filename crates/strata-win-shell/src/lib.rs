@@ -75,9 +75,9 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
         Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
         Security::{
             EqualSid, GetSecurityDescriptorOwner, GetTokenInformation, OWNER_SECURITY_INFORMATION,
-            OpenProcessToken, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+            PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
         },
-        System::Threading::GetCurrentProcess,
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
 
     let wide: Vec<u16> = path
@@ -114,7 +114,7 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
     let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut required) };
     if required == 0 {
         unsafe {
-            CloseHandle(token);
+            let _ = CloseHandle(token);
             LocalFree(Some(HLOCAL(descriptor.0)));
         }
         return false;
@@ -131,7 +131,7 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
     };
     if token_result.is_err() {
         unsafe {
-            CloseHandle(token);
+            let _ = CloseHandle(token);
             LocalFree(Some(HLOCAL(descriptor.0)));
         }
         return false;
@@ -145,7 +145,7 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
         && !descriptor_owner.0.is_null()
         && unsafe { EqualSid(descriptor_owner, token_user.User.Sid).is_ok() };
     unsafe {
-        CloseHandle(token);
+        let _ = CloseHandle(token);
         LocalFree(Some(HLOCAL(descriptor.0)));
     }
     matches

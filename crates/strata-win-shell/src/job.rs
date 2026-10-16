@@ -670,7 +670,7 @@ pub fn spawn_streaming_in_job(
     job.assign_process(process.handle())?;
     // SAFETY: the primary thread is valid and was created suspended.
     if unsafe { ResumeThread(thread_handle.handle()) } == u32::MAX {
-        job.terminate(1);
+        let _ = job.terminate(1);
         return Err(io::Error::other("ResumeThread failed"));
     }
     drop(stdout_write);
