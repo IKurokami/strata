@@ -690,9 +690,12 @@ fn render_storyboard(
         crate::media::storyboard::MIN_CELL_EDGE,
         crate::media::storyboard::MAX_CELL_EDGE,
     );
+    let (source_width, source_height) =
+        probe_video_dimensions(&source.path).unwrap_or((f64::from(edge), f64::from(edge)));
+    let (width, height) = fitted_video_size(edge, edge, source_width, source_height);
     let sheet = crate::media::storyboard::Sheet {
-        width: edge,
-        height: edge,
+        width,
+        height,
         count,
         duration_us: duration,
     }
@@ -715,7 +718,7 @@ fn render_storyboard(
             .arg(&source.path)
             .args(["-frames:v", "1", "-vf"])
             .arg(format!(
-                "scale={edge}:{edge}:force_original_aspect_ratio=decrease,pad={edge}:{edge}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgba"
+                "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgba"
             ))
             .args(["-f", "rawvideo", "pipe:1"]);
         let children = Arc::new(Mutex::new(Vec::new()));
