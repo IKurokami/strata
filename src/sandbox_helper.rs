@@ -649,6 +649,16 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
             }
             return Err("Image dimensions exceed the decoded frame budget".to_owned());
         }
+        // Camera JPEGs commonly carry a small embedded preview. It is much cheaper to
+        // decode that preview than to run the full JPEG through the scaler for a 256px
+        // browser tile. Do not use it for the larger single-image preview: camera
+        // thumbnails are often only 160-320px wide and would look soft when enlarged.
+        if size <= 256
+            && width.max(height) >= size.saturating_mul(2)
+            && let Some(png) = read_exif_thumbnail(path, size)
+        {
+            return Ok(png);
+        }
         return render_pixbuf(path, size.min(width.max(height)))
             .or_else(|_| render_imagemagick(path, size))
             .or_else(|_| render_dcraw(path, size));
@@ -657,6 +667,70 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 }
 
 fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
+    if let Some((width, height)) = image_dimensions(path)
+        && (width <= 0
+            || height <= 0
+            || width > 16_384
+            || height > 16_384
+            || u64::try_from(width)
+                .unwrap_or(0)
+                .saturating_mul(u64::try_from(height).unwrap_or(0))
+                .saturating_mul(4)
+                > 256 * 1024 * 1024)
+    {
+        return Err("Image dimensions exceed the preview frame budget".to_owned());
+    }
+
+    // GdkPixbuf's at-scale loader asks the decoder for the target size, avoiding the
+    // full-resolution RGBA allocation performed by image::DynamicImage::thumbnail.
+    // Keep the image crate path below for formats that are not installed as a Pixbuf
+    // loader on the current platform.
+    if let Ok(pixbuf) = gdk_pixbuf::Pixbuf::from_file_at_scale(path, 1280, 1280, true) {
+        let width = pixbuf.width();
+        let height = pixbuf.height();
+        let channels = pixbuf.n_channels();
+        let rowstride = pixbuf.rowstride();
+        if width > 0
+            && height > 0
+            && (channels == 3 || channels == 4)
+            && rowstride >= width.saturating_mul(channels)
+        {
+            let source = pixbuf.read_pixel_bytes();
+            let source = source.as_ref();
+            let row_bytes = usize::try_from(rowstride).map_err(|_| "Invalid image stride")?;
+            let width = usize::try_from(width).map_err(|_| "Invalid image width")?;
+            let height = usize::try_from(height).map_err(|_| "Invalid image height")?;
+            let channels = usize::try_from(channels).map_err(|_| "Invalid image channels")?;
+            let required = row_bytes
+                .checked_mul(height)
+                .ok_or("Image pixel buffer is too large")?;
+            if source.len() >= required {
+                let mut pixels = Vec::with_capacity(
+                    width
+                        .checked_mul(height)
+                        .and_then(|pixels| pixels.checked_mul(4))
+                        .ok_or("Image pixel buffer is too large")?,
+                );
+                for row in source.chunks_exact(row_bytes).take(height) {
+                    for pixel in row.chunks_exact(channels).take(width) {
+                        pixels.extend_from_slice(&pixel[..3]);
+                        pixels.push(if channels == 4 { pixel[3] } else { 255 });
+                    }
+                }
+                if pixels.len() == width * height * 4 {
+                    let width = u32::try_from(width).map_err(|_| "Invalid image width")?;
+                    let height = u32::try_from(height).map_err(|_| "Invalid image height")?;
+                    let mut output = Vec::with_capacity(16 + pixels.len());
+                    output.extend_from_slice(b"STRGBA01");
+                    output.extend_from_slice(&width.to_le_bytes());
+                    output.extend_from_slice(&height.to_le_bytes());
+                    output.extend_from_slice(&pixels);
+                    return Ok(output);
+                }
+            }
+        }
+    }
+
     let reader = image::ImageReader::open(path)
         .map_err(|error| error.to_string())?
         .with_guessed_format()
@@ -700,7 +774,12 @@ fn render_raw_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 
 fn read_exif_thumbnail(path: &Path, size: i32) -> Option<Vec<u8>> {
     let file = fs::File::open(path).ok()?;
-    let mut reader = io::BufReader::new(file);
+    // EXIF lives in the initial JPEG APP1 segment for the formats supported here. Bound
+    // the scan so a file without a thumbnail never turns a 256px request into a full-file
+    // read on a network or spinning disk. Files with unusually large metadata simply fall
+    // back to the normal scaled decoder.
+    const EXIF_SCAN_LIMIT: u64 = 1024 * 1024;
+    let mut reader = io::BufReader::new(file.take(EXIF_SCAN_LIMIT));
     let exif = exif::Reader::new()
         .continue_on_error(true)
         .read_from_container(&mut reader)
