@@ -82,6 +82,14 @@ impl TabWindow {
         state.add(None);
         state.install_actions(window);
         state.install_keys(window);
+        #[cfg(windows)]
+        window.connect_close_request(|window| {
+            // GTK 4.24's Win32 IME filter is attached to the focused widget.
+            // Clear focus before window teardown so queued IME messages cannot
+            // reach a disposed GtkIMContextIME instance.
+            gtk::prelude::RootExt::set_focus(window, None::<&gtk::Widget>);
+            glib::Propagation::Proceed
+        });
         super::super::install_modal_focus_trap(window);
         let weak = Rc::downgrade(&state);
         crate::ui::modal::set_modal_focus_fallback(

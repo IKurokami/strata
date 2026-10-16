@@ -4870,6 +4870,7 @@ fn refresh_mark_pane(pane: &Pane, browser: &Browser, marks: &ClipboardMarks) {
 }
 
 fn replace_entries(pane: &Pane, browser: &Browser, count: usize) {
+    clear_windows_ime_focus_before_rebuild(pane);
     let values = browser
         .with_entries(pane.depth, 0..count, |entries| {
             entries
@@ -4881,7 +4882,36 @@ fn replace_entries(pane: &Pane, browser: &Browser, count: usize) {
     pane.splice_values(0, pane.model.n_items(), &values);
 }
 
+#[cfg(windows)]
+fn clear_windows_ime_focus_before_rebuild(pane: &Pane) {
+    let Some(root) = pane.stack.root() else {
+        return;
+    };
+    let Some(focused) = root.focus() else {
+        return;
+    };
+    if !pane.stack.is_ancestor(&focused)
+        || !focused.is::<gtk::Entry>() && !focused.is::<gtk::Text>()
+    {
+        return;
+    }
+    let in_filter = pane
+        .filter_entry
+        .as_ref()
+        .is_some_and(|entry| entry == &focused || entry.is_ancestor(&focused));
+    if !in_filter {
+        // GTK 4.24's Win32 IME filter can receive a queued message after an
+        // inline editor is removed. Moving focus while the surface is live
+        // makes GTK remove that filter before the editor is destroyed.
+        root.set_focus(None::<&gtk::Widget>);
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_windows_ime_focus_before_rebuild(_pane: &Pane) {}
+
 fn detach_pane_models(pane: &Pane) {
+    clear_windows_ime_focus_before_rebuild(pane);
     pane.detached.set(true);
     pane.search.detach();
     for section in pane.all_sections() {
