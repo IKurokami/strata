@@ -12,7 +12,7 @@ use std::{
     os::windows::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     sync::{Condvar, Mutex, OnceLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use super::metadata::MediaMetadata;
@@ -24,6 +24,7 @@ const REQUEST_MAGIC: &[u8; 4] = b"STW1";
 const RESPONSE_MAGIC: &[u8; 4] = b"STR1";
 const MAX_REQUEST_FIELD: usize = 16 * 1024;
 const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+const PREVIEW_WORKERS: usize = 1;
 const WORKER_LIMITS: strata_win_shell::job::JobLimits = strata_win_shell::job::JobLimits {
     memory_limit_bytes: Some(1024 * 1024 * 1024),
     active_process_limit: Some(1),
@@ -55,6 +56,7 @@ struct Worker {
 struct WorkerPool {
     state: Mutex<PoolState>,
     changed: Condvar,
+    limit: usize,
 }
 
 struct PoolState {
@@ -63,16 +65,19 @@ struct PoolState {
 }
 
 impl WorkerPool {
-    fn acquire(&self) -> Result<Worker, String> {
+    fn acquire(&self, cancellation: &Cancellation) -> Result<Worker, String> {
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         loop {
+            if cancellation.is_cancelled() {
+                return Err("Preview cancelled".to_owned());
+            }
             if let Some(worker) = state.idle.pop() {
                 return Ok(worker);
             }
-            if state.count < PERSISTENT_WORKERS {
+            if state.count < self.limit {
                 state.count += 1;
                 drop(state);
                 let worker = Worker::spawn();
@@ -88,8 +93,9 @@ impl WorkerPool {
             }
             state = self
                 .changed
-                .wait(state)
-                .unwrap_or_else(|poison| poison.into_inner());
+                .wait_timeout(state, Duration::from_millis(20))
+                .map(|(state, _)| state)
+                .unwrap_or_else(|poison| poison.into_inner().0);
         }
     }
 
@@ -116,6 +122,19 @@ fn pool() -> &'static WorkerPool {
             count: 0,
         }),
         changed: Condvar::new(),
+        limit: PERSISTENT_WORKERS,
+    })
+}
+
+fn preview_pool() -> &'static WorkerPool {
+    static POOL: OnceLock<WorkerPool> = OnceLock::new();
+    POOL.get_or_init(|| WorkerPool {
+        state: Mutex::new(PoolState {
+            idle: Vec::new(),
+            count: 0,
+        }),
+        changed: Condvar::new(),
+        limit: PREVIEW_WORKERS,
     })
 }
 
@@ -207,7 +226,7 @@ pub(crate) fn thumbnail(
     if cancellation.is_cancelled() {
         return Err("Preview cancelled".into());
     }
-    let mut worker = pool().acquire()?;
+    let mut worker = pool().acquire(cancellation)?;
     let result = worker.execute(path, &operation, cancellation);
     let healthy = result.is_ok();
     pool().release(worker, healthy);
@@ -228,7 +247,7 @@ pub(crate) fn preview_rgba(
     if cancellation.is_cancelled() {
         return Some(Err("Preview cancelled".to_owned()));
     }
-    let mut worker = match pool().acquire() {
+    let mut worker = match preview_pool().acquire(cancellation) {
         Ok(worker) => worker,
         Err(error) => return Some(Err(error)),
     };
@@ -236,7 +255,7 @@ pub(crate) fn preview_rgba(
         .execute(path, operation, cancellation)
         .and_then(|envelope| super::decode_rgba_output(&envelope));
     let healthy = result.is_ok();
-    pool().release(worker, healthy);
+    preview_pool().release(worker, healthy);
     Some(result)
 }
 
