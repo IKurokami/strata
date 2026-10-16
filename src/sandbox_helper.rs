@@ -288,16 +288,7 @@ pub(crate) fn render_browser_thumbnail(
     if cancellation.is_cancelled() {
         return Err("Preview cancelled".to_owned());
     }
-    let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
-    if !metadata.is_file() {
-        return Err("Preview input is not a regular file".to_owned());
-    }
-    if operation
-        .input_size_limit()
-        .is_some_and(|limit| metadata.len() > limit)
-    {
-        return Err("Preview input exceeds the supported size limit".to_owned());
-    }
+    validate_browser_input(input, operation)?;
     let png = match operation {
         crate::sandbox::ParseOperation::ThumbnailImage => render_raw(input, 256)?,
         crate::sandbox::ParseOperation::ThumbnailRaw => render_raw_thumbnail(input, 256)?,
@@ -318,6 +309,44 @@ pub(crate) fn render_browser_thumbnail(
         return Err("Preview cancelled".to_owned());
     }
     Ok(png)
+}
+
+#[cfg(windows)]
+pub(crate) fn render_browser_preview(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+    cancellation: &crate::sandbox::Cancellation,
+) -> Result<Vec<u8>, String> {
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    validate_browser_input(input, operation)?;
+    if !matches!(operation, crate::sandbox::ParseOperation::PreviewImage) {
+        return Err("Not a browser image preview operation".to_owned());
+    }
+    let rgba = render_rgba_envelope(input)?;
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    Ok(rgba)
+}
+
+#[cfg(windows)]
+fn validate_browser_input(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+) -> Result<(), String> {
+    let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Preview input is not a regular file".to_owned());
+    }
+    if operation
+        .input_size_limit()
+        .is_some_and(|limit| metadata.len() > limit)
+    {
+        return Err("Preview input exceeds the supported size limit".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(unix)]

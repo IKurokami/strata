@@ -46,6 +46,8 @@ pub(crate) struct Thumbnail {
     pub(crate) metadata: Option<MediaMetadata>,
 }
 
+type RgbaPreview = ((u32, u32), Vec<u8>);
+
 struct Worker {
     child: strata_win_shell::job::InteractiveSandboxedChild,
 }
@@ -215,6 +217,29 @@ pub(crate) fn thumbnail(
     })
 }
 
+pub(crate) fn preview_rgba(
+    path: &Path,
+    operation: &ParseOperation,
+    cancellation: &Cancellation,
+) -> Option<Result<RgbaPreview, String>> {
+    if !matches!(operation, ParseOperation::PreviewImage) {
+        return None;
+    }
+    if cancellation.is_cancelled() {
+        return Some(Err("Preview cancelled".to_owned()));
+    }
+    let mut worker = match pool().acquire() {
+        Ok(worker) => worker,
+        Err(error) => return Some(Err(error)),
+    };
+    let result = worker
+        .execute(path, operation, cancellation)
+        .and_then(|envelope| super::decode_rgba_output(&envelope));
+    let healthy = result.is_ok();
+    pool().release(worker, healthy);
+    Some(result)
+}
+
 pub(crate) fn metadata(
     path: &Path,
     image: bool,
@@ -262,11 +287,19 @@ pub(crate) fn run() -> Result<(), String> {
         let Some((path, operation)) = read_request(&mut stdin)? else {
             return Ok(());
         };
-        let result = crate::sandbox_helper::render_browser_thumbnail(
-            &path,
-            &operation,
-            &Cancellation::default(),
-        );
+        let result = if matches!(operation, ParseOperation::PreviewImage) {
+            crate::sandbox_helper::render_browser_preview(
+                &path,
+                &operation,
+                &Cancellation::default(),
+            )
+        } else {
+            crate::sandbox_helper::render_browser_thumbnail(
+                &path,
+                &operation,
+                &Cancellation::default(),
+            )
+        };
         write_response(&mut stdout, result)?;
     }
 }
@@ -344,6 +377,7 @@ fn read_request(reader: &mut impl Read) -> Result<Option<(PathBuf, ParseOperatio
 
 fn parse_operation(operation: &str, value: &str) -> Result<ParseOperation, String> {
     Ok(match operation {
+        "preview-image-rgba" => ParseOperation::PreviewImage,
         "thumbnail-image" => ParseOperation::ThumbnailImage,
         "thumbnail-raw" => ParseOperation::ThumbnailRaw,
         "thumbnail-pdf" => ParseOperation::ThumbnailPdf,

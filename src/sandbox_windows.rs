@@ -479,6 +479,16 @@ fn parse_sandboxed(
         );
     }
 
+    if let Some(result) = browser::preview_rgba(input, &operation, cancellation) {
+        return result.map(|((width, height), data)| ParseOutput {
+            data,
+            page: 0,
+            pages: 0,
+            text_layer: None,
+            raster_dimensions: Some((width, height)),
+        });
+    }
+
     let output =
         PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?;
     let secret = if let ParseOperation::ArchiveList {
