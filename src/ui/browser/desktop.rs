@@ -93,7 +93,7 @@ async fn resolve_default_application(
             glib::Priority::DEFAULT,
         )
         .await?;
-    if info.file_type() == gio::FileType::SymbolicLink {
+    if crate::services::gio_file_type(&info) == Some(gio::FileType::SymbolicLink) {
         return Err(glib::Error::new(
             gio::IOErrorEnum::Failed,
             &crate::i18n::tr("Broken symbolic links cannot be opened with an application"),

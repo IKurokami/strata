@@ -37,6 +37,16 @@ mod update_install;
 #[path = "update_install_windows.rs"]
 mod update_install;
 
+use gtk::gio;
+
+pub(crate) fn gio_file_type(info: &gio::FileInfo) -> Option<gio::FileType> {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_TYPE)
+        .then(|| info.file_type())
+}
+
+#[cfg(test)]
+mod file_info_tests;
+
 pub use actions::{
     ActionAvailability, ActionHandle, ActionLoadFailure, ActionProgram, ActionRegistry,
     ActionScript, ActionWriteRequest, MatchedAction,

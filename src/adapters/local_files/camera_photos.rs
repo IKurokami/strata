@@ -93,7 +93,7 @@ impl Library {
                     {
                         continue;
                     }
-                    match info.file_type() {
+                    match super::info_file_type(&info) {
                         gio::FileType::Directory => {
                             if self.seen.insert(child.clone()) {
                                 self.pending

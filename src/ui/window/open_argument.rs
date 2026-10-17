@@ -158,8 +158,8 @@ async fn query_kind(
             .await
         {
             Ok(info) => {
-                return Ok(match info.file_type() {
-                    gio::FileType::Directory | gio::FileType::Mountable => Kind::Directory,
+                return Ok(match crate::services::gio_file_type(&info) {
+                    Some(gio::FileType::Directory | gio::FileType::Mountable) => Kind::Directory,
                     _ => Kind::File,
                 });
             }
