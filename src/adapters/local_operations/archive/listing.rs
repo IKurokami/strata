@@ -14,7 +14,8 @@ use std::{
 };
 
 // Archive fixture tests depend on Linux's archive operation/fixture module.
-// Windows uses only the metadata wire parser; decoder execution is disabled.
+// Windows decodes archives only inside the sandbox helper and returns this
+// bounded metadata wire format to the GTK process.
 #[cfg(all(test, not(windows)))]
 mod tests;
 

@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: MIT
-
+#[cfg(unix)]
+use std::os::fd::RawFd;
 use std::{
     fs,
     io::{self, Read, Seek},
-    os::fd::RawFd,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     sync::mpsc,
     thread,
@@ -20,12 +19,14 @@ use crate::{
     services::{ArchiveFormat, MediaPreviewSize},
 };
 
+#[cfg(target_os = "linux")]
 mod appimage;
 pub(crate) mod archive_cover;
-#[cfg(feature = "rar")]
+#[cfg(all(feature = "rar", unix))]
 mod archive_rar;
 mod document_media;
 mod image_conversion;
+#[cfg(unix)]
 mod media;
 mod model;
 mod raw_metadata;
@@ -33,7 +34,7 @@ mod raw_metadata;
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
-    #[cfg(not(feature = "rar"))]
+    #[cfg(any(not(feature = "rar"), not(unix)))]
     if arguments
         .first()
         .is_some_and(|operation| operation == "extract-rar")
@@ -43,7 +44,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     // Streams to its own stdout pipe instead of a bound `/output` file, so it
     // does not fit the fixed [operation, input, output, value, media_backend]
     // shape every other operation below shares.
-    #[cfg(feature = "rar")]
+    #[cfg(all(feature = "rar", unix))]
     if let [operation, input, rest @ ..] = arguments
         && operation == "extract-rar"
     {
@@ -70,7 +71,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         let mut stdout = stdout.lock();
         return archive_rar::run(Path::new(input), password.as_deref(), &mut stdout);
     }
-    let (arguments, start_tick) = match arguments {
+    let (arguments, _start_tick) = match arguments {
         [operation, ..]
             if matches!(operation.as_str(), "preview-media" | "preview-audio")
                 && arguments.len() == 6 =>
@@ -84,6 +85,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         }
         _ => (arguments, 0),
     };
+    #[cfg(unix)]
     let secret_fd = match arguments {
         [operation, ..] if operation == "archive-list" && arguments.len() == 6 => Some(
             arguments[5]
@@ -95,29 +97,45 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         _ if arguments.len() == 5 => None,
         _ => return Err("Invalid preview helper arguments".to_owned()),
     };
+    #[cfg(not(unix))]
+    let has_secret = match arguments {
+        [operation, ..] if operation == "archive-list" && arguments.len() == 6 => {
+            arguments[5] == "0" || arguments[5] == "stdin"
+        }
+        _ if arguments.len() == 5 => false,
+        _ => return Err("Invalid preview helper arguments".to_owned()),
+    };
     let [operation, input, output, value, media_backend] = &arguments[..5] else {
         return Err("Invalid preview helper arguments".to_owned());
     };
     let input = Path::new(input);
     let output = Path::new(output);
+    #[cfg(unix)]
     let media_backend = MediaPreviewBackend::from_argument(media_backend)
+        .ok_or_else(|| "Invalid media preview backend".to_owned())?;
+    #[cfg(not(unix))]
+    let _media_backend = MediaPreviewBackend::from_argument(media_backend)
         .ok_or_else(|| "Invalid media preview backend".to_owned())?;
     if matches!(operation.as_str(), "inspect-image" | "convert-image") {
         return image_conversion::run(input, output, operation == "convert-image");
     }
+    #[cfg(unix)]
     if operation == "preview-media" || operation == "preview-audio" {
         let audio_only = operation == "preview-audio";
-        return media::run(input, output, value, media_backend, start_tick, audio_only);
+        return media::run(input, output, value, media_backend, _start_tick, audio_only);
     }
+    #[cfg(unix)]
     if operation == "audio-peaks" {
         return media::run_peaks(input, output);
     }
+    #[cfg(unix)]
     if operation == "video-storyboard" {
         let cell_edge = value
             .parse::<u32>()
             .map_err(|_| "Invalid storyboard cell size".to_owned())?;
         return media::run_storyboard(input, output, cell_edge);
     }
+    #[cfg(unix)]
     if operation == "audio-tags" {
         return fs::write(output, media::audio_tags(input)?).map_err(|error| error.to_string());
     }
@@ -143,8 +161,13 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     if operation == "raw-metadata" {
         return fs::write(output, raw_metadata::read(input)?).map_err(|error| error.to_string());
     }
+    #[cfg(unix)]
     if operation == "archive-list" {
         return run_archive_list(input, output, value, secret_fd);
+    }
+    #[cfg(not(unix))]
+    if operation == "archive-list" {
+        return run_archive_list(input, output, value, has_secret);
     }
     let numeric_value = || {
         value
@@ -163,6 +186,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             None,
         ),
         "thumbnail-video" => (render_media(input, numeric_value()?.clamp(16, 256))?, None),
+        #[cfg(unix)]
         "audio-cover" => {
             let cover = media::cover(input, 800)?;
             (
@@ -174,10 +198,15 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
                 None,
             )
         }
+        #[cfg(not(unix))]
+        "audio-cover" => (b"null".to_vec(), None),
+        #[cfg(target_os = "linux")]
         "thumbnail-appimage" => (
             appimage::render(input, numeric_value()?.clamp(16, 256))?,
             None,
         ),
+        #[cfg(not(target_os = "linux"))]
+        "thumbnail-appimage" => return Err("AppImage is only supported on Linux".to_owned()),
         "thumbnail-model" => (
             model::thumbnail(
                 input,
@@ -203,6 +232,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             )?,
             None,
         ),
+        "preview-image-rgba" => (render_rgba_envelope(input)?, None),
         "preview-image" | "document-image" => (document_media::image(input, 800)?, None),
         "document-mermaid" => (document_media::mermaid(input)?, None),
         "document-math" => (document_media::math(input, true)?, None),
@@ -245,6 +275,81 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Render one browser thumbnail without going through the command-line/output-file
+/// adapter. Windows' persistent browser worker uses this entry point so each
+/// request keeps the Job Object boundary while avoiding a fresh process and GTK
+/// startup for every image.
+#[cfg(windows)]
+pub(crate) fn render_browser_thumbnail(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+    cancellation: &crate::sandbox::Cancellation,
+) -> Result<Vec<u8>, String> {
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    validate_browser_input(input, operation)?;
+    let png = match operation {
+        crate::sandbox::ParseOperation::ThumbnailImage => render_raw(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailRaw => render_raw_thumbnail(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailPdf => render_pdf_thumbnail(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailVideo => render_media(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailModel(format) => {
+            model::thumbnail(input, *format, 256, 256, &|_| {})?
+        }
+        crate::sandbox::ParseOperation::ThumbnailCover(format) => {
+            archive_cover::thumbnail(input, *format)?
+        }
+        crate::sandbox::ParseOperation::ThumbnailAppImage => {
+            return Err("AppImage thumbnails are unavailable on Windows".to_owned());
+        }
+        _ => return Err("Not a browser thumbnail operation".to_owned()),
+    };
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    Ok(png)
+}
+
+#[cfg(windows)]
+pub(crate) fn render_browser_preview(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+    cancellation: &crate::sandbox::Cancellation,
+) -> Result<Vec<u8>, String> {
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    validate_browser_input(input, operation)?;
+    if !matches!(operation, crate::sandbox::ParseOperation::PreviewImage) {
+        return Err("Not a browser image preview operation".to_owned());
+    }
+    let rgba = render_rgba_envelope(input)?;
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    Ok(rgba)
+}
+
+#[cfg(windows)]
+fn validate_browser_input(
+    input: &Path,
+    operation: &crate::sandbox::ParseOperation,
+) -> Result<(), String> {
+    let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Preview input is not a regular file".to_owned());
+    }
+    if operation
+        .input_size_limit()
+        .is_some_and(|limit| metadata.len() > limit)
+    {
+        return Err("Preview input exceeds the supported size limit".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 fn run_archive_list(
     input: &Path,
     output: &Path,
@@ -280,7 +385,46 @@ fn run_archive_list(
     Ok(())
 }
 
+#[cfg(not(unix))]
+fn run_archive_list(
+    input: &Path,
+    output: &Path,
+    format: &str,
+    has_secret: bool,
+) -> Result<(), String> {
+    use crate::adapters::MAX_ARCHIVE_PASSWORD_BYTES;
+
+    let format = match format {
+        "zip" => ArchiveFormat::Zip,
+        "7z" => ArchiveFormat::SevenZ,
+        "tar" => ArchiveFormat::Tar,
+        "tar.gz" => ArchiveFormat::TarGz,
+        _ => return Err("Unknown archive format for preview.".to_owned()),
+    };
+    let password = if has_secret {
+        let mut secret = Vec::new();
+        std::io::stdin()
+            .take(MAX_ARCHIVE_PASSWORD_BYTES as u64 + 1)
+            .read_to_end(&mut secret)
+            .map_err(|error| format!("Unable to read the preview secret: {error}"))?;
+        if secret.len() > MAX_ARCHIVE_PASSWORD_BYTES {
+            return Err("Archive password is too long.".to_owned());
+        }
+        Some(
+            String::from_utf8(secret)
+                .map_err(|_| "Archive password is not valid text.".to_owned())?,
+        )
+    } else {
+        None
+    };
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let result = list_archive_entries_direct(input, format, password.as_deref(), &cancelled);
+    fs::write(output, encode_archive_result(&result)).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 // Reopen to read from offset zero without changing the inherited description's offset.
+#[cfg(unix)]
 fn read_secret_fd(descriptor: RawFd) -> Result<Vec<u8>, String> {
     let mut secret = Vec::new();
     fs::File::open(format!("/proc/self/fd/{descriptor}"))
@@ -372,6 +516,7 @@ fn read_media_metadata(input: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[cfg(unix)]
 pub(crate) fn browser_render(
     input: &Path,
     operation: crate::sandbox::browser::wire::Operation,
@@ -578,11 +723,119 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
             }
             return Err("Image dimensions exceed the decoded frame budget".to_owned());
         }
+        // Camera JPEGs commonly carry a small embedded preview. It is much cheaper to
+        // decode that preview than to run the full JPEG through the scaler for a 256px
+        // browser tile. Do not use it for the larger single-image preview: camera
+        // thumbnails are often only 160-320px wide and would look soft when enlarged.
+        if size <= 256
+            && width.max(height) >= size.saturating_mul(2)
+            && let Some(png) = read_exif_thumbnail(path, size)
+        {
+            return Ok(png);
+        }
         return render_pixbuf(path, size.min(width.max(height)))
             .or_else(|_| render_imagemagick(path, size))
             .or_else(|_| render_dcraw(path, size));
     }
     render_imagemagick(path, size).or_else(|_| render_dcraw(path, size))
+}
+
+fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
+    let dimensions = image_dimensions(path);
+    if let Some((width, height)) = dimensions
+        && (width <= 0
+            || height <= 0
+            || width > 16_384
+            || height > 16_384
+            || u64::try_from(width)
+                .unwrap_or(0)
+                .saturating_mul(u64::try_from(height).unwrap_or(0))
+                .saturating_mul(4)
+                > 256 * 1024 * 1024)
+    {
+        return Err("Image dimensions exceed the preview frame budget".to_owned());
+    }
+
+    // GdkPixbuf's at-scale loader asks the decoder for the target size, avoiding the
+    // full-resolution RGBA allocation performed by image::DynamicImage::thumbnail.
+    // Keep the image crate path below for formats that are not installed as a Pixbuf
+    // loader on the current platform.
+    let (target_width, target_height) = dimensions
+        .map(|(width, height)| (width.clamp(1, 1280), height.clamp(1, 1280)))
+        .unwrap_or((1280, 1280));
+    if let Ok(pixbuf) =
+        gdk_pixbuf::Pixbuf::from_file_at_scale(path, target_width, target_height, true)
+    {
+        let width = pixbuf.width();
+        let height = pixbuf.height();
+        let channels = pixbuf.n_channels();
+        let rowstride = pixbuf.rowstride();
+        if width > 0
+            && height > 0
+            && (channels == 3 || channels == 4)
+            && rowstride >= width.saturating_mul(channels)
+        {
+            let source = pixbuf.read_pixel_bytes();
+            let source = source.as_ref();
+            let row_bytes = usize::try_from(rowstride).map_err(|_| "Invalid image stride")?;
+            let width = usize::try_from(width).map_err(|_| "Invalid image width")?;
+            let height = usize::try_from(height).map_err(|_| "Invalid image height")?;
+            let channels = usize::try_from(channels).map_err(|_| "Invalid image channels")?;
+            let required = row_bytes
+                .checked_mul(height)
+                .ok_or("Image pixel buffer is too large")?;
+            if source.len() >= required {
+                let mut pixels = Vec::with_capacity(
+                    width
+                        .checked_mul(height)
+                        .and_then(|pixels| pixels.checked_mul(4))
+                        .ok_or("Image pixel buffer is too large")?,
+                );
+                for row in source.chunks_exact(row_bytes).take(height) {
+                    for pixel in row.chunks_exact(channels).take(width) {
+                        pixels.extend_from_slice(&pixel[..3]);
+                        pixels.push(if channels == 4 { pixel[3] } else { 255 });
+                    }
+                }
+                if pixels.len() == width * height * 4 {
+                    let width = u32::try_from(width).map_err(|_| "Invalid image width")?;
+                    let height = u32::try_from(height).map_err(|_| "Invalid image height")?;
+                    let mut output = Vec::with_capacity(16 + pixels.len());
+                    output.extend_from_slice(b"STRGBA01");
+                    output.extend_from_slice(&width.to_le_bytes());
+                    output.extend_from_slice(&height.to_le_bytes());
+                    output.extend_from_slice(&pixels);
+                    return Ok(output);
+                }
+            }
+        }
+    }
+
+    let reader = image::ImageReader::open(path)
+        .map_err(|error| error.to_string())?
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    let mut reader = reader;
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|error| error.to_string())?;
+    let image = if decoded.width() > 1280 || decoded.height() > 1280 {
+        decoded.thumbnail(1280, 1280)
+    } else {
+        decoded
+    }
+    .into_rgba8();
+    let (width, height) = image.dimensions();
+    let pixels = image.into_raw();
+    let mut output = Vec::with_capacity(16 + pixels.len());
+    output.extend_from_slice(b"STRGBA01");
+    output.extend_from_slice(&width.to_le_bytes());
+    output.extend_from_slice(&height.to_le_bytes());
+    output.extend_from_slice(&pixels);
+    Ok(output)
 }
 
 fn render_raw_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {
@@ -601,7 +854,12 @@ fn render_raw_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 
 fn read_exif_thumbnail(path: &Path, size: i32) -> Option<Vec<u8>> {
     let file = fs::File::open(path).ok()?;
-    let mut reader = io::BufReader::new(file);
+    // EXIF lives in the initial JPEG APP1 segment for the formats supported here. Bound
+    // the scan so a file without a thumbnail never turns a 256px request into a full-file
+    // read on a network or spinning disk. Files with unusually large metadata simply fall
+    // back to the normal scaled decoder.
+    const EXIF_SCAN_LIMIT: u64 = 1024 * 1024;
+    let mut reader = io::BufReader::new(file.take(EXIF_SCAN_LIMIT));
     let exif = exif::Reader::new()
         .continue_on_error(true)
         .read_from_container(&mut reader)
@@ -655,12 +913,18 @@ fn render_dcraw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 }
 
 fn render_simple_dcraw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
-    use std::os::unix::fs::symlink;
-
     // Writes `<file>.thumb.jpg` next to the input, which is a read-only bind.
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let staging = directory.path().join("raw-thumb");
-    symlink(path, &staging).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        symlink(path, &staging).map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::copy(path, &staging).map_err(|error| error.to_string())?;
+    }
     let status = Command::new("simple_dcraw")
         .arg("-e")
         .arg(&staging)
@@ -1034,7 +1298,7 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
     let output_path = directory.path().join("thumbnail.png");
     let output = bounded_output(
-        Command::new("ffmpegthumbnailer")
+        Command::new(media_tool("ffmpegthumbnailer"))
             .arg("-i")
             .arg(path)
             .arg("-o")
@@ -1046,7 +1310,7 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     );
     if !output.is_ok_and(|output| output.status.success()) {
         let fallback = bounded_output(
-            Command::new("ffmpeg")
+            Command::new(media_tool("ffmpeg"))
                 .args(["-v", "error", "-y", "-threads", "1", "-i"])
                 .arg(path)
                 .args([
@@ -1076,6 +1340,19 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
         return Err("Empty media thumbnail".into());
     }
     Ok(png)
+}
+
+fn media_tool(name: &str) -> PathBuf {
+    let executable = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(&executable)))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from(executable))
 }
 
 fn read_limited(reader: impl Read, max_bytes: u64) -> io::Result<Vec<u8>> {
@@ -1118,5 +1395,5 @@ fn bounded_output(command: &mut Command, max_bytes: u64) -> io::Result<Output> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;

@@ -143,9 +143,16 @@ async fn measure_children(
                 summary.issues.timed_out = true;
                 break 'directory;
             }
+            let Some(name) = info
+                .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+                .then(|| info.name())
+            else {
+                summary.issues.unreadable = true;
+                continue;
+            };
             summary.include(
                 measure_entry(
-                    directory.child(info.name()),
+                    directory.child(name),
                     info,
                     child_depth,
                     hidden_ancestor,
@@ -185,11 +192,11 @@ fn measure_entry(
     budget: Rc<MeasurementBudget>,
 ) -> MeasurementFuture {
     Box::pin(async move {
-        let is_directory = info.file_type() == gio::FileType::Directory;
+        let is_directory = crate::services::gio_file_type(&info) == Some(gio::FileType::Directory);
         let is_hidden = hidden_ancestor || info.is_hidden();
         let mut summary = DirectorySummary {
             item_count: 1,
-            total_size: if info.file_type() == gio::FileType::Regular {
+            total_size: if crate::services::gio_file_type(&info) == Some(gio::FileType::Regular) {
                 info.size().max(0) as u64
             } else {
                 0

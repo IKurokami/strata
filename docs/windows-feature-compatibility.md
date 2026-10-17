@@ -17,19 +17,19 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 | GTK4 views, keyboard actions, tabs, appearance | Retain UI; use GDK Win32 backend | Windows GUI unverified |
 | Listing local folders | Use lazy streaming batches and Windows-provided type hints | Backend tested, GTK integration pending |
 | Filename search | Preserve Rust matching/scoring; scan without startup index; optional opt-in search index later | Main-app integration pending |
-| Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Basic native worker implemented; GTK integration pending |
-| Rename / move | Keep functionality using safe native rename semantics, with prompt on collision/cross-volume move | Not yet implemented |
-| Recycle Bin | Port to Windows shell recycle semantics | Not yet implemented; **never** fall back to permanent delete |
-| USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Not yet implemented |
+| Create folder / copy file | Preserve with background, bounded queue and exclusive destination creation | Recursive directory copy now uses the native worker; reparse points are rejected and existing destinations are preserved |
+| Rename / move | Keep same-volume functionality using safe native rename semantics; add collision and cross-volume handling separately | Same-volume rename/undo, conflict policies, merge, and verified cross-volume copy/publish/delete are implemented; fault-injection and full filesystem-matrix evidence remain pending |
+| Recycle Bin | Port to Windows shell recycle semantics | Native Shell recycle/restore and explicit permanent delete run on COM STA workers |
+| USB, disks, volumes | Use Windows enumeration; no UDisks2 requirement | Cached Win32 removable-volume snapshot refreshes off the UI thread |
 | SMB and network paths | Prefer native UNC; avoid blocking initial local listing on network volumes | Path classification implemented, remote operations unverified |
-| SFTP | Optional network backend, on-demand only | Not yet implemented |
-| Preview / PDF / video / RAW | Retain, with Windows-compatible hardened helper isolation before enabling untrusted parsers | Raw-byte prefetch exists; sandbox not ported |
+| SFTP | Optional network backend, on-demand only | Provider discovery and per-request Job Object transport are implemented with current-user ownership checks; provider availability remains opt-in and ACL/peer evidence remains pending |
+| Preview / PDF / video / RAW | Retain, with Windows-compatible hardened helper isolation before enabling untrusted parsers | Sandboxed helper and bounded media session use Job Objects; image/media GUI acceptance and renderer attack-surface evidence remain pending |
 | Open With | Keep GIO AppInfo associations; avoid `gio_unix::DesktopAppInfo` on Windows | Conditional Unix implementation removed; GUI unverified |
 | Show hidden files | Keep Windows hidden attribute behavior; do not read GNOME `.hidden` | Windows skips Linux-only probe |
 | D-Bus / XDG portals / FileManager1 | Not applicable on Windows; use Windows shell integration separately | Linux-only Settings controls excluded from Windows |
 | Omarchy keybinds and `udiskie` | Linux-specific; do not ship on Windows | Windows settings excluded |
 | BitLocker | Leave to Windows, do not request elevation merely for file listing | Native integration pending |
-| Startup/update/release | Skip Linux GVfs health checks, portal refresh, X11 and D-Bus launch hooks on Windows; implement native updater and installer separately | Linux startup probes now target-gated; Windows app and installer not yet built |
+| Startup/update/release | Skip Linux GVfs health checks, portal refresh, X11 and D-Bus launch hooks on Windows; implement native updater and installer separately | Verified updater and self-contained portable release staging are implemented; clean-machine release acceptance and signing remain pending |
 
 ## Phase 3: platform-specific fast paths
 
@@ -48,16 +48,16 @@ The Windows build is still a work in progress. A green `strata-native-io` CI job
 
 ## Phase 6: Windows volume and mount snapshots
 
-- Linux retains `/proc/self/mountinfo` and `gio_unix::MountMonitor`; Windows now selects separate zero-I/O adapters so no Unix mount parsing or GIO mount-monitor setup occurs during ordinary Windows navigation.
+- Linux retains `/proc/self/mountinfo` and `gio_unix::MountMonitor`; Windows now selects separate cached adapters so no Unix mount parsing or synchronous Win32 volume enumeration occurs during ordinary Windows navigation.
 - Explicit UNC roots are recognized lexically as potentially blocking network paths. Remote volume queries are still delegated to the asynchronous path, not the hot UI thread.
-- Unknown drive types, mapped network letters, removable volumes and their stable identities are **not** guessed. The Windows snapshot intentionally has no removable entries until a real asynchronous Win32 enumerator exists; an empty snapshot must not be mistaken for proof that no removable disks exist.
-- Windows Recycle Bin remains disabled rather than using Linux's trash mount scan or silently substituting permanent deletion. Native volume APIs and mapped network drive classification remain necessary before feature parity.
+- Unknown drive types and mapped network letters are **not** guessed. Removable roots arrive through a bounded background snapshot and are invalidated when navigation changes volume context.
+- Windows Recycle Bin uses Shell identity rather than Linux trash metadata; permanent deletion is a separately requested Shell operation.
 
 ## CI and blockers
 
 - Independent crate CI runs formatting, Clippy, tests and release compilation on Windows Server 2025 and Ubuntu.
 - The upstream full-app E2E workflow depends on Linux image publishing to GHCR. For the fork, a future published fork image can be reused; when unavailable, `ci.yml` now explicitly builds an ephemeral test image rather than skipping validation.
-- Full GTK `strata.exe`, Windows previews, sandbox isolation, File Explorer integration, and first-frame benchmarks are still required before release.
+- Full GTK `strata.exe` interaction, preview/media attack-surface evidence, and first-frame benchmark artifacts are now wired into the Windows smoke workflow; the final same-SHA runner evidence is still required before release.
 
 ## Performance decisions implemented in phase 2
 

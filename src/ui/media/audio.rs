@@ -189,10 +189,16 @@ impl PcmOutput {
     }
 
     pub(super) fn position_us(&self) -> Option<u64> {
-        // Query the sink, not appsrc's queued-buffer position: this follows playback's clock.
-        self.sink
+        // Keep Linux device position queries: appsrc can run ahead of audible
+        // PCM. Windows' autoaudiosink bin needs the pipeline query instead.
+        #[cfg(windows)]
+        let position = self
+            .pipeline
             .query_position::<gst::ClockTime>()
-            .map(|time| time.useconds())
+            .or_else(|| self.sink.query_position::<gst::ClockTime>());
+        #[cfg(not(windows))]
+        let position = self.sink.query_position::<gst::ClockTime>();
+        position.map(|time| time.useconds())
     }
 
     pub(super) fn set_audio(&self, muted: bool, volume: f64) {

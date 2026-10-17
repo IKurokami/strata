@@ -1,4 +1,4 @@
-name: Windows GUI compilation (experimental)
+name: Windows GUI compilation
 
 on:
   pull_request:
@@ -28,12 +28,9 @@ concurrency:
 
 jobs:
   compile-windows-gtk:
-    name: Experimental GTK4 Windows GNU compiler gate
+    name: GTK4 Windows GNU compiler gate
     runs-on: windows-2025
     timeout-minutes: 40
-    # This is an explicitly nonblocking diagnostic until strata.exe builds.
-    # Never treat a green *workflow* as proof of a successful GUI compile.
-    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,7 +48,9 @@ jobs:
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-gtksourceview5
             mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-poppler
             mingw-w64-ucrt-x86_64-glib2
             mingw-w64-ucrt-x86_64-fontconfig
@@ -67,6 +66,7 @@ jobs:
           pkgconf --modversion gtk4
           pkgconf --modversion gtksourceview-5
           pkgconf --modversion gstreamer-1.0
+          gst-inspect-1.0 autoaudiosink
           pkgconf --modversion poppler-glib
           pkgconf --modversion fontconfig
 
@@ -89,8 +89,7 @@ jobs:
         if: always()
         shell: msys2 {0}
         run: |
-          echo '### Native Windows GTK compile diagnostic' >> "$GITHUB_STEP_SUMMARY"
-          echo 'This job is intentionally experimental until the full application compiles.' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Native Windows GTK compile gate' >> "$GITHUB_STEP_SUMMARY"
           echo "Compiler result: ${{ steps.gui_check.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           if test -f target/windows-gui-diagnostics/cargo-check.log; then
             grep -E '^error|error\[|^warning|\.rs:[0-9]+:[0-9]+' target/windows-gui-diagnostics/cargo-check.log \

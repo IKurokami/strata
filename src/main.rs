@@ -27,10 +27,6 @@ mod sandbox;
 #[cfg(windows)]
 #[path = "sandbox_windows.rs"]
 mod sandbox;
-#[cfg(not(windows))]
-mod sandbox_helper;
-#[cfg(windows)]
-#[path = "sandbox_helper_windows.rs"]
 mod sandbox_helper;
 mod services;
 #[cfg(not(windows))]

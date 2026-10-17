@@ -21,8 +21,9 @@ use crate::{
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
-        document_kind, has_plain_text_extension, is_non_executable_extensionless_dotfile,
-        layout_document, normalize_preview_text, parse_document,
+        document_kind, has_plain_text_extension, is_image_path, is_media_path,
+        is_non_executable_extensionless_dotfile, layout_document, normalize_preview_text,
+        parse_document,
     },
 };
 
@@ -158,6 +159,7 @@ impl PreviewCache {
 fn preview_content_size(content: &PreviewContent) -> usize {
     match content {
         PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => png.len(),
+        PreviewContent::RawImage { pixels, .. } => pixels.len(),
         PreviewContent::Pdf {
             png, text_layer, ..
         } => {
@@ -276,6 +278,20 @@ impl LocalPreviewProvider {
                         truncated: false,
                     };
                     content_type = "text/plain".to_owned();
+                } else if is_image_path(Path::new(&entry.native_name)) {
+                    // Windows GIO can report application/octet-stream for
+                    // valid images when no desktop MIME database is present.
+                    // Extension classification is only a fallback; the
+                    // bounded decoder still validates the actual bytes.
+                    content = PreviewContent::Image;
+                    content_type = "image/*".to_owned();
+                } else if is_media_path(Path::new(&entry.native_name)) {
+                    content = PreviewContent::Media;
+                    content_type = if crate::services::is_audio_path(Path::new(&entry.native_name)) {
+                        "audio/*"
+                    } else {
+                        "video/*"
+                    }.to_owned();
                 }
             }
 
@@ -495,7 +511,8 @@ impl LocalPreviewProvider {
                     size: request.media_size,
                     backend: media_preview_backend,
                     input_owner: None,
-                    audio_only: false,
+                    audio_only: content_type.starts_with("audio/")
+                        || crate::services::is_audio_path(Path::new(&entry.native_name)),
                 };
                 if let Some(staged) = staged {
                     media = media.retain_input(staged);
@@ -532,6 +549,7 @@ impl LocalPreviewProvider {
                 | PreviewContent::Document { .. }
                 | PreviewContent::Rendered { .. }
                 | PreviewContent::Rasterized { .. }
+                | PreviewContent::RawImage { .. }
                 | PreviewContent::SandboxedMedia { .. }
                 | PreviewContent::Archive { .. }
                 | PreviewContent::Unsupported => None,
@@ -657,6 +675,12 @@ impl LocalPreviewProvider {
                             pages: output.pages,
                             text_layer: output.text_layer.map(std::sync::Arc::new),
                         }
+                    }
+                    #[cfg(windows)]
+                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewImage)
+                        && output.raster_dimensions.is_some() => {
+                        let (width, height) = output.raster_dimensions.expect("validated image dimensions");
+                        PreviewContent::RawImage { width, height, pixels: output.data }
                     }
                     Ok(Ok(output)) => {
                         if let Some(mtime) = modified.filter(|_| !matches!(operation, ParseOperation::PreviewCover(_))) {

@@ -808,6 +808,15 @@ pub(super) fn copy_path_text(location: &Location, is_directory: bool) -> String 
     }
 }
 
+// Windows clipboard paths are native filesystem strings, not POSIX shell input.
+// In particular, never turn backslashes into double backslashes or insert
+// Unix-style escapes before spaces, ampersands and parentheses.
+#[cfg(windows)]
+fn shell_escape_path(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+#[cfg(not(windows))]
 fn shell_escape_path(path: &Path) -> String {
     let path = path.to_string_lossy();
     if path.contains('\n') {
@@ -826,6 +835,7 @@ fn shell_escape_path(path: &Path) -> String {
     escaped
 }
 
+#[cfg(not(windows))]
 fn needs_shell_escape(c: char) -> bool {
     c.is_whitespace()
         || c.is_control()

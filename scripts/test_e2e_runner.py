@@ -224,7 +224,7 @@ class NativeRunnerTests(unittest.TestCase):
             (root / "target/debug").mkdir(parents=True)
             if current_requirements:
                 (venv / "strata-requirements.txt").write_text((suite / "requirements.txt").read_text())
-            for name in ("Xvfb", "dbus-daemon", "dbus-send", "import", "python3"):
+            for name in ("Xvfb", "dbus-daemon", "dbus-send", "import", "setxkbmap", "python3"):
                 tool = tools / name
                 tool.write_text("#!/bin/sh\nexit 0\n")
                 tool.chmod(0o755)

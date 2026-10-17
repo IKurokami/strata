@@ -125,6 +125,16 @@ pub enum PreviewContent {
     Rasterized {
         png: Vec<u8>,
     },
+    /// Windows direct-upload image: decoded once to tightly packed RGBA.
+    #[cfg_attr(
+        not(windows),
+        expect(dead_code, reason = "constructed by the Windows preview decoder")
+    )]
+    RawImage {
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    },
     Model {
         png: Vec<u8>,
     },
@@ -210,12 +220,71 @@ fn content_type_for_path(path: &Path) -> glib::GString {
 }
 
 pub(crate) fn is_image_path(path: &Path) -> bool {
-    content_type_for_path(path).starts_with("image/")
+    let content_type = content_type_for_path(path);
+    content_type.starts_with("image/")
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+                )
+            })
+}
+
+pub(crate) fn is_audio_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp3"
+                    | "wav"
+                    | "flac"
+                    | "ogg"
+                    | "opus"
+                    | "m4a"
+                    | "aac"
+                    | "wma"
+                    | "aiff"
+                    | "aif"
+                    | "alac"
+            )
+        })
 }
 
 pub(crate) fn is_media_path(path: &Path) -> bool {
     let content_type = content_type_for_path(path);
-    content_type.starts_with("audio/") || content_type.starts_with("video/")
+    content_type.starts_with("audio/")
+        || content_type.starts_with("video/")
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "mp3"
+                        | "wav"
+                        | "flac"
+                        | "ogg"
+                        | "opus"
+                        | "m4a"
+                        | "aac"
+                        | "wma"
+                        | "aiff"
+                        | "aif"
+                        | "alac"
+                        | "mp4"
+                        | "mkv"
+                        | "mov"
+                        | "avi"
+                        | "webm"
+                        | "wmv"
+                        | "mpeg"
+                        | "mpg"
+                )
+            })
 }
 
 pub(crate) fn supports_remote_video(name: &OsStr) -> bool {
@@ -233,7 +302,27 @@ pub(crate) fn has_plain_text_extension(name: &OsStr) -> bool {
     Path::new(name)
         .extension()
         .and_then(OsStr::to_str)
-        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "conf" | "ini"))
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                // Plain text and documentation.
+                "txt" | "text" | "log" | "md" | "markdown" | "rst" | "org" | "csv" | "tsv"
+                    // Configuration and data formats that GIO may label as binary.
+                    | "conf" | "ini" | "cfg" | "config" | "properties" | "env" | "toml"
+                    | "yaml" | "yml" | "json" | "jsonl" | "ndjson" | "xml" | "xsl" | "xsd"
+                    | "graphql" | "gql" | "lock"
+                    // Shell, build, query, and programming-language sources.
+                    | "sh" | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "bat" | "cmd"
+                    | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "m" | "mm"
+                    | "rs" | "go" | "py" | "pyw" | "js" | "jsx" | "mjs" | "cjs" | "ts"
+                    | "tsx" | "java" | "kt" | "kts" | "scala" | "cs" | "fs" | "fsx"
+                    | "vb" | "swift" | "dart" | "lua" | "pl" | "pm" | "r" | "php" | "rb"
+                    | "sql" | "asm" | "s" | "zig" | "nim" | "ex" | "exs" | "erl" | "hrl"
+                    | "clj" | "cljs" | "hs" | "lhs" | "groovy" | "gradle" | "cmake"
+                    // Web and stylesheet sources.
+                    | "html" | "htm" | "css" | "scss" | "sass" | "less" | "vue" | "svelte"
+            )
+        })
 }
 
 pub(crate) fn normalize_preview_text(text: &str) -> Cow<'_, str> {

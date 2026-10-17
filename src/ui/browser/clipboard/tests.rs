@@ -734,6 +734,7 @@ fn completed_moves_are_removed_from_the_cut_list() {
     assert_eq!(cut, vec![second]);
 }
 
+#[cfg(not(windows))]
 #[test]
 fn shell_escape_path_escapes_spaces_and_metacharacters_but_not_filename_unicode() {
     assert_eq!(
@@ -750,6 +751,7 @@ fn shell_escape_path_escapes_spaces_and_metacharacters_but_not_filename_unicode(
     );
 }
 
+#[cfg(not(windows))]
 #[test]
 fn copy_path_text_adds_trailing_slash_to_directories_only() {
     let directory = Location::local("/mnt/Mass 1/Movies\u{2044}TV");
@@ -769,12 +771,29 @@ fn copy_path_text_keeps_uris_unescaped() {
     assert_eq!(copy_path_text(&remote, true), "smb://server/share/folder");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn shell_escape_path_preserves_newlines_and_single_quotes() {
     assert_eq!(
         shell_escape_path(Path::new("/tmp/line\nbob's notes")),
         "'/tmp/line\nbob'\\''s notes'"
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_copy_path_preserves_native_backslashes_spaces_and_shell_metacharacters() {
+    let directory = Location::local(r"C:\Users\Public\Folder & Photos");
+    assert_eq!(
+        copy_path_text(&directory, true),
+        "C:\\Users\\Public\\Folder & Photos\\"
+    );
+    assert_eq!(
+        copy_path_text(&directory, false),
+        r"C:\Users\Public\Folder & Photos"
+    );
+    let file = Path::new(r"C:\Projects\A (final)\data$2026.txt");
+    assert_eq!(shell_escape_path(file), file.to_string_lossy());
 }
 
 fn pump_main_loop_until(timeout: Duration, condition: impl Fn() -> bool) {

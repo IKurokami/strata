@@ -318,7 +318,7 @@ fn uri_validation_result(
             ))
         }
     })?;
-    match info.file_type() {
+    match info_file_type(&info) {
         gio::FileType::Directory => Ok(()),
         gio::FileType::Mountable => Err(LocationValidationError::Mountable(location.clone())),
         _ => Err(LocationValidationError::NotDirectory),
@@ -334,6 +334,19 @@ fn remote_directory_failure(request_id: RequestId, error: &glib::Error) -> Direc
 
 fn info_is_hidden(info: &gio::FileInfo) -> bool {
     info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) && info.is_hidden()
+}
+
+fn info_file_type(info: &gio::FileInfo) -> gio::FileType {
+    if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_TYPE) {
+        info.file_type()
+    } else {
+        gio::FileType::Unknown
+    }
+}
+
+pub(super) fn info_name(info: &gio::FileInfo) -> Option<PathBuf> {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+        .then(|| info.name())
 }
 
 fn info_is_symlink(info: &gio::FileInfo) -> bool {
@@ -375,7 +388,15 @@ fn listed_entry(
     directory: &gio::File,
     info: gio::FileInfo,
 ) -> Option<FileEntry> {
-    let Some(child) = location_for_file(&directory.child(info.name())) else {
+    let Some(name) = info_name(&info) else {
+        tracing::warn!(
+            request_id = request_id.0,
+            location = %location.diagnostic_path(),
+            "skipped directory entry without a standard name"
+        );
+        return None;
+    };
+    let Some(child) = location_for_file(&directory.child(&name)) else {
         tracing::warn!(
             request_id = request_id.0,
             backend = %location.backend_name(),
@@ -388,7 +409,7 @@ fn listed_entry(
             request_id = request_id.0,
             location = %location.diagnostic_path(),
             display_name = ?display_name,
-            name_bytes = info.name().as_os_str().len(),
+            name_bytes = name.as_os_str().len(),
             "skipped directory entry"
         );
         return None;
@@ -398,7 +419,7 @@ fn listed_entry(
 
 fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
     let location = if matches!(
-        info.file_type(),
+        info_file_type(&info),
         gio::FileType::Shortcut | gio::FileType::Mountable
     ) {
         info.attribute_string(gio::FILE_ATTRIBUTE_STANDARD_TARGET_URI)
@@ -407,8 +428,16 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
     } else {
         location
     };
-    let native_name = info.name().into_os_string();
-    let kind = match (info.file_type(), info_is_symlink(&info)) {
+    let native_name = info_name(&info)
+        .map(PathBuf::into_os_string)
+        .or_else(|| location.file_name())
+        .unwrap_or_default();
+    let display_name = if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) {
+        info.display_name().to_string()
+    } else {
+        native_name.to_string_lossy().into_owned()
+    };
+    let kind = match (info_file_type(&info), info_is_symlink(&info)) {
         (gio::FileType::Directory, true) => EntryKind::DirectorySymbolicLink,
         (gio::FileType::Regular, true) => EntryKind::FileSymbolicLink,
         // GVfs browse entries must use directory navigation, including mount-and-retry,
@@ -443,7 +472,7 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
         thumbnail_path: trash_thumbnail_path(&location, &info),
         location,
         native_name,
-        display_name: info.display_name().to_string(),
+        display_name,
         kind,
         size,
         modified_unix_seconds,
@@ -1873,7 +1902,7 @@ fn fill_icon_details_with_probe(
         return true;
     }
 
-    update.child_count = if info.file_type() == gio::FileType::Directory {
+    update.child_count = if info_file_type(info) == gio::FileType::Directory {
         let Ok(entries) = fs::read_dir(path) else {
             update.image_dimensions = MetadataValue::Unavailable;
             update.child_count = MetadataValue::Unavailable;
@@ -1901,8 +1930,8 @@ fn fill_icon_details_with_probe(
     if cancellable.is_cancelled() || Instant::now() >= deadline {
         return false;
     }
-    let needs_metadata =
-        info.file_type() == gio::FileType::Regular && (is_image_path(path) || is_media_path(path));
+    let needs_metadata = info_file_type(info) == gio::FileType::Regular
+        && (is_image_path(path) || is_media_path(path));
     if needs_metadata {
         #[cfg(test)]
         if let Ok(mut counts) = media_metadata_probe_counts().lock() {
@@ -1942,7 +1971,7 @@ fn fill_icon_details_with_probe(
 }
 
 fn update_from_info(info: &gio::FileInfo, location: &Location) -> (MetadataUpdate, bool) {
-    let size = if info.file_type() == gio::FileType::Directory {
+    let size = if info_file_type(info) == gio::FileType::Directory {
         MetadataValue::Unknown
     } else {
         u64::try_from(info.size())

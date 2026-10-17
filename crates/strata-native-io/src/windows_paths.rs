@@ -4,7 +4,7 @@
 use std::{
     ffi::OsStr,
     os::windows::ffi::OsStrExt,
-    path::{Component, Path, Prefix},
+    path::{Component, Path, PathBuf, Prefix},
 };
 
 /// Differentiate absolute destinations from paths that require resolution.
@@ -146,6 +146,24 @@ pub fn valid_child_name(name: &OsStr) -> bool {
         return false;
     }
     true
+}
+
+/// `name (n).ext` for files, `name (n)` for directories and dotfiles.
+pub fn numbered_candidate(destination: &Path, index: u32, split_extension: bool) -> PathBuf {
+    let name = destination.file_name().unwrap_or_default();
+    let path = Path::new(name);
+    let (stem, extension) = if split_extension {
+        (path.file_stem(), path.extension())
+    } else {
+        (Some(name), None)
+    };
+    let mut numbered = stem.unwrap_or(name).to_os_string();
+    numbered.push(format!(" ({index})"));
+    if let Some(extension) = extension {
+        numbered.push(".");
+        numbered.push(extension);
+    }
+    destination.with_file_name(numbered)
 }
 
 #[cfg(test)]

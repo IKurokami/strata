@@ -57,6 +57,10 @@ use crate::{
     },
 };
 
+fn info_file_type(info: &gio::FileInfo) -> gio::FileType {
+    crate::services::gio_file_type(info).unwrap_or(gio::FileType::Unknown)
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct MountFlushHint {
     pub root: PathBuf,
@@ -868,11 +872,11 @@ fn transfer_size(
             );
         })
         .await?;
-        if info.file_type() != gio::FileType::Directory {
+        if info_file_type(&info) != gio::FileType::Directory {
             let size = info
                 .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_SIZE)
                 .then(|| info.size().max(0) as u64);
-            if info.file_type() == gio::FileType::Regular
+            if info_file_type(&info) == gio::FileType::Regular
                 && let (Some(limit), Some(size)) = (max_file_size, size)
                 && size > limit
             {
@@ -885,7 +889,7 @@ fn transfer_size(
             return Ok(TransferEstimate {
                 bytes: size,
                 files: 1,
-                regular_file: info.file_type() == gio::FileType::Regular,
+                regular_file: info_file_type(&info) == gio::FileType::Regular,
             });
         }
 
@@ -1776,8 +1780,18 @@ fn copy_recursively_local(
                 if options.fat_family {
                     children.sort();
                 }
-                if !options.overwrite_existing || !target.query_exists(Some(&cancellable)) {
-                    await_cancellable(&target, &cancellable, |target, cancellable, result| {
+                // query_exists() returns false when its cancellable is cancelled.
+                // Never turn that into a spurious mkdir/EXISTS failure.
+                let needs_directory =
+                    !options.overwrite_existing || !target.query_exists(Some(&cancellable));
+                #[cfg(test)]
+                tests::on_copy_directory_existence_checked();
+                cancellable.set_error_if_cancelled()?;
+                if needs_directory {
+                    // GIO can report cancellation after mkdir succeeds. Finish the
+                    // reservation and record its identity before honoring cancellation.
+                    let reservation = gio::Cancellable::new();
+                    await_cancellable(&target, &reservation, |target, cancellable, result| {
                         target.make_directory_async(
                             glib::Priority::DEFAULT,
                             Some(cancellable),
@@ -1786,7 +1800,13 @@ fn copy_recursively_local(
                     })
                     .await?;
                     record_created_copy_root(&created_root, &target).await?;
+                    #[cfg(test)]
+                    tests::on_copy_directory_reserved();
                 }
+                // An empty directory has no child iteration to observe a cancel
+                // delivered while mkdir was being reserved. Report cancellation
+                // so the outer copy path can remove only its own new root.
+                cancellable.set_error_if_cancelled()?;
                 let handle = Arc::new(handle);
                 let mut used_names = HashSet::with_capacity(children.len());
                 let batch_size = children.len().min(options.workers).max(1);
@@ -1858,6 +1878,7 @@ fn copy_recursively_local(
                         }
                     }
                 }
+                cancellable.set_error_if_cancelled()?;
                 Ok(())
             }
         }
@@ -1947,7 +1968,7 @@ fn copy_recursively_with_progress(
             );
         })
         .await?;
-        if info.file_type() == gio::FileType::Directory {
+        if info_file_type(&info) == gio::FileType::Directory {
             if !overwrite_existing || !target.query_exists(Some(&cancellable)) {
                 await_cancellable(&target, &cancellable, |target, cancellable, result| {
                     target.make_directory_async(
@@ -2069,8 +2090,8 @@ async fn copy_new_recursively_on_filesystem(
     fat_family: bool,
 ) -> Result<(), glib::Error> {
     if !target.is_native() {
-        let source_type =
-            await_cancellable(&source, &cancellable, |source, cancellable, result| {
+        let source_type = info_file_type(
+            &await_cancellable(&source, &cancellable, |source, cancellable, result| {
                 source.query_info_async(
                     "standard::type",
                     gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
@@ -2079,8 +2100,8 @@ async fn copy_new_recursively_on_filesystem(
                     move |output| result.resolve(output),
                 );
             })
-            .await?
-            .file_type();
+            .await?,
+        );
         if source_type != gio::FileType::Directory {
             let copy_progress = progress.clone();
             return copy_new_remote_file_with(
@@ -2130,8 +2151,8 @@ async fn copy_new_recursively_on_filesystem(
         && target.is_native()
         && let Some(target_path) = target.path()
     {
-        let source_type =
-            await_cancellable(&source, &cancellable, |source, cancellable, result| {
+        let source_type = info_file_type(
+            &await_cancellable(&source, &cancellable, |source, cancellable, result| {
                 source.query_info_async(
                     "standard::type",
                     gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
@@ -2140,8 +2161,8 @@ async fn copy_new_recursively_on_filesystem(
                     move |output| result.resolve(output),
                 );
             })
-            .await?
-            .file_type();
+            .await?,
+        );
         let parent = target_path
             .parent()
             .ok_or_else(|| translated_io_error("The destination has no parent directory"))?;
@@ -3045,28 +3066,30 @@ async fn replace_local_with(
     let parent = target_path
         .parent()
         .ok_or_else(|| translated_io_error("The destination has no parent directory"))?;
-    let source_type = await_cancellable(&source, &cancellable, |source, cancellable, result| {
-        source.query_info_async(
-            "standard::type",
-            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-            glib::Priority::DEFAULT,
-            Some(cancellable),
-            move |output| result.resolve(output),
-        );
-    })
-    .await?
-    .file_type();
-    let target_type = await_cancellable(&target, &cancellable, |target, cancellable, result| {
-        target.query_info_async(
-            "standard::type",
-            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-            glib::Priority::DEFAULT,
-            Some(cancellable),
-            move |output| result.resolve(output),
-        );
-    })
-    .await?
-    .file_type();
+    let source_type = info_file_type(
+        &await_cancellable(&source, &cancellable, |source, cancellable, result| {
+            source.query_info_async(
+                "standard::type",
+                gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+                glib::Priority::DEFAULT,
+                Some(cancellable),
+                move |output| result.resolve(output),
+            );
+        })
+        .await?,
+    );
+    let target_type = info_file_type(
+        &await_cancellable(&target, &cancellable, |target, cancellable, result| {
+            target.query_info_async(
+                "standard::type",
+                gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+                glib::Priority::DEFAULT,
+                Some(cancellable),
+                move |output| result.resolve(output),
+            );
+        })
+        .await?,
+    );
     let source_is_directory = source_type == gio::FileType::Directory;
     let target_is_directory = target_type == gio::FileType::Directory;
     if source_is_directory != target_is_directory {
@@ -3331,11 +3354,11 @@ fn classify_merge<'a>(
                 )
                 .await
                 {
-                    Ok(info) => Some(info.file_type()),
+                    Ok(info) => Some(info_file_type(&info)),
                     Err(error) if error.matches(gio::IOErrorEnum::NotFound) => None,
                     Err(error) => return Err(error),
                 };
-                let source_is_directory = child.file_type() == gio::FileType::Directory;
+                let source_is_directory = info_file_type(&child) == gio::FileType::Directory;
                 match target_type {
                     None => {
                         if let Some(location) = location_for_file(&child_target) {
@@ -3393,17 +3416,18 @@ async fn merge_local_with(
         locations.extend([&source, &target].into_iter().filter_map(location_for_file));
     }
     for file in [&source, &target] {
-        let file_type = await_cancellable(file, &cancellable, |file, cancellable, result| {
-            file.query_info_async(
-                "standard::type",
-                gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-                glib::Priority::DEFAULT,
-                Some(cancellable),
-                move |output| result.resolve(output),
-            );
-        })
-        .await?
-        .file_type();
+        let file_type = info_file_type(
+            &await_cancellable(file, &cancellable, |file, cancellable, result| {
+                file.query_info_async(
+                    "standard::type",
+                    gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+                    glib::Priority::DEFAULT,
+                    Some(cancellable),
+                    move |output| result.resolve(output),
+                );
+            })
+            .await?,
+        );
         if file_type != gio::FileType::Directory {
             return Err(glib::Error::new(
                 gio::IOErrorEnum::NotSupported,
@@ -3541,7 +3565,7 @@ fn permanently_delete(
                 for child in children {
                     permanently_delete(
                         file.child(child.name()),
-                        child.file_type() == gio::FileType::Directory,
+                        info_file_type(&child) == gio::FileType::Directory,
                         cancellable.clone(),
                     )
                     .await?;
@@ -4649,7 +4673,13 @@ async fn trashed_entries_for_originals(
                 .attribute_string("trash::deletion-date")
                 .map(|value| value.to_string())
                 .unwrap_or_default();
-            let Some(location) = location_for_file(&trash.child(info.name())) else {
+            let Some(name) = info
+                .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+                .then(|| info.name())
+            else {
+                continue;
+            };
+            let Some(location) = location_for_file(&trash.child(&name)) else {
                 continue;
             };
             let original = Location::local(&original_path);
@@ -4666,7 +4696,12 @@ async fn trashed_entries_for_originals(
                     continue;
                 }
             }
-            let candidate = (deletion_date, location, info.display_name().to_string());
+            let display_name = if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) {
+                info.display_name().to_string()
+            } else {
+                name.to_string_lossy().into_owned()
+            };
+            let candidate = (deletion_date, location, display_name);
             match newest.get(&original_path) {
                 Some(current) if current.0 >= candidate.0 => {}
                 _ => {
@@ -4835,7 +4870,7 @@ async fn undo_merged_overwrite(
         );
     })
     .await
-    .map(|info| info.file_type())
+    .map(|info| info_file_type(&info))
     .ok();
     if let Some(file_type) = existing_type {
         permanently_delete_maybe_local(
@@ -4963,7 +4998,7 @@ async fn run_merge_undo(
             );
         })
         .await
-        .map(|info| info.file_type())
+        .map(|info| info_file_type(&info))
         .ok();
         let mut trashed_identity = None;
         let result = match existing_type {
@@ -5179,7 +5214,7 @@ impl DeletionTarget {
             );
         })
         .await
-        .is_ok_and(|info| info.file_type() == gio::FileType::Directory);
+        .is_ok_and(|info| info_file_type(&info) == gio::FileType::Directory);
         Self {
             location: location.clone(),
             display_name: location.display_name(),
@@ -5707,7 +5742,7 @@ impl OperationProvider for LocalOperationProvider {
                     )
                     .await
                     {
-                        Ok(info) => info.file_type() == gio::FileType::Directory,
+                        Ok(info) => info_file_type(&info) == gio::FileType::Directory,
                         Err(error) => {
                             let failure = (!was_cancelled(&error))
                                 .then(|| crate::services::gio_error_message(&error));
