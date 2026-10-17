@@ -43,6 +43,21 @@ fn recognizes_image_paths_for_metadata_probes() {
 
 #[test]
 fn recognizes_configuration_files_as_plain_text() {
+    for name in [
+        "notes.txt",
+        "data.json",
+        "main.rs",
+        "app.py",
+        "index.tsx",
+        "query.sql",
+        "config.yaml",
+        "page.html",
+    ] {
+        assert!(
+            has_plain_text_extension(std::ffi::OsStr::new(name)),
+            "{name}"
+        );
+    }
     assert!(has_plain_text_extension(std::ffi::OsStr::new(
         "settings.conf"
     )));
