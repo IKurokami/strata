@@ -1890,34 +1890,39 @@ impl SidebarState {
     }
 
     fn refresh_trash_contents(self: &Rc<Self>) {
-        if self.local_only {
-            return;
-        }
-        // A probe already in flight may have read Trash before this change landed, so queue
-        // another pass instead of trusting the result it is about to return.
-        if self.trash_probe_running.get() {
-            self.trash_probe_pending.set(true);
-            return;
-        }
-        self.trash_probe_running.set(true);
-        let weak = Rc::downgrade(self);
-        glib::MainContext::default().spawn_local(async move {
-            let probe = trash_has_items(&gio::File::for_uri("trash:///")).await;
-            if let Err(error) = &probe {
-                tracing::warn!(
-                    error_domain = ?error.domain(),
-                    error_code = error.code(),
-                    "unable to read trash contents"
-                );
+        // Windows uses the native Recycle Bin adapter for mutations. Its unsupported GIO
+        // `trash:///` backend is intentionally not probed here.
+        #[cfg(not(windows))]
+        {
+            if self.local_only {
+                return;
             }
-            if let Some(state) = weak.upgrade() {
-                state.trash_probe_running.set(false);
-                state.set_trash_contents(trash_contents_from_probe(probe));
-                if state.trash_probe_pending.replace(false) {
-                    state.refresh_trash_contents();
+            // A probe already in flight may have read Trash before this change landed, so queue
+            // another pass instead of trusting the result it is about to return.
+            if self.trash_probe_running.get() {
+                self.trash_probe_pending.set(true);
+                return;
+            }
+            self.trash_probe_running.set(true);
+            let weak = Rc::downgrade(self);
+            glib::MainContext::default().spawn_local(async move {
+                let probe = trash_has_items(&gio::File::for_uri("trash:///")).await;
+                if let Err(error) = &probe {
+                    tracing::warn!(
+                        error_domain = ?error.domain(),
+                        error_code = error.code(),
+                        "unable to read trash contents"
+                    );
                 }
-            }
-        });
+                if let Some(state) = weak.upgrade() {
+                    state.trash_probe_running.set(false);
+                    state.set_trash_contents(trash_contents_from_probe(probe));
+                    if state.trash_probe_pending.replace(false) {
+                        state.refresh_trash_contents();
+                    }
+                }
+            });
+        }
     }
 
     /// Keeps the context menu current when another application changes `trash:///`.
