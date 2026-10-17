@@ -36,15 +36,26 @@ pub(crate) async fn empty_trash(
             break;
         }
         for info in children {
-            let file = root.child(info.name());
+            let Some(name) = info
+                .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+                .then(|| info.name())
+            else {
+                outcome.failed += 1;
+                continue;
+            };
+            let file = root.child(&name);
             match file.delete_future(glib::Priority::DEFAULT).await {
                 Ok(_) => outcome.deleted += 1,
                 Err(error) => {
                     outcome.failed += 1;
                     if outcome.errors.len() < 8 {
-                        outcome
-                            .errors
-                            .push(format!("{}: {error}", info.display_name()));
+                        let display_name =
+                            if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) {
+                                info.display_name().to_string()
+                            } else {
+                                name.to_string_lossy().into_owned()
+                            };
+                        outcome.errors.push(format!("{display_name}: {error}"));
                     }
                 }
             }

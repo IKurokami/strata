@@ -143,9 +143,16 @@ async fn measure_children(
                 summary.issues.timed_out = true;
                 break 'directory;
             }
+            let Some(name) = info
+                .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+                .then(|| info.name())
+            else {
+                summary.issues.unreadable = true;
+                continue;
+            };
             summary.include(
                 measure_entry(
-                    directory.child(info.name()),
+                    directory.child(name),
                     info,
                     child_depth,
                     hidden_ancestor,

@@ -344,6 +344,11 @@ fn info_file_type(info: &gio::FileInfo) -> gio::FileType {
     }
 }
 
+pub(super) fn info_name(info: &gio::FileInfo) -> Option<PathBuf> {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+        .then(|| info.name())
+}
+
 fn info_is_symlink(info: &gio::FileInfo) -> bool {
     info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_SYMLINK) && info.is_symlink()
 }
@@ -383,7 +388,15 @@ fn listed_entry(
     directory: &gio::File,
     info: gio::FileInfo,
 ) -> Option<FileEntry> {
-    let Some(child) = location_for_file(&directory.child(info.name())) else {
+    let Some(name) = info_name(&info) else {
+        tracing::warn!(
+            request_id = request_id.0,
+            location = %location.diagnostic_path(),
+            "skipped directory entry without a standard name"
+        );
+        return None;
+    };
+    let Some(child) = location_for_file(&directory.child(&name)) else {
         tracing::warn!(
             request_id = request_id.0,
             backend = %location.backend_name(),
@@ -396,7 +409,7 @@ fn listed_entry(
             request_id = request_id.0,
             location = %location.diagnostic_path(),
             display_name = ?display_name,
-            name_bytes = info.name().as_os_str().len(),
+            name_bytes = name.as_os_str().len(),
             "skipped directory entry"
         );
         return None;
@@ -415,7 +428,15 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
     } else {
         location
     };
-    let native_name = info.name().into_os_string();
+    let native_name = info_name(&info)
+        .map(PathBuf::into_os_string)
+        .or_else(|| location.file_name())
+        .unwrap_or_default();
+    let display_name = if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) {
+        info.display_name().to_string()
+    } else {
+        native_name.to_string_lossy().into_owned()
+    };
     let kind = match (info_file_type(&info), info_is_symlink(&info)) {
         (gio::FileType::Directory, true) => EntryKind::DirectorySymbolicLink,
         (gio::FileType::Regular, true) => EntryKind::FileSymbolicLink,
@@ -451,7 +472,7 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
         thumbnail_path: trash_thumbnail_path(&location, &info),
         location,
         native_name,
-        display_name: info.display_name().to_string(),
+        display_name,
         kind,
         size,
         modified_unix_seconds,

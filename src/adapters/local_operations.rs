@@ -4673,7 +4673,13 @@ async fn trashed_entries_for_originals(
                 .attribute_string("trash::deletion-date")
                 .map(|value| value.to_string())
                 .unwrap_or_default();
-            let Some(location) = location_for_file(&trash.child(info.name())) else {
+            let Some(name) = info
+                .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_NAME)
+                .then(|| info.name())
+            else {
+                continue;
+            };
+            let Some(location) = location_for_file(&trash.child(&name)) else {
                 continue;
             };
             let original = Location::local(&original_path);
@@ -4690,7 +4696,12 @@ async fn trashed_entries_for_originals(
                     continue;
                 }
             }
-            let candidate = (deletion_date, location, info.display_name().to_string());
+            let display_name = if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) {
+                info.display_name().to_string()
+            } else {
+                name.to_string_lossy().into_owned()
+            };
+            let candidate = (deletion_date, location, display_name);
             match newest.get(&original_path) {
                 Some(current) if current.0 >= candidate.0 => {}
                 _ => {
