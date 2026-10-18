@@ -155,6 +155,36 @@ fn image_previews_preserve_small_sources_and_bound_large_decodes() {
 }
 
 #[test]
+fn webp_and_gif_previews_have_a_decoder_fallback() {
+    let directory = tempfile::tempdir().expect("image fixture");
+    let webp = directory.path().join("image.webp");
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        80,
+        40,
+        image::Rgba([0x33, 0x66, 0x99, 0xff]),
+    ))
+    .save_with_format(&webp, image::ImageFormat::WebP)
+    .expect("write WebP fixture");
+
+    let gif = directory.path().join("image.gif");
+    let mut bytes = Vec::new();
+    image::codecs::gif::GifEncoder::new(&mut bytes)
+        .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
+            64,
+            32,
+            image::Rgba([0x99, 0x66, 0x33, 0xff]),
+        )))
+        .expect("write GIF fixture");
+    std::fs::write(&gif, bytes).expect("save GIF fixture");
+
+    for (path, dimensions) in [(&webp, (80, 40)), (&gif, (64, 32))] {
+        let png = render_raw(path, 800).expect("render image preview");
+        let decoded = image::load_from_memory(&png).expect("decode PNG preview");
+        assert_eq!(decoded.dimensions(), dimensions, "{}", path.display());
+    }
+}
+
+#[test]
 fn oversized_images_exceeding_decoded_frame_budget_are_rejected_safely() {
     assert!(!exceeds_decoded_frame_budget(8000, 6000));
     assert!(!exceeds_decoded_frame_budget(10000, 10000));

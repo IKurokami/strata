@@ -233,6 +233,12 @@ pub(crate) fn is_image_path(path: &Path) -> bool {
             })
 }
 
+pub(crate) fn is_gif_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("gif"))
+}
+
 pub(crate) fn is_audio_path(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
@@ -353,7 +359,7 @@ pub(crate) fn content_family(content_type: &str) -> PreviewContent {
             pages: 0,
             text_layer: None,
         }
-    } else if content_type == "image/gif" {
+    } else if matches!(content_type, "image/gif" | "image/x-gif") {
         PreviewContent::Media
     } else if content_type.starts_with("image/") {
         PreviewContent::Image

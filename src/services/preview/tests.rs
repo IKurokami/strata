@@ -3,7 +3,7 @@
 use super::{
     ArchiveDirectory, ArchiveFileEntry, ArchiveNode, MediaPreviewSize, PreviewContent,
     archive_preview_format, archive_preview_tree, content_family, has_plain_text_extension,
-    is_extensionless_dotfile, is_image_path, is_media_path,
+    is_extensionless_dotfile, is_gif_path, is_image_path, is_media_path,
     is_non_executable_extensionless_dotfile, normalize_preview_text,
 };
 
@@ -35,6 +35,8 @@ fn media_viewport_sizes_follow_display_scale_without_exceeding_the_pixel_budget(
 #[test]
 fn recognizes_image_paths_for_metadata_probes() {
     assert!(is_image_path(std::path::Path::new("photo.PNG")));
+    assert!(is_gif_path(std::path::Path::new("animation.GIF")));
+    assert!(!is_gif_path(std::path::Path::new("photo.webp")));
     assert!(!is_image_path(std::path::Path::new("notes.txt")));
     assert!(is_media_path(std::path::Path::new("movie.mp4")));
     assert!(is_media_path(std::path::Path::new("song.flac")));
@@ -97,6 +99,8 @@ fn recognizes_non_executable_extensionless_dotfiles() {
 fn classifies_common_preview_content_types() {
     assert_eq!(content_family("image/png"), PreviewContent::Image);
     assert_eq!(content_family("image/gif"), PreviewContent::Media);
+    assert_eq!(content_family("image/x-gif"), PreviewContent::Media);
+    assert_eq!(content_family("image/webp"), PreviewContent::Image);
     assert_eq!(content_family("video/mp4"), PreviewContent::Media);
     assert!(matches!(
         content_family("application/pdf"),

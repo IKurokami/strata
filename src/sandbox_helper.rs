@@ -2,7 +2,7 @@
 use std::os::fd::RawFd;
 use std::{
     fs,
-    io::{self, Read, Seek},
+    io::{self, Cursor, Read, Seek},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     sync::mpsc,
@@ -734,10 +734,35 @@ fn render_raw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
             return Ok(png);
         }
         return render_pixbuf(path, size.min(width.max(height)))
+            .or_else(|_| render_image_crate(path, size))
             .or_else(|_| render_imagemagick(path, size))
             .or_else(|_| render_dcraw(path, size));
     }
-    render_imagemagick(path, size).or_else(|_| render_dcraw(path, size))
+    render_image_crate(path, size)
+        .or_else(|_| render_imagemagick(path, size))
+        .or_else(|_| render_dcraw(path, size))
+}
+
+fn render_image_crate(path: &Path, size: i32) -> Result<Vec<u8>, String> {
+    let reader = image::ImageReader::open(path)
+        .map_err(|error| error.to_string())?
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    let mut reader = reader;
+    reader.limits(limits);
+    let image = reader
+        .decode()
+        .map_err(|error| error.to_string())?
+        .thumbnail(size.max(1) as u32, size.max(1) as u32);
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    Ok(output.into_inner())
 }
 
 fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
@@ -1397,3 +1422,7 @@ fn bounded_output(command: &mut Command, max_bytes: u64) -> io::Result<Output> {
 
 #[cfg(all(test, unix))]
 mod tests;
+
+#[cfg(all(test, windows))]
+#[path = "sandbox_helper/windows_tests.rs"]
+mod windows_tests;

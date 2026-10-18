@@ -18,7 +18,7 @@ use crate::{
     services::{
         ArchivePreviewTree, DocumentLayout, LoadHandle, MediaPreviewSize, PdfTextLayer, Preview,
         PreviewContent, PreviewEvent, PreviewProvider, PreviewRequest, PreviewRequestId,
-        SecretString, normalize_preview_text,
+        SecretString, is_gif_path, normalize_preview_text,
     },
 };
 
@@ -1667,7 +1667,8 @@ impl PreviewState {
                 }
             }
             PreviewContent::SandboxedMedia { media: mut source } => {
-                let is_gif = preview.content_type == "image/gif";
+                let is_gif = matches!(preview.content_type.as_str(), "image/gif" | "image/x-gif")
+                    || is_gif_path(Path::new(&preview.entry.native_name));
                 let family = media_family(&preview.content_type);
                 let handed_off = self.handed_off.borrow().as_ref() == Some(&preview.entry.location);
                 source.audio_only |= family == Some(MediaFamily::Audio);
