@@ -21,8 +21,9 @@ if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
 $files = Get-ChildItem -LiteralPath $Destination -Recurse -File |
     Sort-Object FullName |
     ForEach-Object {
+        $relative = $_.FullName.Substring($Destination.Length).TrimStart('\', '/')
         [pscustomobject]@{
-            path = [System.IO.Path]::GetRelativePath($Destination, $_.FullName).Replace('\', '/')
+            path = $relative.Replace('\', '/')
             sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             bytes = $_.Length
         }
