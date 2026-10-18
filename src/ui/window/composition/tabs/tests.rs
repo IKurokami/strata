@@ -709,7 +709,13 @@ fn tab_locations(tabs: &TabWindow) -> Vec<Option<Location>> {
     tabs.tabs
         .borrow()
         .iter()
-        .map(|tab| tab.content.browser.browser().active_location())
+        .map(|tab| {
+            tab.content
+                .browser
+                .browser()
+                .active_location()
+                .or_else(|| tab.pending_location.borrow().clone())
+        })
         .collect()
 }
 

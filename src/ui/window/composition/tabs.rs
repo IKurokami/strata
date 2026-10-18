@@ -31,6 +31,7 @@ struct Tab {
     id: u64,
     content: Rc<WindowContent>,
     focus: RefCell<Option<glib::WeakRef<gtk::Widget>>>,
+    pending_location: RefCell<Option<Location>>,
 }
 
 pub(in crate::ui::window) struct TabWindow {
@@ -200,6 +201,14 @@ impl TabWindow {
     }
 
     fn add(self: &Rc<Self>, location: Option<Location>) {
+        self.add_with_location(location, true);
+    }
+
+    fn add_prepared(self: &Rc<Self>, location: Location) {
+        self.add_with_location(Some(location), false);
+    }
+
+    fn add_with_location(self: &Rc<Self>, location: Option<Location>, navigate: bool) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -211,9 +220,11 @@ impl TabWindow {
             id,
             content: content.clone(),
             focus: RefCell::new(None),
+            pending_location: RefCell::new((!navigate).then_some(location.clone()).flatten()),
         });
         self.stack
             .add_named(&content.overlay, Some(&id.to_string()));
+        let weak_tab = Rc::downgrade(&tab);
         let weak = Rc::downgrade(self);
         content.header.new_tab.connect_clicked(move |_| {
             if let Some(state) = weak.upgrade() {
@@ -222,11 +233,19 @@ impl TabWindow {
         });
         self.tabs.borrow_mut().push(tab);
         self.strip.add(self, id, &content.browser);
+        if let Some(location) = location.as_ref().filter(|_| !navigate) {
+            self.strip.label(id, &tab_label(Some(location)));
+        }
         let weak = Rc::downgrade(self);
         content.browser.observe_tab_location(move |location| {
             if let Some(state) = weak.upgrade() {
                 state.strip.label(id, &tab_label(location));
                 state.persist_session();
+            }
+            if location.is_some()
+                && let Some(tab) = weak_tab.upgrade()
+            {
+                tab.pending_location.take();
             }
         });
         if id == 1 {
@@ -234,9 +253,13 @@ impl TabWindow {
         } else {
             content.sidebar.schedule_after_first_paint(&content.overlay);
         }
-        self.select(id);
+        if navigate {
+            self.select(id);
+        } else {
+            self.refresh_chrome();
+        }
         self.refresh_chrome();
-        if let Some(location) = location {
+        if navigate && let Some(location) = location {
             content.browser.navigate_location(location);
         }
     }
@@ -261,6 +284,7 @@ impl TabWindow {
         self.active.set(id);
         self.stack.set_visible_child(&tab.content.overlay);
         tab.content.activate_actions(&window);
+        let pending_location = tab.pending_location.borrow().clone();
         self.refresh_chrome();
         self.strip.select(id);
         let saved = tab
@@ -272,6 +296,12 @@ impl TabWindow {
         // Saved focus may be a pane surface that is no longer focusable.
         if !saved.is_some_and(|focus| focus.grab_focus()) {
             tab.content.browser.browser().focus_active();
+        }
+        if let Some(location) = pending_location {
+            tab.content.browser.navigate_location(location);
+            if tab.content.browser.browser().active_location().is_some() {
+                tab.pending_location.take();
+            }
         }
         self.persist_session();
     }
@@ -484,7 +514,13 @@ impl TabWindow {
         let mut locations = Vec::with_capacity(tabs.len());
         let mut active = 0;
         for tab in tabs.iter() {
-            let Some(location) = tab.content.browser.browser().active_location() else {
+            let Some(location) = tab
+                .content
+                .browser
+                .browser()
+                .active_location()
+                .or_else(|| tab.pending_location.borrow().clone())
+            else {
                 continue;
             };
             if tab.id == self.active.get() {
@@ -518,13 +554,30 @@ impl TabWindow {
             return;
         }
         self.restoring.set(true);
-        self.active_browser()
-            .navigate_location(session.tabs[0].clone());
-        for location in session.tabs.iter().skip(1) {
-            self.add(Some(location.clone()));
+        let active_index = session.active.min(session.tabs.len() - 1);
+        if active_index == 0 {
+            self.active_browser()
+                .navigate_location(session.tabs[0].clone());
+        } else {
+            self.prepare_tab(self.active.get(), session.tabs[0].clone());
         }
-        self.select_index(session.active.min(session.tabs.len() - 1));
+        for (index, location) in session.tabs.iter().enumerate().skip(1) {
+            if index == active_index {
+                self.add(Some(location.clone()));
+            } else {
+                self.add_prepared(location.clone());
+            }
+        }
+        self.select_index(active_index);
         self.restoring.set(false);
+    }
+
+    fn prepare_tab(&self, id: u64, location: Location) {
+        let Some(tab) = self.tabs.borrow().iter().find(|tab| tab.id == id).cloned() else {
+            return;
+        };
+        tab.pending_location.replace(Some(location.clone()));
+        self.strip.label(id, &tab_label(Some(&location)));
     }
 
     fn handle_key(self: &Rc<Self>, press: &KeyPress) -> glib::Propagation {
