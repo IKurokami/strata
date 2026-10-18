@@ -8,10 +8,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$Destination = [System.IO.Path]::GetFullPath($Destination)
 
 & (Join-Path $PSScriptRoot 'package-portable.ps1') -Executable $Executable -UcrtRoot $UcrtRoot -Destination $Destination -Release
 if ($LASTEXITCODE -ne 0) {
     throw 'Portable release staging failed'
+}
+if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
+    throw "Portable release staging did not create its destination: $Destination"
 }
 
 $files = Get-ChildItem -LiteralPath $Destination -Recurse -File |
