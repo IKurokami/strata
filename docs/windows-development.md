@@ -49,6 +49,31 @@ Copy or extract the complete directory, then launch `Start-Strata.cmd`.
 The executable depends on the adjacent `bin`, `lib`, `libexec`, `share`, and
 `etc` directories. The package smoke checks exclude MSYS2 from PATH.
 
+## Build a Windows installer
+
+Create a portable bundle from the optimized release binary first. The installer
+wraps that complete bundle without rebuilding Rust or fetching runtime packages.
+Install Inno Setup 6, then run from PowerShell (including Windows PowerShell 5.1):
+
+```powershell
+winget install --id JRSoftware.InnoSetup --exact
+./scripts/windows/package-installer.ps1 `
+  -Bundle './target/Strata-Windows-Release-20261018-141626' `
+  -Destination './target/installer'
+```
+
+Replace `-Bundle` with your portable directory containing `release-manifest.json`.
+The script verifies its checksums before compiling. For a custom compiler location,
+pass `-Compiler 'D:\Inno Setup 6\ISCC.exe'`.
+
+The resulting `Strata-VERSION-windows-x64-setup.exe` installs per user under
+`%LOCALAPPDATA%\Programs\Strata`, with a Start Menu shortcut and an optional
+Desktop shortcut. Shortcuts launch the runtime through `Start-Strata.cmd`.
+It requires no administrator rights and does not register file associations or
+change the system PATH. Uninstall removes application files and shortcuts while
+retaining preferences and user data outside the installation directory.
+Locally generated installers are unsigned; release signing remains a separate step.
+
 ## Current limits
 
 The native paths for navigation, rename/move, batch paste, Recycle Bin/undo,
