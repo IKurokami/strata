@@ -76,6 +76,13 @@ Locally generated installers are unsigned; release signing remains a separate st
 
 ## Current limits
 
+On Windows, the Trash sidebar opens the current user's native Recycle Bin inside
+Strata, across local volumes. Original filenames and extensions do not depend on
+Explorer's extension visibility setting. Restore and permanent deletion use each
+deleted item's Shell identity, so repeated deletions from the same path remain
+distinct. Folder contents can be browsed without allowing mutations inside a
+deleted folder. Empty Trash measures the native items and uses Shell deletion.
+
 The native paths for navigation, rename/move, batch paste, Recycle Bin/undo,
 archive operations, rich previews, custom actions, external providers and
 verified updates are implemented in this branch. They still require the

@@ -99,6 +99,15 @@ fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<Ope
     let cleanup_request = request.clone();
     browser.set_navigation_cleanup(move || cleanup_request.abort());
 
+    #[cfg(windows)]
+    if crate::adapters::recycle_bin::is_root(&location) {
+        request.finish();
+        browser.finish_navigation_cleanup();
+        clear_status(&browser);
+        browser.navigate_location(location);
+        return request;
+    }
+
     let connecting = browser.downgrade();
     let connecting_request = request.clone();
     let timer = glib::timeout_add_local_once(CONNECTING_DELAY, move || {
@@ -114,7 +123,15 @@ fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<Ope
     let retry_location = location.clone();
     let query_request = request.clone();
     glib::MainContext::default().spawn_local(async move {
-        let outcome = query_kind(&file, Some(&query_request.operation)).await;
+        #[cfg(windows)]
+        let query_file = if crate::adapters::recycle_bin::path(&location).is_some() {
+            crate::adapters::read_file_for_location(&location)
+        } else {
+            file.clone()
+        };
+        #[cfg(not(windows))]
+        let query_file = file.clone();
+        let outcome = query_kind(&query_file, Some(&query_request.operation)).await;
         let Some(browser) = weak.upgrade() else {
             query_request.abort();
             return;

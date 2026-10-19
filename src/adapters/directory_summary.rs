@@ -93,6 +93,12 @@ pub(crate) async fn summarize_directory_with_progress(
     root: &gio::File,
     on_progress: impl Fn(DirectorySummary) + 'static,
 ) -> Result<DirectorySummary, glib::Error> {
+    #[cfg(windows)]
+    if root.uri().as_str() == "trash:///" {
+        let summary = super::recycle_bin::summary().await?;
+        on_progress(summary);
+        return Ok(summary);
+    }
     summarize_directory_with_budget(root, MAX_DEPTH, TIME_BUDGET, on_progress).await
 }
 

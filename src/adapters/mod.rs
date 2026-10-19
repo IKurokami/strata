@@ -17,6 +17,8 @@ mod local_operations;
 #[path = "local_operations_windows.rs"]
 mod local_operations;
 mod local_preview;
+#[cfg(windows)]
+pub(crate) mod recycle_bin;
 pub(crate) mod trash;
 #[cfg(not(windows))]
 pub(crate) mod trash_restore;
@@ -26,7 +28,9 @@ pub(crate) mod trash_restore;
 mod volume;
 
 pub(crate) use file_manager1::{RevealRequest, export_file_manager};
-pub(crate) use gio_location::{gio_file_for_location, location_for_file, reveal_target_for_file};
+pub(crate) use gio_location::{
+    gio_file_for_location, location_for_file, read_file_for_location, reveal_target_for_file,
+};
 pub(crate) use local_actions::{LocalActionStore, resolve_executable as resolve_action_executable};
 pub use local_files::LocalFileSource;
 pub(crate) use local_files::query_file_entry;

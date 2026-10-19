@@ -72,7 +72,7 @@ async fn stage_with_limit(
     if matches!(entry.size, MetadataValue::Known(size) if size > byte_limit) {
         return Err(limit_exceeded(byte_limit));
     }
-    let file = crate::adapters::gio_file_for_location(&entry.location);
+    let file = crate::adapters::read_file_for_location(&entry.location);
     let suffix = Path::new(&entry.native_name)
         .extension()
         .and_then(|value| value.to_str())

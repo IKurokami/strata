@@ -24,7 +24,7 @@ use std::os::windows::fs::MetadataExt as WindowsMetadataExt;
 use gtk::{gio, glib, prelude::*};
 
 use crate::{
-    adapters::{gio_file_for_location, location_for_file},
+    adapters::{gio_file_for_location, location_for_file, read_file_for_location},
     model::{EntryKind, FileEntry, Location, MetadataValue},
     services::{
         DirectoryChange, DirectoryEvent, DirectoryRequest, FileSource, LoadHandle,
@@ -372,7 +372,7 @@ fn info_mode(info: &gio::FileInfo) -> MetadataValue<u32> {
 }
 
 pub(crate) async fn query_file_entry(location: Location) -> Result<FileEntry, glib::Error> {
-    let info = gio_file_for_location(&location)
+    let info = read_file_for_location(&location)
         .query_info_future(
             FULL_ATTRIBUTES,
             gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
@@ -553,7 +553,7 @@ async fn resolve_recent_entry(
     let Some(target_location) = recent_target_location(&recent_info) else {
         return RecentEntryResolution::Stale;
     };
-    let target_file = gio_file_for_location(&target_location);
+    let target_file = read_file_for_location(&target_location);
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
         return RecentEntryResolution::TimedOut;
@@ -868,7 +868,7 @@ fn enumerate_recent(
     emit: Rc<dyn Fn(DirectoryEvent)>,
     started: Instant,
 ) -> LoadHandle {
-    let source = Box::new(GioRecentEnumerationSource::new(gio_file_for_location(
+    let source = Box::new(GioRecentEnumerationSource::new(read_file_for_location(
         &request.location,
     )));
     enumerate_recent_with_source(request, emit, started, source)
@@ -1153,6 +1153,10 @@ pub(crate) fn recent_remove_entries(
 
 impl FileSource for LocalFileSource {
     fn validate_location(&self, location: &Location) -> Result<(), LocationValidationError> {
+        #[cfg(windows)]
+        if super::recycle_bin::is_root(location) {
+            return Ok(());
+        }
         if let Some(path) = location.native_path() {
             let metadata = std::fs::metadata(path).map_err(map_validation_error)?;
             if !metadata.is_dir() {
@@ -1183,6 +1187,33 @@ impl FileSource for LocalFileSource {
         location: Location,
         emit: Rc<dyn Fn(Result<(), LocationValidationError>)>,
     ) -> LoadHandle {
+        #[cfg(windows)]
+        if super::recycle_bin::is_root(&location) {
+            emit(Ok(()));
+            return LoadHandle::new(|| {});
+        }
+        #[cfg(windows)]
+        if let Some(path) = super::recycle_bin::path(&location) {
+            let root = super::recycle_bin::verified_root(&location).expect("decoded bin location");
+            let task = glib::MainContext::default().spawn_local(async move {
+                let outcome = gio::spawn_blocking(move || {
+                    strata_win_shell::original_path(&root).map_err(map_validation_error)?;
+                    if !std::fs::metadata(&path)
+                        .map_err(map_validation_error)?
+                        .is_dir()
+                    {
+                        return Err(LocationValidationError::NotDirectory);
+                    }
+                    std::fs::read_dir(path)
+                        .map(|_| ())
+                        .map_err(map_validation_error)
+                })
+                .await
+                .unwrap_or(Err(LocationValidationError::Inaccessible));
+                emit(outcome);
+            });
+            return LoadHandle::new(move || task.abort());
+        }
         if location.native_path().is_some() {
             emit(self.validate_location(&location));
             return LoadHandle::new(|| {});
@@ -1207,6 +1238,79 @@ impl FileSource for LocalFileSource {
         let started = Instant::now();
         log_directory_load_started(request_id, &location);
 
+        #[cfg(windows)]
+        if super::recycle_bin::is_root(&location) {
+            return super::recycle_bin::enumerate(request, emit);
+        }
+        #[cfg(windows)]
+        if let Some(path) = super::recycle_bin::path(&location) {
+            let virtual_parent = location.clone();
+            let root = super::recycle_bin::verified_root(&location).expect("decoded bin location");
+            let task = glib::MainContext::default().spawn_local(async move {
+                let result =
+                    gio::spawn_blocking(move || strata_win_shell::original_path(&root)).await;
+                if !matches!(result, Ok(Ok(_))) {
+                    emit(DirectoryEvent::Failed {
+                        request_id,
+                        message: crate::i18n::tr("Unable to read Trash"),
+                    });
+                    return;
+                }
+                let child_emit: Rc<dyn Fn(DirectoryEvent)> = Rc::new(move |event| {
+                    let event = match event {
+                        DirectoryEvent::Batch {
+                            request_id,
+                            mut entries,
+                        } => {
+                            for entry in &mut entries {
+                                entry.thumbnail_path =
+                                    entry.location.native_path().map(Path::to_path_buf);
+                                entry.location = super::recycle_bin::child_location(
+                                    &virtual_parent,
+                                    &entry.native_name,
+                                );
+                            }
+                            DirectoryEvent::Batch {
+                                request_id,
+                                entries,
+                            }
+                        }
+                        DirectoryEvent::Finished {
+                            request_id,
+                            truncated,
+                            ..
+                        } => DirectoryEvent::Finished {
+                            request_id,
+                            truncated,
+                            can_trash: Some(false),
+                            can_delete: Some(false),
+                        },
+                        event => event,
+                    };
+                    emit(event);
+                });
+                let mut request = request;
+                request.include_metadata = true;
+                // Keep the native load alive until its terminal event, without changing
+                // the virtual identity used for navigation and mutation restrictions.
+                let (send, receive) = futures_channel::oneshot::channel();
+                let send = RefCell::new(Some(send));
+                let wrapped: Rc<dyn Fn(DirectoryEvent)> = Rc::new(move |event| {
+                    let finished = matches!(
+                        event,
+                        DirectoryEvent::Finished { .. } | DirectoryEvent::Failed { .. }
+                    );
+                    child_emit(event);
+                    if finished && let Some(send) = send.borrow_mut().take() {
+                        let _ = send.send(());
+                    }
+                });
+                let _load = enumerate_native(request, wrapped, started, path);
+                let _ = receive.await;
+            });
+            return LoadHandle::new(move || task.abort());
+        }
+
         if let Some(path) = location.native_path() {
             return enumerate_native(request, emit, started, path.to_path_buf());
         }
@@ -1218,7 +1322,7 @@ impl FileSource for LocalFileSource {
         }
 
         let task = glib::MainContext::default().spawn_local(async move {
-            let directory = gio_file_for_location(&location);
+            let directory = read_file_for_location(&location);
             let deadline = started + request.time_budget;
             let finish_truncated = |entries: usize,
                                     reason: &'static str,
@@ -1478,7 +1582,17 @@ impl FileSource for LocalFileSource {
         include_hidden: bool,
         notify: Rc<dyn Fn(DirectoryChange)>,
     ) -> Option<LoadHandle> {
-        let file = gio_file_for_location(&location);
+        #[cfg(windows)]
+        if super::recycle_bin::is_root(&location) {
+            return Some(super::recycle_bin::watch(notify));
+        }
+        #[cfg(windows)]
+        if super::recycle_bin::path(&location).is_some() {
+            // Physical monitor events carry native locations. Do not let them
+            // replace read-only virtual children with mutable filesystem rows.
+            return None;
+        }
+        let file = read_file_for_location(&location);
         let monitor = match file.monitor_directory(
             gio::FileMonitorFlags::WATCH_MOVES,
             None::<&gio::Cancellable>,
@@ -2294,7 +2408,7 @@ fn query_monitored_entry(
     include_hidden: bool,
 ) {
     glib::MainContext::default().spawn_local(async move {
-        let file = gio_file_for_location(&location);
+        let file = read_file_for_location(&location);
         let result = file
             .query_info_future(
                 FULL_ATTRIBUTES,

@@ -14,8 +14,8 @@ use gtk::{gio, glib, prelude::*};
 
 use crate::{
     adapters::{
-        gio_file_for_location,
         local_operations::{ArchiveListingStatus, decode_archive_listing},
+        read_file_for_location,
     },
     sandbox::{Cancellation, MediaPreviewBackend, ParseOperation, PdfRenderSize},
     services::{
@@ -303,7 +303,7 @@ impl LocalPreviewProvider {
             if !crate::services::is_model(&entry.native_name) && matches!(content, PreviewContent::Unsupported)
                 && (uncertain || entry.native_name.is_empty())
             {
-                let file = gio_file_for_location(&entry.location);
+                let file = read_file_for_location(&entry.location);
                 let info = match file
                     .query_info_future(
                         "standard::content-type,unix::mode",
@@ -736,7 +736,7 @@ impl LocalPreviewProvider {
                 content,
                 PreviewContent::Text { .. } | PreviewContent::Document { .. }
             ) {
-                let file = gio_file_for_location(&entry.location);
+                let file = read_file_for_location(&entry.location);
                 let native_path = entry.location.native_path().map(ToOwned::to_owned);
                 content =
                     match read_text(&file, native_path.as_deref(), request.text_byte_limit).await {

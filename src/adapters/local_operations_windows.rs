@@ -455,13 +455,16 @@ impl OperationProvider for LocalOperationProvider {
     }
     fn restore(&self, request: RestoreRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         let locations = match request.source {
-            crate::services::RestoreSource::OriginalLocations(locations) => locations,
+            crate::services::RestoreSource::OriginalLocations(locations) => locations
+                .into_iter()
+                .map(|location| (location, None))
+                .collect(),
             crate::services::RestoreSource::TrashEntries(items) => items
                 .into_iter()
-                .map(|item| Location::local(item.destination))
+                .map(|item| (item.entry.location, Some(item.destination)))
                 .collect(),
         };
-        restore_locations(request.id, locations, emit)
+        restore_selected_locations(request.id, locations, emit)
     }
     fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
         archive::compress(request, emit)
@@ -478,10 +481,15 @@ fn permanently_delete_locations(
 ) -> LoadHandle {
     let mut paths = Vec::with_capacity(locations.len());
     for location in &locations {
-        let Some(path) = location.native_path() else {
+        let path = location.native_path().map(Path::to_path_buf).or_else(|| {
+            super::recycle_bin::is_item(location)
+                .then(|| super::recycle_bin::path(location))
+                .flatten()
+        });
+        let Some(path) = path else {
             return rejected(id, emit, "Windows delete requires local paths");
         };
-        paths.push((location.clone(), path.to_path_buf()));
+        paths.push((location.clone(), path));
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = cancelled.clone();
@@ -495,7 +503,12 @@ fn permanently_delete_locations(
                     not_attempted.push(location);
                     continue;
                 }
-                match strata_win_shell::permanently_delete(&[path]) {
+                let outcome = if super::recycle_bin::is_item(&location) {
+                    strata_win_shell::delete_recycled(&path)
+                } else {
+                    strata_win_shell::permanently_delete(&[path])
+                };
+                match outcome {
                     Ok(()) => deleted.push(location),
                     Err(error) => failed.push((location, error)),
                 }
@@ -522,7 +535,7 @@ fn permanently_delete_locations(
                 },
             });
         } else if let Some((_, error)) = failed.first() {
-            let message = crate::services::io_error_message(error);
+            let message = super::recycle_bin::operation_error_message(error);
             if deleted.is_empty() {
                 emit(OperationEvent::Failed {
                     request_id: id,
@@ -1333,17 +1346,38 @@ fn recycle_locations(
     LoadHandle::new(move || cancelled.store(true, AtomicOrdering::Release))
 }
 
+#[cfg(test)]
 fn restore_locations(
     id: OperationRequestId,
     locations: Vec<Location>,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
+    restore_selected_locations(
+        id,
+        locations
+            .into_iter()
+            .map(|location| (location, None))
+            .collect(),
+        emit,
+    )
+}
+
+fn restore_selected_locations(
+    id: OperationRequestId,
+    locations: Vec<(Location, Option<PathBuf>)>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
     let mut paths = Vec::with_capacity(locations.len());
-    for location in &locations {
-        let Some(path) = location.native_path() else {
+    for (location, destination) in &locations {
+        let path = location.native_path().map(Path::to_path_buf).or_else(|| {
+            super::recycle_bin::is_item(location)
+                .then(|| super::recycle_bin::path(location))
+                .flatten()
+        });
+        let Some(path) = path else {
             return rejected(id, emit, "Windows restore requires local paths");
         };
-        paths.push((location.clone(), path.to_path_buf()));
+        paths.push((location.clone(), path, destination.clone()));
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = cancelled.clone();
@@ -1353,12 +1387,32 @@ fn restore_locations(
             let mut restored = Vec::new();
             let mut failed = Vec::new();
             let mut not_attempted = Vec::new();
-            for (location, path) in paths {
+            for (location, path, expected_destination) in paths {
                 if worker_cancelled.load(AtomicOrdering::Acquire) {
                     not_attempted.push(location);
                     continue;
                 }
-                match strata_win_shell::restore_by_original_path(&path) {
+                let outcome = if super::recycle_bin::is_item(&location) {
+                    strata_win_shell::original_path(&path).and_then(|original| {
+                        if expected_destination
+                            .as_ref()
+                            .is_some_and(|expected| expected != &original)
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "restore destination changed",
+                            ));
+                        }
+                        strata_win_shell::restore(&strata_win_shell::RecycledItem {
+                            original: original.clone(),
+                            recycled: path,
+                        })?;
+                        Ok(original)
+                    })
+                } else {
+                    strata_win_shell::restore_by_original_path(&path)
+                };
+                match outcome {
                     Ok(dest) => restored.push((location, Location::local(dest))),
                     Err(error) => failed.push((location, error)),
                 }
@@ -1392,7 +1446,7 @@ fn restore_locations(
                 },
             });
         } else if let Some((_, error)) = failed.first() {
-            let message = crate::services::io_error_message(error);
+            let message = super::recycle_bin::operation_error_message(error);
             if restored.is_empty() {
                 emit(OperationEvent::Failed {
                     request_id: id,

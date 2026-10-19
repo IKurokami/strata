@@ -111,6 +111,8 @@ pub(crate) use transfer_action::{
 // `update_check` (which imports them directly from `release_channel`) has any
 // business calling it. Widening this re-export would make that bypass
 // reachable from UI code.
+#[cfg(windows)]
+pub(crate) use file_source::io_error_reason;
 pub(crate) use release_channel::{BuildKind, Channel, Version};
 pub(crate) use remote_download::{
     RemoteDownload, download_remote, prune_stale_downloads, remote_file_name, remote_file_url,

@@ -80,6 +80,22 @@ pub(crate) async fn plan_restore_for_location(
     physical_path: Option<&Path>,
     context: &RestoreContext,
 ) -> Result<RestorePlan, RestoreTargetError> {
+    if super::recycle_bin::is_item(source)
+        && let Some(recycled) = super::recycle_bin::path(source)
+    {
+        let destination =
+            gtk::gio::spawn_blocking(move || strata_win_shell::original_path(&recycled))
+                .await
+                .map_err(|_| RestoreTargetError::unsupported())?
+                .map_err(|_| RestoreTargetError::unsupported())?;
+        return plan_restore_from_known_paths(
+            &destination,
+            &destination,
+            Path::new("\\\\?\\"),
+            None,
+            context,
+        );
+    }
     let destination = physical_path
         .or_else(|| original_target.and_then(Location::native_path))
         .ok_or_else(RestoreTargetError::unsupported)?;

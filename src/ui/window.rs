@@ -1890,9 +1890,6 @@ impl SidebarState {
     }
 
     fn refresh_trash_contents(self: &Rc<Self>) {
-        // Windows uses the native Recycle Bin adapter for mutations. Its unsupported GIO
-        // `trash:///` backend is intentionally not probed here.
-        #[cfg(not(windows))]
         {
             if self.local_only {
                 return;
@@ -1906,7 +1903,10 @@ impl SidebarState {
             self.trash_probe_running.set(true);
             let weak = Rc::downgrade(self);
             glib::MainContext::default().spawn_local(async move {
+                #[cfg(not(windows))]
                 let probe = trash_has_items(&gio::File::for_uri("trash:///")).await;
+                #[cfg(windows)]
+                let probe = crate::adapters::recycle_bin::has_items().await;
                 if let Err(error) = &probe {
                     tracing::warn!(
                         error_domain = ?error.domain(),

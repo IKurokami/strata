@@ -8,7 +8,11 @@
 #![cfg(windows)]
 
 pub mod job;
+mod recycle_bin;
 pub mod volume;
+pub use recycle_bin::{
+    RecycleBinEntry, RecycleBinListing, delete_recycled, list_recycled, original_path,
+};
 
 pub use job::{
     JobLimits, JobObject, SandboxedChild, SandboxedOutput, run_in_job, spawn_streaming_in_job,
@@ -59,7 +63,7 @@ use windows::{
             BHID_EnumItems, FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems,
             IFileOperation, IFileOperationProgressSink, IFileOperationProgressSink_Impl,
             IShellItem, KF_FLAG_DEFAULT, SHCreateItemFromParsingName, SHGetKnownFolderItem,
-            SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY,
+            SIGDN_FILESYSPATH,
         },
     },
     core::{HRESULT, HSTRING, PCWSTR, Ref, implement},
@@ -566,23 +570,14 @@ fn find_in_bin_by_original_path(original: &Path) -> io::Result<IShellItem> {
             continue;
         };
 
-        // SAFETY: `child` is a live COM object; the returned string is freed below.
-        let disp = unsafe { child.GetDisplayName(SIGDN_NORMALDISPLAY) };
-        if let Ok(disp_name) = disp {
-            // SAFETY: GetDisplayName returned a valid NUL-terminated wide string.
-            let text = unsafe { disp_name.to_string() };
-            // SAFETY: the string was allocated by the shell with CoTaskMemAlloc.
-            unsafe { CoTaskMemFree(Some(disp_name.0.cast())) };
-            if let Ok(text) = text {
-                let disp_path = PathBuf::from(&text);
-                let orig_stem = original
-                    .parent()
-                    .and_then(|p| original.file_stem().map(|s| p.join(s)));
-                if disp_path == original || orig_stem.as_ref() == Some(&disp_path) {
-                    found = Some(child);
-                    break;
-                }
+        if recycle_bin::original(&child).is_ok_and(|path| path == original) {
+            if found.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "multiple deleted items share the original path",
+                ));
             }
+            found = Some(child);
         }
     }
 
@@ -629,6 +624,12 @@ pub fn restore(item: &RecycledItem) -> io::Result<()> {
         .into();
         let operation = new_operation(FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR)?;
         let source = find_in_bin(&item.recycled)?;
+        if recycle_bin::original(&source)? != item.original {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "restore destination disagrees with the deleted item",
+            ));
+        }
         let destination = shell_item(&parent)?;
         // SAFETY: all COM objects and `name` are live for the call.
         unsafe { operation.MoveItem(&source, &destination, &name, &sink) }

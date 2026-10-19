@@ -16,6 +16,40 @@ pub(crate) async fn empty_trash(
     root: &gio::File,
     mut on_progress: impl FnMut(usize),
 ) -> Result<EmptyTrashOutcome, glib::Error> {
+    #[cfg(windows)]
+    if root.uri().as_str() == "trash:///" {
+        let listing = super::recycle_bin::listing().await?;
+        if listing.truncated {
+            return Err(super::recycle_bin::error(crate::i18n::tr(
+                "Unable to read Trash",
+            )));
+        }
+        let mut outcome = EmptyTrashOutcome {
+            deleted: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+        for entry in listing.entries {
+            let result = gio::spawn_blocking(move || {
+                strata_win_shell::delete_recycled(&entry.item.recycled)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => outcome.deleted += 1,
+                result => {
+                    outcome.failed += 1;
+                    if outcome.errors.len() < 8 {
+                        outcome.errors.push(match result {
+                            Ok(Err(error)) => super::recycle_bin::operation_error_message(&error),
+                            _ => crate::i18n::tr("Unable to read Trash"),
+                        });
+                    }
+                }
+            }
+            on_progress(outcome.deleted + outcome.failed);
+        }
+        return Ok(outcome);
+    }
     let enumerator = root
         .enumerate_children_future(
             "standard::name,standard::display-name",

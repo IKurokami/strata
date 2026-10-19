@@ -26,6 +26,22 @@ fn recycled_files_leave_the_folder_and_restore_to_the_same_path() {
     assert!(items.iter().all(|item| item.recycled.exists()));
     assert!(items.iter().any(|item| item.original == first));
 
+    let listing = strata_win_shell::list_recycled(100_000, std::time::Duration::from_secs(30))
+        .expect("list native Recycle Bin");
+    assert!(!listing.truncated);
+    for item in &items {
+        let found = listing
+            .entries
+            .iter()
+            .find(|entry| entry.item.recycled == item.recycled)
+            .expect("listed deleted identity");
+        assert_eq!(found.item, *item);
+        assert_eq!(
+            strata_win_shell::original_path(&item.recycled).unwrap(),
+            item.original
+        );
+    }
+
     for item in &items {
         restore(item).expect("restore");
     }
@@ -43,6 +59,14 @@ fn restore_never_replaces_a_file_created_at_the_original_path() {
     let item = recycle(std::slice::from_ref(&path))
         .expect("recycle")
         .remove(0);
+    let mut redirected = item.clone();
+    redirected.original = dir.join("unexpected.txt");
+    assert_eq!(
+        restore(&redirected).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert!(!redirected.original.exists());
+    assert!(item.recycled.exists());
     fs::write(&path, "newer").unwrap();
 
     let error = restore(&item).expect_err("restore must refuse");
@@ -91,5 +115,33 @@ fn permanent_delete_removes_an_explicitly_confirmed_file() {
     permanently_delete(std::slice::from_ref(&path)).expect("permanent delete");
 
     assert!(!path.exists());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn bin_deletion_rejects_live_files_and_removes_only_the_selected_deleted_identity() {
+    let dir = scratch("bin-identity");
+    let path = dir.join("ảnh # % có đuôi.txt");
+    fs::write(&path, "first").unwrap();
+    assert!(strata_win_shell::delete_recycled(&path).is_err());
+    assert!(path.exists());
+    let first = recycle(std::slice::from_ref(&path)).unwrap().remove(0);
+    fs::write(&path, "second").unwrap();
+    let second = recycle(std::slice::from_ref(&path)).unwrap().remove(0);
+    assert_eq!(
+        strata_win_shell::restore_by_original_path(&path)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        strata_win_shell::original_path(&first.recycled).unwrap(),
+        path
+    );
+    strata_win_shell::delete_recycled(&first.recycled).unwrap();
+    assert!(!first.recycled.exists());
+    assert!(second.recycled.exists());
+    restore(&second).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "second");
     fs::remove_dir_all(dir).unwrap();
 }
