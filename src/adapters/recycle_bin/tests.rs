@@ -83,6 +83,28 @@ fn native_bin_lists_original_names_browses_folders_and_resolves_restore_destinat
             .is_ok()
     );
     let entries = load(&context, &source, Location::uri("trash:///"));
+    let browser = crate::app::Browser::new(Rc::new(LocalFileSource::default()));
+    let root = Location::uri("trash:///");
+    browser.navigate_location(root.clone(), true);
+    wait(&context, || {
+        browser
+            .column_snapshot(0)
+            .is_some_and(|column| !column.loading)
+    });
+    assert_eq!(browser.active_location(), Some(root));
+    assert!(browser.column_snapshot(0).unwrap().error.is_none());
+    for item in &items {
+        assert!(
+            browser
+                .with_column_entries(0, |entries| entries
+                    .iter()
+                    .any(|entry| { path(&entry.location).as_ref() == Some(&item.recycled) }))
+                .unwrap()
+        );
+    }
+    assert_eq!(browser.can_trash_at(0), Some(false));
+    assert_eq!(browser.can_delete_at(0), Some(true));
+    drop(browser);
     for item in &items {
         let entry = entries
             .iter()
