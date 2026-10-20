@@ -40,6 +40,29 @@ fn plain_queries_tolerate_one_edit_in_a_whole_filename_word() {
 }
 
 #[test]
+fn multi_word_queries_match_when_every_word_appears() {
+    for (name, query, expected) in [
+        ("ducks_in_the_pool.txt", "duck txt", true),
+        ("report final draft.pdf", "final draft", true),
+        ("report-final-draft.pdf", "final draft", true),
+        ("duck.txt", "duck txt", true),
+        ("ducks_in_the_pool.txt", "duck goose", false),
+        ("only-duck.md", "duck txt", false),
+        ("summer holiday.jpg", "summer holiday", true),
+        ("holiday.jpg", "summer holiday", false),
+        ("duck.txt", "duck ", true),
+        ("abc_tent.doc", "abc text", true),
+        ("abc_tent.doc", "abc tex", false),
+    ] {
+        assert_eq!(
+            filter_name_matches(&fold_for_search(name), &fold_for_search(query)),
+            expected,
+            "name={name:?}, query={query:?}",
+        );
+    }
+}
+
+#[test]
 fn filename_patterns_anchor_stars_and_preserve_literal_substrings() {
     for (name, query, expected) in [
         ("clip.MOV", "*.MOV", true),

@@ -513,8 +513,8 @@ pub(crate) fn filter_change_for(previous: &str, settled: &str) -> gtk::FilterCha
     // Wildcard and typo edits can add and remove matches in the same update.
     if previous.contains('*')
         || settled.contains('*')
-        || filter_query_allows_typos(previous)
-        || filter_query_allows_typos(settled)
+        || previous.split_whitespace().any(filter_query_allows_typos)
+        || settled.split_whitespace().any(filter_query_allows_typos)
     {
         gtk::FilterChange::Different
     } else if settled.starts_with(previous) && settled.len() > previous.len() {
@@ -857,3 +857,6 @@ pub(crate) fn cancel_source(source: &RefCell<Option<glib::SourceId>>) {
         source.remove();
     }
 }
+
+#[cfg(test)]
+mod tests;

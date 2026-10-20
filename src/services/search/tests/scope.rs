@@ -148,6 +148,31 @@ fn plain_filters_rank_literal_names_above_typos_and_reject_scattered_or_path_mat
 }
 
 #[test]
+fn multi_word_filters_rank_phrase_hits_above_scattered_words() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    for name in [
+        "ducks_in_the_pool.txt",
+        "duck.md",
+        "goose.txt",
+        "nested/duck txt notes.md",
+    ] {
+        fixture_file(fixture.path(), name);
+    }
+    for recursive in [false, true] {
+        let (search, events) = index_filter(fixture.path().into(), false, recursive);
+        search.query("duck txt");
+        let SearchEvent::Results { items, .. } = wait_for_results(&events).expect("results");
+        let names: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+        let expected: &[&str] = if recursive {
+            &["duck txt notes.md", "ducks_in_the_pool.txt"]
+        } else {
+            &["ducks_in_the_pool.txt"]
+        };
+        assert_eq!(names, expected, "recursive={recursive}");
+    }
+}
+
+#[test]
 fn wildcard_scoring_is_session_local_and_applies_to_new_index_batches() {
     let index = Arc::new(SharedIndex::new());
     let (filter, events) =
