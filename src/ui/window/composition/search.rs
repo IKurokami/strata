@@ -50,9 +50,14 @@ pub(super) fn install(
             browser.reveal_location(Location::local(item.path));
         }
     });
-    let dialog = SearchDialog::new(activate, reveal, dismiss);
-    content.overlay.add_overlay(&dialog.widget());
-    let toggle = toggle_handler(dialog.clone(), content, preferences);
+    let launcher = Rc::new(SearchLauncher {
+        dialog: RefCell::new(None),
+        overlay: content.overlay.clone(),
+        activate,
+        reveal,
+        dismiss,
+    });
+    let toggle = toggle_handler(launcher.clone(), content, preferences);
     let clicked_search = toggle.clone();
     content.header.search.connect_clicked(move |_| {
         if crate::ui::tenxer_mode::chrome_suppressed() {
@@ -60,25 +65,61 @@ pub(super) fn install(
         }
         clicked_search();
     });
-    let own_layer = dialog.widget();
+    let search_layer = launcher.clone();
     super::add_guarded_window_action(
         window,
         &content.actions,
         "search",
         &content.browser,
-        Some(own_layer.clone()),
+        move || search_layer.widget(),
         move || toggle(),
     );
 
-    let jump = folder_jump_handler(dialog, content, history);
+    let jump_layer = launcher.clone();
+    let jump = folder_jump_handler(launcher, content, history);
     super::add_guarded_window_action(
         window,
         &content.actions,
         "jump-folder",
         &content.browser,
-        Some(own_layer),
+        move || jump_layer.widget(),
         move || jump(),
     );
+}
+
+struct SearchLauncher {
+    dialog: RefCell<Option<SearchDialog>>,
+    overlay: gtk::Overlay,
+    activate: Rc<dyn Fn(SearchItem)>,
+    reveal: Rc<dyn Fn(SearchItem)>,
+    dismiss: Rc<dyn Fn()>,
+}
+
+impl SearchLauncher {
+    fn dialog(&self) -> SearchDialog {
+        if let Some(dialog) = self.dialog.borrow().clone() {
+            return dialog;
+        }
+        let dialog = SearchDialog::new(
+            self.activate.clone(),
+            self.reveal.clone(),
+            self.dismiss.clone(),
+        );
+        self.overlay.add_overlay(&dialog.widget());
+        self.dialog.borrow_mut().replace(dialog.clone());
+        dialog
+    }
+
+    fn widget(&self) -> Option<gtk::Widget> {
+        self.dialog.borrow().as_ref().map(SearchDialog::widget)
+    }
+
+    fn is_visible(&self) -> bool {
+        self.dialog
+            .borrow()
+            .as_ref()
+            .is_some_and(SearchDialog::is_visible)
+    }
 }
 
 #[derive(Default)]
@@ -122,7 +163,7 @@ fn install_history_recorder(controller: &Rc<Browser>, history: &Rc<NavigationHis
 }
 
 fn toggle_handler(
-    dialog: SearchDialog,
+    launcher: Rc<SearchLauncher>,
     content: &WindowContent,
     preferences: &Rc<PreferenceManager>,
 ) -> Rc<dyn Fn()> {
@@ -133,10 +174,11 @@ fn toggle_handler(
         let (Some(button), Some(root)) = (button.upgrade(), root.upgrade()) else {
             return;
         };
-        if dialog.is_visible() {
-            dialog.hide();
+        if launcher.is_visible() {
+            launcher.dialog().hide();
             return;
         }
+        let dialog = launcher.dialog();
         let roots = super::super::devices::global_search_roots();
         button.add_css_class("active");
         root.set_blurred(true);
@@ -145,7 +187,7 @@ fn toggle_handler(
 }
 
 fn folder_jump_handler(
-    dialog: SearchDialog,
+    launcher: Rc<SearchLauncher>,
     content: &WindowContent,
     history: Rc<NavigationHistory>,
 ) -> Rc<dyn Fn()> {
@@ -155,10 +197,11 @@ fn folder_jump_handler(
         let (Some(button), Some(root)) = (button.upgrade(), root.upgrade()) else {
             return;
         };
-        if dialog.is_visible() {
-            dialog.hide();
+        if launcher.is_visible() {
+            launcher.dialog().hide();
             return;
         }
+        let dialog = launcher.dialog();
         button.remove_css_class("active");
         root.set_blurred(true);
         dialog.show_history(history.clone());

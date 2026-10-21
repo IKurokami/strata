@@ -72,6 +72,7 @@ pub(super) fn install(
             picture.remove_css_class("tenxer-splash-visible");
             picture.remove_css_class("tenxer-splash-exiting");
             if !enabled || !window.is_mapped() {
+                picture.set_paintable(None::<&gtk::gdk::Paintable>);
                 return;
             }
             // Settings and dialogs may have added overlays since installation.
@@ -123,6 +124,7 @@ pub(super) fn install(
                     && let Some(picture) = weak_picture.upgrade()
                 {
                     picture.set_visible(false);
+                    picture.set_paintable(None::<&gtk::gdk::Paintable>);
                 }
             });
         },

@@ -150,6 +150,7 @@ pub mod icons {
 const FONT_VERSION: &str = "2.304";
 const ICON_TEXTURE_PX: i32 = 96;
 const ICON_TEXTURE_CACHE_LIMIT: usize = 256;
+const ICON_TEXTURE_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// File icons from catppuccin/vscode-icons keep their own palette instead of the theme accent.
 pub const CATPPUCCIN_ICON_PREFIX: &str = "strata-ctp-";
@@ -539,6 +540,14 @@ fn primary_icon_texture_at(
     if name.starts_with(CATPPUCCIN_ICON_PREFIX) {
         return catppuccin_icon_texture_at(name, color, texture_px, logical_px, context);
     }
+    let key = (
+        stroke_cache_name(name, logical_px, context),
+        color.to_owned(),
+        texture_px,
+    );
+    if let Some(texture) = cached_icon_texture(&key) {
+        return Some(texture);
+    }
     let path = format!("/io/github/lgse/Strata/icons/scalable/actions/{name}.svg");
     let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
     let source = std::str::from_utf8(data.as_ref()).ok()?;
@@ -551,12 +560,7 @@ fn primary_icon_texture_at(
         );
     }
     let source = compensate_icon_strokes(source, logical_px, context);
-    texture_from_svg(
-        &stroke_cache_name(name, logical_px, context),
-        color,
-        texture_px,
-        svg_at_texture_size(source, texture_px),
-    )
+    texture_from_svg(key, svg_at_texture_size(source, texture_px))
 }
 
 fn catppuccin_icon_texture_at(
@@ -566,10 +570,23 @@ fn catppuccin_icon_texture_at(
     logical_px: i32,
     context: IconContext,
 ) -> Option<gdk::Texture> {
-    let path = format!("/io/github/lgse/Strata/icons/catppuccin/{name}.svg");
-    let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
     let flavor = CATPPUCCIN_FLAVOR.get();
     let themed = CATPPUCCIN_THEME_COLORS.get();
+    let palette = if themed {
+        format!("accent:{color}")
+    } else {
+        flavor.name().to_owned()
+    };
+    let key = (
+        stroke_cache_name(name, logical_px, context),
+        palette,
+        texture_px,
+    );
+    if let Some(texture) = cached_icon_texture(&key) {
+        return Some(texture);
+    }
+    let path = format!("/io/github/lgse/Strata/icons/catppuccin/{name}.svg");
+    let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
     let mut source = std::str::from_utf8(data.as_ref()).ok()?.to_owned();
     for (variable, hex) in flavor.palette() {
         let replacement = if themed { color } else { hex };
@@ -586,17 +603,7 @@ fn catppuccin_icon_texture_at(
         source,
         icon_stroke_factor(logical_px, context) * catppuccin_stroke_weight(context),
     );
-    let palette = if themed {
-        format!("accent:{color}")
-    } else {
-        flavor.name().to_owned()
-    };
-    texture_from_svg(
-        &stroke_cache_name(name, logical_px, context),
-        &palette,
-        texture_px,
-        source,
-    )
+    texture_from_svg(key, source)
 }
 
 /// Catppuccin draws 1-unit strokes on a 16-unit grid where Lucide draws 2 on 24, so the
@@ -674,6 +681,46 @@ pub(crate) fn sized_folder_decoration_paintable(
     let texture_px = ICON_TEXTURE_PX
         .max(logical_px.saturating_mul(scale_factor))
         .clamp(24, 768);
+    if let Some(emoji) = icons::custom_emoji(decoration) {
+        let key = (
+            stroke_cache_name(&format!("folder-emoji:{emoji}"), logical_px, context),
+            color.to_owned(),
+            texture_px,
+        );
+        if let Some(texture) = cached_icon_texture(&key) {
+            return Some(texture);
+        }
+        let folder_data = gio::resources_lookup_data(
+            "/io/github/lgse/Strata/icons/scalable/actions/strata-folder.svg",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .ok()?;
+        let folder = std::str::from_utf8(folder_data.as_ref()).ok()?;
+        let source = svg_at_texture_size(recolor_icon_source(folder, color), texture_px).replacen(
+            "fill=\"none\"",
+            &format!("fill=\"{color}\" fill-opacity=\"0.92\""),
+            1,
+        );
+        return folder_emoji_texture(
+            key,
+            &compensate_icon_strokes(source, logical_px, context),
+            emoji,
+            texture_px,
+        );
+    }
+
+    let key = (
+        stroke_cache_name(
+            &format!("folder-decoration:{decoration}"),
+            logical_px,
+            context,
+        ),
+        color.to_owned(),
+        texture_px,
+    );
+    if let Some(texture) = cached_icon_texture(&key) {
+        return Some(texture);
+    }
     let folder_data = gio::resources_lookup_data(
         "/io/github/lgse/Strata/icons/scalable/actions/strata-folder.svg",
         gio::ResourceLookupFlags::NONE,
@@ -685,17 +732,6 @@ pub(crate) fn sized_folder_decoration_paintable(
         &format!("fill=\"{color}\" fill-opacity=\"0.92\""),
         1,
     );
-    if let Some(emoji) = icons::custom_emoji(decoration) {
-        return folder_emoji_texture(
-            &compensate_icon_strokes(source, logical_px, context),
-            emoji,
-            color,
-            logical_px,
-            texture_px,
-            context,
-        );
-    }
-
     let foreground = contrasting_foreground(color);
     let path = format!("/io/github/lgse/Strata/icons/scalable/actions/{decoration}.svg");
     let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
@@ -705,34 +741,15 @@ pub(crate) fn sized_folder_decoration_paintable(
         r#"<g transform="translate(5.5 6.8) scale(.54)" fill="none" stroke="{foreground}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">{body}</g>"#,
     );
     source = source.replacen("</svg>", &format!("{overlay}</svg>"), 1);
-    texture_from_svg(
-        &stroke_cache_name(
-            &format!("folder-decoration:{decoration}"),
-            logical_px,
-            context,
-        ),
-        color,
-        texture_px,
-        compensate_icon_strokes(source, logical_px, context),
-    )
+    texture_from_svg(key, compensate_icon_strokes(source, logical_px, context))
 }
 
 fn folder_emoji_texture(
+    key: IconTextureKey,
     folder_source: &str,
     emoji: &str,
-    color: &str,
-    logical_px: i32,
     texture_px: i32,
-    context: IconContext,
 ) -> Option<gdk::Texture> {
-    let key = (
-        stroke_cache_name(&format!("folder-emoji:{emoji}"), logical_px, context),
-        color.to_owned(),
-        texture_px,
-    );
-    if let Some(texture) = cached_icon_texture(&key) {
-        return Some(texture);
-    }
     let folder = vector::surface(folder_source, texture_px)?;
     render_emoji_texture(key, emoji, 52.0, (44.0, 44.0), (48.0, 56.0), Some(&folder))
 }
@@ -835,18 +852,12 @@ fn svg_at_texture_size(source: String, texture_px: i32) -> String {
         .replacen("height=\"24\"", &format!("height=\"{texture_px}\""), 1)
 }
 
-fn texture_from_svg(
-    cache_name: &str,
-    color: &str,
-    texture_px: i32,
-    source: String,
-) -> Option<gdk::Texture> {
-    let key = (cache_name.to_owned(), color.to_owned(), texture_px);
+fn texture_from_svg(key: IconTextureKey, source: String) -> Option<gdk::Texture> {
     if let Some(texture) = cached_icon_texture(&key) {
         return Some(texture);
     }
-    let surface = vector::surface(&source, texture_px)?;
-    Some(cache_icon_texture(key, texture_from_surface(&surface)?))
+    let texture = vector::texture(&source, key.2)?;
+    Some(cache_icon_texture(key, texture))
 }
 
 fn texture_from_surface(surface: &cairo::ImageSurface) -> Option<gdk::Texture> {
@@ -875,6 +886,7 @@ type IconTextureKey = (String, String, i32);
 
 struct CachedIconTexture {
     texture: gdk::Texture,
+    bytes: usize,
     generation: u64,
 }
 
@@ -882,6 +894,7 @@ struct CachedIconTexture {
 struct IconTextureCache {
     entries: HashMap<IconTextureKey, CachedIconTexture>,
     recent: VecDeque<(IconTextureKey, u64)>,
+    total_bytes: usize,
     generation: u64,
 }
 
@@ -899,15 +912,24 @@ impl IconTextureCache {
     fn insert(&mut self, key: IconTextureKey, texture: gdk::Texture) -> gdk::Texture {
         self.generation = self.generation.saturating_add(1);
         let generation = self.generation;
-        self.entries.insert(
+        let bytes = (texture.width().max(1) as usize)
+            .saturating_mul(texture.height().max(1) as usize)
+            .saturating_mul(4);
+        if let Some(previous) = self.entries.insert(
             key.clone(),
             CachedIconTexture {
                 texture: texture.clone(),
+                bytes,
                 generation,
             },
-        );
+        ) {
+            self.total_bytes = self.total_bytes.saturating_sub(previous.bytes);
+        }
+        self.total_bytes = self.total_bytes.saturating_add(bytes);
         self.recent.push_back((key, generation));
-        while self.entries.len() > ICON_TEXTURE_CACHE_LIMIT {
+        while self.entries.len() > ICON_TEXTURE_CACHE_LIMIT
+            || (self.total_bytes > ICON_TEXTURE_CACHE_MAX_BYTES && self.entries.len() > 1)
+        {
             let Some((oldest_key, oldest_generation)) = self.recent.pop_front() else {
                 break;
             };
@@ -915,8 +937,9 @@ impl IconTextureCache {
                 .entries
                 .get(&oldest_key)
                 .is_some_and(|cached| cached.generation == oldest_generation)
+                && let Some(removed) = self.entries.remove(&oldest_key)
             {
-                self.entries.remove(&oldest_key);
+                self.total_bytes = self.total_bytes.saturating_sub(removed.bytes);
             }
         }
         self.compact_recent();
@@ -927,6 +950,7 @@ impl IconTextureCache {
     fn clear(&mut self) {
         self.entries.clear();
         self.recent.clear();
+        self.total_bytes = 0;
         self.generation = 0;
     }
 
@@ -993,18 +1017,13 @@ fn register_application_fonts(
 
         // SAFETY: `config` was checked above. `path` is a valid, NUL-terminated C string
         // that remains alive for the call, and Fontconfig copies rather than retains it.
+        // `FcConfigAppFontAddFile` appends directly to the application font set without
+        // rebuilding the system font set.
         let registered =
             unsafe { fontconfig_sys::FcConfigAppFontAddFile(config, path.as_ptr().cast()) };
         if registered == 0 {
             return Err("Fontconfig could not register a bundled font".into());
         }
-    }
-
-    // SAFETY: `config` is the same checked process-global configuration. Registration
-    // runs during single-threaded startup before GTK/Pango creates the application's map.
-    let rebuilt = unsafe { fontconfig_sys::FcConfigBuildFonts(config) };
-    if rebuilt == 0 {
-        return Err("Fontconfig could not rebuild the application font set".into());
     }
 
     Ok(())

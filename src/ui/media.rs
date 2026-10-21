@@ -317,7 +317,9 @@ impl DecodedMedia {
 
     pub fn new(source: SandboxedMedia) -> Self {
         let obj: Self = glib::Object::new();
-        let restore = resume_position(&source.path);
+        let restore = (!crate::services::is_gif_path(&source.path))
+            .then(|| resume_position(&source.path))
+            .flatten();
         obj.imp().source.replace(Some(source));
         if let Some(position) = restore {
             obj.imp().restore.set(Some(position));
@@ -455,7 +457,8 @@ impl DecodedMedia {
         if let Some(source) = imp.source.borrow().as_ref() {
             let position = imp.position.get();
             let duration = self.duration().max(0) as u64;
-            if imp.header.get().is_some_and(|header| header.width > 0)
+            if !crate::services::is_gif_path(&source.path)
+                && imp.header.get().is_some_and(|header| header.width > 0)
                 && position > RESTORE_MIN_US
                 && (duration == 0 || position < duration)
             {

@@ -9,6 +9,7 @@ use gio::subclass::prelude::ListModelImpl;
 use gtk::{gio, glib, prelude::*, subclass::prelude::*};
 
 pub(crate) type ResolveFn = Rc<dyn Fn(u32) -> Option<String>>;
+pub(crate) type IsHiddenFn = Rc<dyn Fn(u32) -> Option<bool>>;
 
 mod imp {
     use super::*;
@@ -17,6 +18,7 @@ mod imp {
     pub struct EntryListModel {
         pub count: Cell<u32>,
         pub resolve: RefCell<Option<ResolveFn>>,
+        pub is_hidden: RefCell<Option<IsHiddenFn>>,
     }
 
     #[glib::object_subclass]
@@ -57,6 +59,18 @@ impl EntryListModel {
         let model: Self = glib::Object::new();
         model.imp().resolve.replace(Some(resolve));
         model
+    }
+
+    pub(crate) fn set_is_hidden(&self, is_hidden: IsHiddenFn) {
+        self.imp().is_hidden.replace(Some(is_hidden));
+    }
+
+    pub(crate) fn is_hidden(&self, position: u32) -> Option<bool> {
+        if position >= self.imp().count.get() {
+            return None;
+        }
+        let is_hidden = self.imp().is_hidden.borrow().clone()?;
+        is_hidden(position)
     }
 
     pub(crate) fn value(&self, position: u32) -> Option<String> {

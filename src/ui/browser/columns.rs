@@ -1387,6 +1387,15 @@ impl ViewState {
                 })
                 .flatten()
         }));
+        let browser_for_hidden = self.browser.clone();
+        model.set_is_hidden(Rc::new(move |position| {
+            let position = position as usize;
+            browser_for_hidden
+                .with_entries(depth, position..position.saturating_add(1), |entries| {
+                    entries.first().map(|entry| entry.is_hidden)
+                })
+                .flatten()
+        }));
         let filter_query = Rc::new(RefCell::new(String::new()));
         let initial_show_hidden = self
             .browser
@@ -1394,7 +1403,10 @@ impl ViewState {
             .map_or_else(|| self.browser.preferences().show_hidden, |p| p.show_hidden);
         let show_hidden = Rc::new(Cell::new(initial_show_hidden));
         let filter = entry_filter(show_hidden.clone(), filter_query.clone());
-        let filtered_model = gtk::FilterListModel::new(Some(model.clone()), Some(filter.clone()));
+        let filtered_model = gtk::FilterListModel::new(
+            Some(model.clone()),
+            (!initial_show_hidden).then(|| filter.clone()),
+        );
         let map = ViewMap::new(
             filter_query.clone(),
             show_hidden.clone(),
@@ -1505,6 +1517,7 @@ impl ViewState {
         let selection_for_search = selection.clone();
         let syncing_for_search = syncing_selection.clone();
         let filter_query_for_search = filter_query.clone();
+        let show_hidden_for_search = show_hidden.clone();
         let hits_for_search = hits.clone();
         let query_binding = bind_filter_query(
             &filter_entry,
@@ -1532,6 +1545,7 @@ impl ViewState {
                         &filtered_model_for_search,
                         &filter,
                         &filter_query_for_search,
+                        show_hidden_for_search.get(),
                         fold_for_search(&text),
                     );
                     deactivate_recursive_search(
@@ -1568,6 +1582,7 @@ impl ViewState {
                         &filtered_model_for_search,
                         &filter,
                         &filter_query_for_search,
+                        show_hidden_for_search.get(),
                         fold_for_search(&text),
                     );
                     state.refresh_name_highlights();

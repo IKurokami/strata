@@ -65,7 +65,7 @@ impl SafeHandle {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.0.is_invalid() && self.0.0 != std::ptr::null_mut()
+        !self.0.is_invalid() && !self.0.0.is_null()
     }
 }
 
@@ -368,7 +368,7 @@ pub fn run_in_job(
     let job = JobObject::create(limits)?;
 
     // Create pipes for stdout and stderr, and optionally stdin.
-    let mut sa = SECURITY_ATTRIBUTES {
+    let sa = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         bInheritHandle: TRUE,
         lpSecurityDescriptor: std::ptr::null_mut(),
@@ -377,7 +377,7 @@ pub fn run_in_job(
     let mut stdout_read = HANDLE::default();
     let mut stdout_write = HANDLE::default();
     // SAFETY: Output pointers are valid and sa specifies inheritance.
-    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&sa), 0) }
         .map_err(|e| io::Error::other(format!("CreatePipe stdout failed: {e}")))?;
     let stdout_read = SafeHandle::new(stdout_read);
     let stdout_write = SafeHandle::new(stdout_write);
@@ -386,7 +386,7 @@ pub fn run_in_job(
     let mut stderr_read = HANDLE::default();
     let mut stderr_write = HANDLE::default();
     // SAFETY: Output pointers are valid and sa specifies inheritance.
-    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&sa), 0) }
         .map_err(|e| io::Error::other(format!("CreatePipe stderr failed: {e}")))?;
     let stderr_read = SafeHandle::new(stderr_read);
     let stderr_write = SafeHandle::new(stderr_write);
@@ -396,7 +396,7 @@ pub fn run_in_job(
     let mut stdin_write = HANDLE::default();
     if stdin_data.is_some() {
         // SAFETY: Output pointers are valid and sa specifies inheritance.
-        unsafe { CreatePipe(&mut stdin_read, &mut stdin_write, Some(&mut sa), 0) }
+        unsafe { CreatePipe(&mut stdin_read, &mut stdin_write, Some(&sa), 0) }
             .map_err(|e| io::Error::other(format!("CreatePipe stdin failed: {e}")))?;
     }
     let stdin_read = SafeHandle::new(stdin_read);
@@ -661,6 +661,7 @@ impl InteractiveSandboxedChild {
             if available == 0 {
                 // A completed worker closes its pipe. Avoid sleeping until the
                 // deadline when the process has already exited.
+                // SAFETY: The owned process handle is valid; a zero timeout only probes its state.
                 if unsafe { WaitForSingleObject(self.process.handle(), 0) } == WAIT_OBJECT_0 {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
@@ -797,7 +798,7 @@ pub fn spawn_streaming_in_job(
     limits: &JobLimits,
 ) -> io::Result<SandboxedChild> {
     let job = JobObject::create(limits)?;
-    let mut sa = SECURITY_ATTRIBUTES {
+    let sa = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         bInheritHandle: TRUE,
         lpSecurityDescriptor: std::ptr::null_mut(),
@@ -806,7 +807,7 @@ pub fn spawn_streaming_in_job(
     let mut stdout_read = HANDLE::default();
     let mut stdout_write = HANDLE::default();
     // SAFETY: output pointers and inheritable security attributes are valid.
-    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&sa), 0) }
         .map_err(|error| io::Error::other(format!("CreatePipe stdout failed: {error}")))?;
     let stdout_read = SafeHandle::new(stdout_read);
     let stdout_write = SafeHandle::new(stdout_write);
@@ -815,7 +816,7 @@ pub fn spawn_streaming_in_job(
     let mut stderr_read = HANDLE::default();
     let mut stderr_write = HANDLE::default();
     // SAFETY: output pointers and inheritable security attributes are valid.
-    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&sa), 0) }
         .map_err(|error| io::Error::other(format!("CreatePipe stderr failed: {error}")))?;
     let stderr_read = SafeHandle::new(stderr_read);
     let stderr_write = SafeHandle::new(stderr_write);
@@ -882,7 +883,7 @@ pub fn spawn_interactive_in_job(
     limits: &JobLimits,
 ) -> io::Result<InteractiveSandboxedChild> {
     let job = JobObject::create(limits)?;
-    let mut sa = SECURITY_ATTRIBUTES {
+    let sa = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         bInheritHandle: TRUE,
         lpSecurityDescriptor: std::ptr::null_mut(),
@@ -891,7 +892,7 @@ pub fn spawn_interactive_in_job(
     let mut stdin_read = HANDLE::default();
     let mut stdin_write = HANDLE::default();
     // SAFETY: output pointers and inheritable security attributes are valid.
-    unsafe { CreatePipe(&mut stdin_read, &mut stdin_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stdin_read, &mut stdin_write, Some(&sa), 0) }
         .map_err(|error| io::Error::other(format!("CreatePipe stdin failed: {error}")))?;
     let stdin_read = SafeHandle::new(stdin_read);
     let stdin_write = SafeHandle::new(stdin_write);
@@ -900,7 +901,7 @@ pub fn spawn_interactive_in_job(
     let mut stdout_read = HANDLE::default();
     let mut stdout_write = HANDLE::default();
     // SAFETY: output pointers and inheritable security attributes are valid.
-    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stdout_read, &mut stdout_write, Some(&sa), 0) }
         .map_err(|error| io::Error::other(format!("CreatePipe stdout failed: {error}")))?;
     let stdout_read = SafeHandle::new(stdout_read);
     let stdout_write = SafeHandle::new(stdout_write);
@@ -909,7 +910,7 @@ pub fn spawn_interactive_in_job(
     let mut stderr_read = HANDLE::default();
     let mut stderr_write = HANDLE::default();
     // SAFETY: output pointers and inheritable security attributes are valid.
-    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&mut sa), 0) }
+    unsafe { CreatePipe(&mut stderr_read, &mut stderr_write, Some(&sa), 0) }
         .map_err(|error| io::Error::other(format!("CreatePipe stderr failed: {error}")))?;
     let stderr_read = SafeHandle::new(stderr_read);
     let stderr_write = SafeHandle::new(stderr_write);

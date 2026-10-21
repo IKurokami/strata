@@ -79,7 +79,7 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p target/windows-gui-diagnostics
-          cargo check --locked --no-default-features --bin strata --message-format=short \
+          cargo check --locked --no-default-features --bins --message-format=short \
             2>&1 | tee target/windows-gui-diagnostics/cargo-check.log
           code=${PIPESTATUS[0]}
           echo "cargo_exit_code=$code" >> "$GITHUB_OUTPUT"

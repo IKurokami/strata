@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: MIT
+
+use windows::Win32::{
+    Foundation::{HWND, RECT},
+    UI::WindowsAndMessaging::{
+        GetWindowPlacement, SW_SHOWMAXIMIZED, SW_SHOWNORMAL, SetWindowPlacement, WINDOWPLACEMENT,
+        WPF_RESTORETOMAXIMIZED,
+    },
+};
+
+/// Normal workspace coordinates, independent of the window's minimized state.
+#[derive(Clone, Copy)]
+pub struct Placement {
+    pub normal: [i32; 4],
+    pub maximized: bool,
+}
+
+/// Capture a native HWND without changing its visibility or activation.
+pub fn placement(handle: isize) -> windows_core::Result<Placement> {
+    let mut placement = WINDOWPLACEMENT {
+        length: size_of::<WINDOWPLACEMENT>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: The output is initialized and lives across this synchronous call.
+    // Invalid or retired HWND values are rejected by Windows.
+    unsafe { GetWindowPlacement(HWND(handle as *mut _), &mut placement) }?;
+    let rect = placement.rcNormalPosition;
+    Ok(Placement {
+        normal: [rect.left, rect.top, rect.right, rect.bottom],
+        maximized: placement.showCmd == SW_SHOWMAXIMIZED.0 as u32
+            || placement.flags.contains(WPF_RESTORETOMAXIMIZED),
+    })
+}
+
+/// Restore with the matching workspace-coordinate API. Windows moves an
+/// off-screen placement onto an available monitor after display changes.
+pub fn restore(handle: isize, saved: Placement) -> windows_core::Result<()> {
+    let [left, top, right, bottom] = saved.normal;
+    if right.checked_sub(left).is_none_or(|width| width <= 0)
+        || bottom.checked_sub(top).is_none_or(|height| height <= 0)
+    {
+        return Err(windows_core::Error::from_hresult(
+            windows::Win32::Foundation::E_INVALIDARG,
+        ));
+    }
+    let placement = WINDOWPLACEMENT {
+        length: size_of::<WINDOWPLACEMENT>() as u32,
+        showCmd: if saved.maximized {
+            SW_SHOWMAXIMIZED
+        } else {
+            SW_SHOWNORMAL
+        }
+        .0 as u32,
+        rcNormalPosition: RECT {
+            left,
+            top,
+            right,
+            bottom,
+        },
+        ..Default::default()
+    };
+    // SAFETY: The placement is initialized and borrowed for this synchronous
+    // call only; Windows validates the HWND and normalizes off-screen bounds.
+    unsafe { SetWindowPlacement(HWND(handle as *mut _), &placement) }
+}

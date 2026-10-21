@@ -67,6 +67,14 @@ mod top_bar_navigation;
 mod udiskie_preferences;
 mod virtual_preview;
 mod window;
+#[cfg(windows)]
+mod windows_desktop;
+#[cfg(windows)]
+mod windows_integration;
+#[cfg(windows)]
+pub(crate) mod windows_runtime;
+#[cfg(windows)]
+mod windows_window_state;
 
 #[cfg(target_os = "linux")]
 pub(crate) use chooser::{cancel_chooser, present_chooser};

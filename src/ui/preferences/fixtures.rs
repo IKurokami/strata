@@ -86,6 +86,9 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         release_channel: "nightly".into(),
         default_directory: Some("/fixture/default".into()),
         restore_tabs: false,
+        keep_running_in_background: true,
+        show_console: true,
+        replace_file_explorer: true,
         remember_folder_views: false,
         folder_colors: HashMap::from([("/fixture/folder".into(), "red".into())]),
         custom_icons: HashMap::from([(

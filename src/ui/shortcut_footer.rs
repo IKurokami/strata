@@ -945,8 +945,9 @@ impl ShortcutFooter {
                     }
                     chords.clear();
                 }
-                if let (Some(categories), Some(search), Some(scroll)) =
-                    (categories.upgrade(), search.upgrade(), scroll.upgrade())
+                if !starting
+                    && let (Some(categories), Some(search), Some(scroll)) =
+                        (categories.upgrade(), search.upgrade(), scroll.upgrade())
                 {
                     rebuild_reference(
                         &reference,
@@ -1082,7 +1083,9 @@ impl ShortcutFooter {
     }
 
     fn set_reference_scope(&self, scope: ReferenceScope) {
-        self.reference_scope.set(scope);
+        if self.reference_scope.replace(scope) == scope && self.reference.first_child().is_some() {
+            return;
+        }
         rebuild_reference(
             &self.reference,
             &self.categories,

@@ -604,8 +604,10 @@ mod key_event {
 
 #[test]
 fn key_handlers_yield_to_a_composition_in_the_focused_field() {
-    crate::test_support::gtk_test(
+    // Synthetic GDK events cannot drive the native Windows IME message filter.
+    crate::test_support::gtk_test_with_env(
         "ui::keys::tests::key_handlers_yield_to_a_composition_in_the_focused_field",
+        [("GTK_IM_MODULE", "simple")],
         || {
             use gtk::prelude::*;
             use std::{cell::Cell, rc::Rc};
@@ -826,7 +828,11 @@ mod labels {
                     Key::t,
                     Modifiers::SUPER_MASK | Modifiers::SHIFT_MASK | CTRL | Modifiers::ALT_MASK,
                 )),
-                "Ctrl+Alt+Shift+Super+T",
+                if cfg!(windows) {
+                    "Ctrl+Alt+Shift+Win+T"
+                } else {
+                    "Ctrl+Alt+Shift+Super+T"
+                },
             ),
             (Keys::One(Binding::plain(Key::j)), "j"),
             (Keys::One(Binding::shift(Key::j)), "J"),

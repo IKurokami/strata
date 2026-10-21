@@ -70,22 +70,34 @@ struct WorkerPool {
     limits: &'static strata_win_shell::job::JobLimits,
 }
 
+const WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
 struct PoolState {
-    idle: Vec<Worker>,
+    idle: Vec<(Worker, Instant)>,
     count: usize,
+    reaper_running: bool,
 }
 
 impl WorkerPool {
-    fn acquire(&self, cancellation: &Cancellation) -> Result<Worker, String> {
+    fn acquire(&'static self, cancellation: &Cancellation) -> Result<Worker, String> {
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         loop {
+            let expired = Self::take_expired_idle(&mut state, Instant::now());
+            if !expired.is_empty() {
+                drop(state);
+                drop(expired);
+                state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+            }
             if cancellation.is_cancelled() {
                 return Err("Preview cancelled".to_owned());
             }
-            if let Some(worker) = state.idle.pop() {
+            if let Some((worker, _)) = state.idle.pop() {
                 return Ok(worker);
             }
             if state.count < self.limit {
@@ -110,18 +122,81 @@ impl WorkerPool {
         }
     }
 
-    fn release(&self, worker: Worker, healthy: bool) {
+    fn release(&'static self, worker: Worker, healthy: bool) {
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+        let mut spawn_reaper = false;
         if healthy {
-            state.idle.push(worker);
+            state.idle.push((worker, Instant::now()));
+            if !state.reaper_running {
+                state.reaper_running = true;
+                spawn_reaper = true;
+            }
         } else {
             state.count = state.count.saturating_sub(1);
             drop(worker);
         }
         self.changed.notify_one();
+        drop(state);
+        if spawn_reaper {
+            let _ = std::thread::Builder::new()
+                .name("strata-worker-reaper".to_owned())
+                .spawn(move || self.reap_idle_loop());
+        }
+    }
+
+    fn take_expired_idle(state: &mut PoolState, now: Instant) -> Vec<Worker> {
+        let mut expired = Vec::new();
+        let mut index = 0;
+        while index < state.idle.len() {
+            if now.saturating_duration_since(state.idle[index].1) >= WORKER_IDLE_TIMEOUT {
+                let (worker, _) = state.idle.swap_remove(index);
+                state.count = state.count.saturating_sub(1);
+                expired.push(worker);
+            } else {
+                index += 1;
+            }
+        }
+        expired
+    }
+
+    fn reap_idle_loop(&'static self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        loop {
+            let now = Instant::now();
+            let expired = Self::take_expired_idle(&mut state, now);
+            if !expired.is_empty() {
+                self.changed.notify_all();
+                drop(state);
+                drop(expired);
+                state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                continue;
+            }
+            let Some(next_wait) = state
+                .idle
+                .iter()
+                .map(|(_, idle_since)| {
+                    WORKER_IDLE_TIMEOUT.saturating_sub(now.saturating_duration_since(*idle_since))
+                })
+                .min()
+            else {
+                state.reaper_running = false;
+                return;
+            };
+            state = self
+                .changed
+                .wait_timeout(state, next_wait.max(Duration::from_millis(50)))
+                .map(|(state, _)| state)
+                .unwrap_or_else(|poison| poison.into_inner().0);
+        }
     }
 }
 
@@ -131,6 +206,7 @@ fn pool() -> &'static WorkerPool {
         state: Mutex::new(PoolState {
             idle: Vec::new(),
             count: 0,
+            reaper_running: false,
         }),
         changed: Condvar::new(),
         limit: PERSISTENT_WORKERS,
@@ -144,6 +220,7 @@ fn preview_pool() -> &'static WorkerPool {
         state: Mutex::new(PoolState {
             idle: Vec::new(),
             count: 0,
+            reaper_running: false,
         }),
         changed: Condvar::new(),
         limit: PREVIEW_WORKERS,
@@ -157,6 +234,7 @@ fn video_pool() -> &'static WorkerPool {
         state: Mutex::new(PoolState {
             idle: Vec::new(),
             count: 0,
+            reaper_running: false,
         }),
         changed: Condvar::new(),
         limit: VIDEO_WORKERS,

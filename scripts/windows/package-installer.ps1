@@ -36,7 +36,7 @@ foreach ($file in (Get-ChildItem -LiteralPath $bundlePath -Recurse -Force)) {
         throw "Portable bundle contains an unverified file: $($file.FullName)"
     }
 }
-foreach ($required in @('bin/strata.exe', 'Start-Strata.cmd')) {
+foreach ($required in @('bin/strata.exe', 'bin/strata-shell.exe', 'Start-Strata.exe', 'Start-Strata.cmd')) {
     if (-not ($manifest.files | Where-Object { $_.path -eq $required })) {
         throw "Portable manifest is missing $required"
     }

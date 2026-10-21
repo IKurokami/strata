@@ -45,9 +45,27 @@ the user's desktop. A successful `--version` alone does not prove first paint.
 
 The package action creates a fresh timestamped self-contained portable release
 directory under `target/` and writes `release-manifest.json` with SHA-256 hashes.
-Copy or extract the complete directory, then launch `Start-Strata.cmd`.
+Copy or extract the complete directory, then launch `Start-Strata.exe`.
+This native launcher and the application use the Windows GUI subsystem, so
+opening them from Explorer creates no CMD window. `Start-Strata.cmd` remains
+available for terminal diagnostics: it explicitly sets
+`STRATA_ATTACH_PARENT_CONSOLE=1` to attach to its caller's terminal while preserving
+redirected streams. Ordinary GUI launches do not attach to a parent console.
+Settings → General → Desktop integration →
+**Show application console** enables or hides Strata's own diagnostic console
+immediately and remembers the choice. It never hides an existing caller terminal.
+The tray icon provides Open Strata, the same console toggle and Quit Strata.
+Enable **Keep Strata running in the background** to reopen from the tray after
+closing the window; Quit retains the active-operation guards.
 The executable depends on the adjacent `bin`, `lib`, `libexec`, `share`, and
 `etc` directories. The package smoke checks exclude MSYS2 from PATH.
+
+Windows startup reuses the Fontconfig font backend that holds the bundled
+JetBrains Mono font, avoiding a second font enumeration through Pango's Win32
+backend. An explicitly supplied `PANGOCAIRO_BACKEND` remains authoritative; if
+the Fontconfig backend is unavailable, Pango keeps its platform default.
+The portable launcher and development script also avoid D-Bus autolaunch when
+no `DBUS_SESSION_BUS_ADDRESS` is supplied. An explicit session bus is preserved.
 
 ## Build a Windows installer
 
@@ -68,13 +86,52 @@ pass `-Compiler 'D:\Inno Setup 6\ISCC.exe'`.
 
 The resulting `Strata-VERSION-windows-x64-setup.exe` installs per user under
 `%LOCALAPPDATA%\Programs\Strata`, with a Start Menu shortcut and an optional
-Desktop shortcut. Shortcuts launch the runtime through `Start-Strata.cmd`.
-It requires no administrator rights and does not register file associations or
-change the system PATH. Uninstall removes application files and shortcuts while
+Desktop shortcut. Shortcuts launch `bin/strata.exe` directly without CMD.
+It requires no administrator rights and does not change file associations until
+**Replace File Explorer** is enabled in Settings. It does not change the system
+PATH. Uninstall restores this installation's owned folder handlers, then removes application files and shortcuts while
 retaining preferences and user data outside the installation directory.
 Locally generated installers are unsigned; release signing remains a separate step.
 
 ## Current limits
+
+For faster reopening, enable **Settings → General → Startup → Keep Strata running
+in the background**. Close retains one initialized window and clears its media
+preview. Open Strata again to reuse it; explicit paths still navigate to the
+requested target. Use **Quit Strata** in Settings or `Start-Strata.cmd --quit` to
+exit completely. The option is off by default and does not register a login task.
+Windows activation uses a bounded local named pipe with a current-user-only ACL,
+session/configuration isolation, and no remote clients. Native directory scans
+start off the GTK thread while eligible startup windows are being mapped. Starts
+on fixed local drives without a saved session can overlap mapping. Saved sessions
+are read and validated on a worker while the interface is constructed, then
+published on GTK's main thread. A late read cannot replace subsequent navigation
+or reopen a closed window. Removable drives and remote startup targets retain
+deferred navigation. Hidden RAW metadata rows are created only when needed.
+
+Build both Windows binaries before packaging:
+
+```powershell
+cargo build --release --locked --no-default-features --bins
+```
+
+`strata-shell.exe` is a standalone
+proxy used by **Settings → General → Desktop integration → Replace File Explorer**.
+The default folder/drive verbs and their rollback journal are per-user; enabling
+requires no administrator rights. Turning it off or uninstalling restores previous
+defaults without overwriting another file manager's subsequent changes. After
+manual deletion of a portable directory, the retained helper repairs the defaults
+within its 500 ms target check, or on the next folder open if it was not running.
+Its dedicated native keyboard thread routes Win+E to Strata while enabled; the
+helper starts at sign-in through a per-user Run entry. Disabling or uninstalling
+stops the helper and restores the prior entry.
+Win+E sends a bounded activation request directly to an existing Strata process,
+avoiding another GTK executable load. If its endpoint is absent, the helper
+starts the application normally.
+The uninstaller also requests
+normal application shutdown, including an idle retained window, before removing
+files. Windows file dialogs retain their
+system behavior. See [preference lifecycle](preferences.md) for saved-window behavior.
 
 On Windows, the Trash sidebar opens the current user's native Recycle Bin inside
 Strata, across local volumes. Original filenames and extensions do not depend on

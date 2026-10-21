@@ -44,5 +44,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Strata"; Filename: "{app}\Start-Strata.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"
-Name: "{autodesktop}\Strata"; Filename: "{app}\Start-Strata.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"; Tasks: desktopicon
+Name: "{group}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"
+Name: "{autodesktop}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"; Tasks: desktopicon
+
+[UninstallRun]
+Filename: "{app}\bin\strata.exe"; Parameters: "--quit"; Flags: runhidden waituntilterminated; RunOnceId: "QuitStrata"
+Filename: "{app}\bin\strata-shell.exe"; Parameters: "--unregister --target ""{app}\bin\strata.exe"""; Flags: runhidden waituntilterminated; RunOnceId: "RestoreFileManager"

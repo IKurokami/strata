@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
@@ -123,36 +123,43 @@ mod compiled {
 }
 
 /// Translation backend over the tables that build.rs generates from `data/locales`.
-pub(crate) struct Catalogs(HashMap<&'static str, HashMap<&'static str, &'static str>>);
+pub(crate) struct Catalogs;
 
 impl Catalogs {
-    pub(crate) fn compiled() -> Self {
-        Self(
-            compiled::CATALOGS
-                .iter()
-                .map(|&(locale, messages)| (locale, messages.iter().copied().collect()))
-                .collect(),
-        )
+    pub(crate) const fn compiled() -> Self {
+        Self
+    }
+
+    fn locale_messages(locale: &str) -> Option<&'static [(&'static str, &'static str)]> {
+        let index = compiled::CATALOGS
+            .binary_search_by_key(&locale, |&(candidate, _)| candidate)
+            .ok()?;
+        Some(compiled::CATALOGS[index].1)
     }
 }
 
 impl rust_i18n::Backend for Catalogs {
     fn available_locales(&self) -> Vec<Cow<'_, str>> {
-        let mut locales: Vec<Cow<'_, str>> = self.0.keys().map(|&locale| locale.into()).collect();
-        locales.sort_unstable();
-        locales
+        compiled::CATALOGS
+            .iter()
+            .map(|&(locale, _)| locale.into())
+            .collect()
     }
 
     fn translate(&self, locale: &str, key: &str) -> Option<Cow<'_, str>> {
-        self.0.get(locale)?.get(key).map(|&text| text.into())
+        let messages = Self::locale_messages(locale)?;
+        let index = messages
+            .binary_search_by_key(&key, |&(candidate, _)| candidate)
+            .ok()?;
+        Some(messages[index].1.into())
     }
 
     fn messages_for_locale(&self, locale: &str) -> Option<Vec<(Cow<'_, str>, Cow<'_, str>)>> {
-        let messages = self.0.get(locale)?;
+        let messages = Self::locale_messages(locale)?;
         Some(
             messages
                 .iter()
-                .map(|(&key, &text)| (key.into(), text.into()))
+                .map(|&(key, text)| (key.into(), text.into()))
                 .collect(),
         )
     }

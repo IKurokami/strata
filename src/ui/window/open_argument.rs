@@ -37,6 +37,7 @@ fn present_window(
     location: Location,
     file: gio::File,
 ) -> BrowserView {
+    let probe = native_probe(&location);
     let browser = present_target(
         application,
         Some(location.clone()),
@@ -45,7 +46,7 @@ fn present_window(
         false,
         false,
     );
-    classify(browser.clone(), file, location);
+    classify_with_probe(browser.clone(), file, location, probe);
     browser
 }
 
@@ -56,6 +57,31 @@ pub(super) fn route_location(browser: BrowserView, location: Location) {
 enum Kind {
     Directory,
     File,
+}
+
+fn native_probe(location: &Location) -> Option<gio::JoinHandle<Option<Kind>>> {
+    #[cfg(windows)]
+    {
+        let path = location.native_path()?;
+        if !strata_win_shell::is_fixed_local_drive(path) {
+            return None;
+        }
+        let path = path.to_owned();
+        Some(gio::spawn_blocking(move || {
+            std::fs::metadata(path).ok().map(|metadata| {
+                if metadata.is_dir() {
+                    Kind::Directory
+                } else {
+                    Kind::File
+                }
+            })
+        }))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = location;
+        None
+    }
 }
 
 struct OpenRequest {
@@ -93,6 +119,15 @@ impl OpenRequest {
 }
 
 fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<OpenRequest> {
+    classify_with_probe(browser, file, location, None)
+}
+
+fn classify_with_probe(
+    browser: BrowserView,
+    file: gio::File,
+    location: Location,
+    probe: Option<gio::JoinHandle<Option<Kind>>>,
+) -> Rc<OpenRequest> {
     let generation = browser.browser().bump_navigation_generation();
     let parent = browser.overlay().root().and_downcast::<gtk::Window>();
     let request = OpenRequest::new(gtk::MountOperation::new(parent.as_ref()));
@@ -131,7 +166,16 @@ fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<Ope
         };
         #[cfg(not(windows))]
         let query_file = file.clone();
-        let outcome = query_kind(&query_file, Some(&query_request.operation)).await;
+        let preflight = if let Some(probe) = probe {
+            probe.await.ok().flatten()
+        } else {
+            None
+        };
+        let outcome = if let Some(kind) = preflight {
+            Ok(kind)
+        } else {
+            query_kind(&query_file, Some(&query_request.operation)).await
+        };
         let Some(browser) = weak.upgrade() else {
             query_request.abort();
             return;

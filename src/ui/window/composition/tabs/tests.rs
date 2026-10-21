@@ -55,6 +55,20 @@ fn wait_until(condition: impl Fn() -> bool) {
     }
 }
 
+fn finish_startup(task: glib::JoinHandle<()>) {
+    let completed = Rc::new(RefCell::new(None));
+    let observed = completed.clone();
+    drop(glib::MainContext::default().spawn_local(async move {
+        observed.replace(Some(task.await));
+    }));
+    wait_until(|| completed.borrow().is_some());
+    completed
+        .borrow_mut()
+        .take()
+        .expect("startup completed")
+        .expect("startup task did not panic");
+}
+
 fn load(browser: &BrowserView, location: Location) {
     browser.navigate_location(location);
     wait_until(|| {
@@ -570,6 +584,15 @@ fn hidden_tabs_and_new_tabs_apply_live_browsing_preferences() {
             let root = tempfile::tempdir().expect("tab fixture");
             std::fs::write(root.path().join("visible.txt"), "visible").expect("visible file");
             std::fs::write(root.path().join(".hidden.txt"), "hidden").expect("hidden file");
+            #[cfg(windows)]
+            assert!(
+                std::process::Command::new("attrib.exe")
+                    .arg("+H")
+                    .arg(root.path().join(".hidden.txt"))
+                    .status()
+                    .expect("Windows hidden attribute")
+                    .success()
+            );
             let (window, tabs) = open();
             let mut initial = tabs.preferences.sort_preferences();
             initial.show_hidden = false;
@@ -845,6 +868,186 @@ fn explicit_target_windows_do_not_clobber_the_saved_session() {
             window.destroy();
         },
     );
+}
+
+#[test]
+fn late_startup_session_cannot_replace_user_navigation_or_reopen_a_closed_window() {
+    gtk_test(
+        "ui::window::composition::tabs::tests::late_startup_session_cannot_replace_user_navigation_or_reopen_a_closed_window",
+        || {
+            let directory = tempfile::tempdir().expect("session fixture");
+            let saved = existing_session_dir(directory.path(), "saved");
+            let chosen = existing_session_dir(directory.path(), "chosen");
+            let application = application();
+            for close_before_ready in [false, true] {
+                let (window, tabs) = open_in(&application);
+                tabs.preferences.set_restore_tabs(true);
+                let browser = tabs.active_browser();
+                if close_before_ready {
+                    load(&browser, Location::local(&chosen));
+                }
+                let (sender, receiver) = futures_channel::oneshot::channel();
+                let ready = Rc::new(Cell::new(false));
+                let observed = ready.clone();
+                let task = tabs.restore_when_ready(async move {
+                    let session = receiver.await.expect("release startup read");
+                    observed.set(true);
+                    session
+                });
+                if close_before_ready {
+                    window.destroy();
+                } else {
+                    load(&browser, Location::local(&chosen));
+                }
+                assert!(
+                    sender
+                        .send(tabs_session::StartupSession {
+                            session: Some(tabs_session::RestoredSession {
+                                tabs: vec![Location::local(&saved)],
+                                active: 0
+                            }),
+                            fallback: None,
+                            invalid_default: None,
+                        })
+                        .is_ok()
+                );
+                wait_until(|| ready.get());
+                finish_startup(task);
+                if close_before_ready {
+                    assert!(!window.is_visible());
+                    assert!(tabs.tabs.borrow().is_empty());
+                } else {
+                    assert_eq!(
+                        browser.browser().active_location(),
+                        Some(Location::local(&chosen))
+                    );
+                    assert_eq!(tab_locations(&tabs), vec![Some(Location::local(&chosen))]);
+                    window.destroy();
+                }
+                assert_eq!(
+                    saved_session().expect("latest session").tabs,
+                    vec![Location::local(&chosen)]
+                );
+            }
+        },
+    );
+}
+
+#[test]
+fn late_startup_session_respects_tabs_preferences_and_modal_lifecycle() {
+    gtk_test(
+        "ui::window::composition::tabs::tests::late_startup_session_respects_tabs_preferences_and_modal_lifecycle",
+        || {
+            let directory = tempfile::tempdir().expect("session fixture");
+            let saved = existing_session_dir(directory.path(), "saved");
+            let chosen = existing_session_dir(directory.path(), "chosen");
+            let application = application();
+            #[derive(Clone, Copy)]
+            enum Input {
+                NewTab,
+                OptOut,
+                Dialog,
+            }
+            for input in [Input::NewTab, Input::OptOut, Input::Dialog] {
+                let (window, tabs) = open_in(&application);
+                tabs.preferences.set_restore_tabs(true);
+                tabs.preferences.set_default_directory(Some(chosen.clone()));
+                tabs_session::save(&[Location::local(&saved)], 0);
+                let (sender, receiver) = futures_channel::oneshot::channel();
+                let ready = Rc::new(Cell::new(false));
+                let observed = ready.clone();
+                let task = tabs.restore_when_ready(async move {
+                    let loaded = receiver.await.expect("release startup read");
+                    observed.set(true);
+                    loaded
+                });
+                let dialog = match input {
+                    Input::NewTab => {
+                        tabs.open_in_new_tab(Location::local(&chosen));
+                        wait_until(|| {
+                            tabs.active_browser().browser().active_location()
+                                == Some(Location::local(&chosen))
+                        });
+                        None
+                    }
+                    Input::OptOut => {
+                        tabs.preferences.set_restore_tabs(false);
+                        None
+                    }
+                    Input::Dialog => {
+                        crate::ui::modal::show_error_dialog(
+                            &window,
+                            "Startup pending",
+                            "Fixture dialog",
+                        );
+                        Some(
+                            crate::ui::window::visible_modal_layer(&window).expect("active dialog"),
+                        )
+                    }
+                };
+                assert!(
+                    sender
+                        .send(tabs_session::StartupSession {
+                            session: Some(tabs_session::RestoredSession {
+                                tabs: vec![Location::local(&saved)],
+                                active: 0
+                            }),
+                            fallback: None,
+                            invalid_default: None,
+                        })
+                        .is_ok()
+                );
+                wait_until(|| ready.get());
+                if let Some(dialog) = dialog {
+                    assert!(
+                        tabs.active_browser().browser().active_location().is_none(),
+                        "startup waits until the dialog closes"
+                    );
+                    button_with_label(&dialog, &crate::i18n::tr("Close"))
+                        .expect("close dialog")
+                        .emit_clicked();
+                }
+                let expected = Location::local(if matches!(input, Input::Dialog) {
+                    &saved
+                } else {
+                    &chosen
+                });
+                wait_until(|| {
+                    tabs.active_browser().browser().active_location() == Some(expected.clone())
+                });
+                finish_startup(task);
+                if matches!(input, Input::NewTab) {
+                    assert_eq!(
+                        tab_locations(&tabs),
+                        vec![None, Some(Location::local(&chosen))]
+                    );
+                    assert_eq!(
+                        saved_session().expect("current session").tabs,
+                        vec![Location::local(&chosen)]
+                    );
+                } else if matches!(input, Input::OptOut) {
+                    assert_eq!(tab_locations(&tabs), vec![Some(Location::local(&chosen))]);
+                    assert!(
+                        saved_session().is_none(),
+                        "opting out keeps saved tabs cleared"
+                    );
+                } else {
+                    assert_eq!(tab_locations(&tabs), vec![Some(Location::local(&saved))]);
+                    assert_eq!(
+                        saved_session().expect("restored session").tabs,
+                        vec![Location::local(&saved)]
+                    );
+                }
+                window.destroy();
+            }
+        },
+    );
+}
+
+fn existing_session_dir(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let path = parent.join(name);
+    std::fs::create_dir(&path).expect("session folder");
+    path
 }
 
 fn open_target_fixture() -> (

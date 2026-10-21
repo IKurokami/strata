@@ -33,6 +33,9 @@ $variables = @{
     MSYSTEM = "UCRT64"
     MINGW_PREFIX = $prefix
 }
+if (-not $env:DBUS_SESSION_BUS_ADDRESS) {
+    $variables['DBUS_SESSION_BUS_ADDRESS'] = 'disabled:'
+}
 foreach ($name in $variables.Keys) {
     $saved[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
     [Environment]::SetEnvironmentVariable($name, $variables[$name], "Process")
@@ -52,7 +55,7 @@ try {
         # contained Job Object; build that executable before compiling the test
         # harness so a stale or missing target/debug/strata.exe cannot mask the
         # helper operation under test.
-        & $cargo build --locked --no-default-features --bin strata
+        & $cargo build --locked --no-default-features --bins
         if ($LASTEXITCODE -ne 0) { throw "Windows application helper build failed." }
         & $cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets
         if ($LASTEXITCODE -ne 0) { throw "Native I/O tests failed." }
@@ -72,7 +75,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Windows regression failed: $case" }
         }
     } else {
-        & $cargo build --locked --no-default-features --bin strata
+        & $cargo build --locked --no-default-features --bins
         if ($LASTEXITCODE -ne 0) { throw "Windows application build failed." }
         if ($Action -eq "run") {
             & (Join-Path $repository "target/debug/strata.exe") @ApplicationArguments

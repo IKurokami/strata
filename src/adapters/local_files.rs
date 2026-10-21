@@ -779,12 +779,13 @@ fn enumerate_native(
     let request_id = request.id;
     let cancellable = gio::Cancellable::new();
     let cancel = cancellable.clone();
+    // Start filesystem work before returning to GTK. A window may still be
+    // realizing its widgets; only publication below belongs to the main loop.
+    let deadline = started + request.time_budget;
+    let scan =
+        gio::spawn_blocking(move || scan_native_directory(&path, &request, &cancellable, deadline));
     let task = glib::MainContext::default().spawn_local(async move {
-        let deadline = started + request.time_budget;
-        let outcome = gio::spawn_blocking(move || {
-            scan_native_directory(&path, &request, &cancellable, deadline)
-        })
-        .await;
+        let outcome = scan.await;
         let Ok(outcome) = outcome else {
             emit(DirectoryEvent::Failed {
                 request_id,

@@ -70,8 +70,9 @@ jobs:
           CARGO_BUILD_JOBS: '2'
         run: |
           set -euo pipefail
-          cargo build --locked --no-default-features --bin strata
+          cargo build --locked --no-default-features --bins
           test -s target/debug/strata.exe
+          test -s target/debug/strata-shell.exe
           echo 'The Windows PE executable exists and linked successfully.'
 
       - name: Run executable version smoke test

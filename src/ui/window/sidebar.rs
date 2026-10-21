@@ -194,6 +194,7 @@ impl SidebarState {
             keycaps: RefCell::new(Vec::new()),
             keycaps_shown: Cell::new(false),
             visible_pins: RefCell::new(Vec::new()),
+            devices_populated: Cell::new(false),
         })
     }
 

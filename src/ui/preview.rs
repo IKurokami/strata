@@ -154,7 +154,7 @@ struct PendingSourcePreview {
 }
 
 struct SourcePreviewView {
-    view: sourceview5::View,
+    view: RefCell<Option<sourceview5::View>>,
     scroll: RefCell<Option<gtk::ScrolledWindow>>,
     virtual_state: RefCell<Option<Rc<super::virtual_preview::VirtualPreviewState>>>,
     generation: Rc<Cell<u64>>,
@@ -201,8 +201,6 @@ struct PreviewState {
     open: gtk::Button,
     print: gtk::Button,
     wrap: gtk::ToggleButton,
-    text_view: RefCell<Option<sourceview5::View>>,
-    text_scroll: RefCell<Option<gtk::ScrolledWindow>>,
     archive_browser: RefCell<Option<archive::ArchiveBrowser>>,
     password_entry: RefCell<Option<gtk::PasswordEntry>>,
     media: RefCell<Option<gtk::MediaStream>>,
@@ -435,8 +433,6 @@ impl PreviewDrawer {
             open: open.clone(),
             print: print.clone(),
             wrap: wrap.clone(),
-            text_view: RefCell::new(None),
-            text_scroll: RefCell::new(None),
             archive_browser: RefCell::new(None),
             password_entry: RefCell::new(None),
             media: RefCell::new(None),
@@ -1547,10 +1543,6 @@ impl PreviewState {
                     truncated,
                 );
                 self.content.append(&view);
-                self.text_view
-                    .replace(Some(self.source_preview.view.clone()));
-                self.text_scroll
-                    .replace(self.source_preview.scroll.borrow().clone());
                 self.wrap.set_active(
                     super::preferences::PreferenceManager::shared().preview_text_wrap(),
                 );
@@ -1739,7 +1731,9 @@ impl PreviewState {
                     }
                 };
                 if !handed_off
-                    && (preferences.preview_autoplay() || (continue_playback && family.is_some()))
+                    && (is_gif
+                        || preferences.preview_autoplay()
+                        || (continue_playback && family.is_some()))
                 {
                     if preferences.preview_autoplay() && !continue_playback {
                         match family {
@@ -2997,8 +2991,6 @@ impl PreviewState {
         }
         self.print.set_visible(false);
         self.wrap.set_visible(false);
-        self.text_view.take();
-        self.text_scroll.take();
         self.archive_browser.take();
         self.clear_password_entry();
         match (keep, audio, video) {
@@ -3598,10 +3590,19 @@ fn document_view_action(view: DocumentView) -> (&'static str, &'static str) {
 
 impl SourcePreviewView {
     fn new() -> Self {
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        Self {
+            view: RefCell::new(None),
+            scroll: RefCell::new(None),
+            virtual_state: RefCell::new(None),
+            generation: Rc::new(Cell::new(0)),
+        }
+    }
+
+    fn ensure_view(&self) -> sourceview5::View {
+        if let Some(view) = self.view.borrow().as_ref() {
+            return view.clone();
+        }
         let view = sourceview5::View::builder()
-            .buffer(&buffer)
             .cursor_visible(true)
             .editable(false)
             .highlight_current_line(false)
@@ -3614,12 +3615,8 @@ impl SourcePreviewView {
             .wrap_mode(gtk::WrapMode::None)
             .build();
         view.add_css_class("preview-text");
-        Self {
-            view,
-            scroll: RefCell::new(None),
-            virtual_state: RefCell::new(None),
-            generation: Rc::new(Cell::new(0)),
-        }
+        self.view.replace(Some(view.clone()));
+        view
     }
 
     fn show(
@@ -3632,11 +3629,13 @@ impl SourcePreviewView {
         self.cancel();
         self.scroll.borrow_mut().take();
         self.virtual_state.borrow_mut().take();
-        if let Some(parent) = self.view.parent() {
+        if let Some(view) = self.view.borrow().as_ref()
+            && let Some(parent) = view.parent()
+        {
             if let Ok(scroll) = parent.downcast::<gtk::ScrolledWindow>() {
                 scroll.set_child(None::<&gtk::Widget>);
             } else {
-                self.view.unparent();
+                view.unparent();
             }
         }
         let languages = sourceview5::LanguageManager::default();
@@ -3648,14 +3647,15 @@ impl SourcePreviewView {
             self.virtual_state.replace(Some(state));
             return (container.upcast(), true);
         }
+        let view = self.ensure_view();
         let display = normalize_preview_text(content).into_owned();
         let buffer = sourceview5::Buffer::new(None);
         super::theme::register_source_buffer(&buffer);
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
-        self.view.set_buffer(Some(&buffer));
+        view.set_buffer(Some(&buffer));
         let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
-        self.view.set_wrap_mode(text_wrap_mode(wrapped));
+        view.set_wrap_mode(text_wrap_mode(wrapped));
         fill_source_buffer(
             &buffer,
             display,
@@ -3665,7 +3665,7 @@ impl SourcePreviewView {
         );
 
         let scroll = gtk::ScrolledWindow::builder()
-            .child(&self.view)
+            .child(&view)
             .hscrollbar_policy(text_hscroll_policy(wrapped))
             .vscrollbar_policy(gtk::PolicyType::Automatic)
             .hexpand(true)
@@ -3676,7 +3676,9 @@ impl SourcePreviewView {
     }
 
     fn set_wrapped(&self, wrapped: bool) {
-        self.view.set_wrap_mode(text_wrap_mode(wrapped));
+        if let Some(view) = self.view.borrow().as_ref() {
+            view.set_wrap_mode(text_wrap_mode(wrapped));
+        }
         if let Some(scroll) = self.scroll.borrow().as_ref() {
             scroll.set_hscrollbar_policy(text_hscroll_policy(wrapped));
         }

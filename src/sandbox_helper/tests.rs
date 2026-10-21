@@ -16,12 +16,13 @@ use std::{
 };
 
 use gdk_pixbuf::prelude::*;
+use image::GenericImageView;
 
 use super::{
     bounded_output, bounded_output_with_timeout, bounded_surface_dimensions,
     exceeds_decoded_frame_budget, is_svg_head, pdf_render_request, read_exif_thumbnail,
-    read_limited, render_pixbuf, render_raw, render_raw_thumbnail, render_simple_dcraw, run,
-    scale_embedded_thumbnail, svg_source,
+    read_limited, render_image_crate, render_pixbuf, render_raw, render_raw_thumbnail,
+    render_simple_dcraw, run, scale_embedded_thumbnail, svg_source,
 };
 
 #[test]
@@ -145,12 +146,11 @@ fn image_previews_preserve_small_sources_and_bound_large_decodes() {
             .expect("source image");
         source.fill(0x3366_99ff);
         source.savev(&path, "png", &[]).expect("save source");
-        let png = render_raw(&path, 800).expect("render image preview");
-        let loader = gdk_pixbuf::PixbufLoader::new();
-        loader.write(&png).expect("load preview");
-        loader.close().expect("finish preview");
-        let preview = loader.pixbuf().expect("decoded preview");
-        assert_eq!((preview.width(), preview.height()), expected);
+        for render in [render_raw, render_image_crate] {
+            let png = render(&path, 800).expect("render image preview");
+            let preview = image::load_from_memory(&png).expect("decoded preview");
+            assert_eq!(preview.dimensions(), expected);
+        }
     }
 }
 

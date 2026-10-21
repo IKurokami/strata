@@ -66,6 +66,7 @@ catalog! {
         SIDEBAR: Binding = Binding::ctrl(Key::b);
     }
     unlisted {
+        FILE_EXPLORER: Binding = Binding::new(Key::e, Modifiers::SUPER_MASK);
         /// While type-to-search is on, **/** opens the filter without typing.
         FILTER_SLASH: Binding = Binding::plain(Key::slash);
         /// US keyboards type **+** with Shift+=; the reference shows only Ctrl++.

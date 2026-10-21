@@ -42,6 +42,35 @@ pub(crate) struct RestoredSession {
     pub active: usize,
 }
 
+#[cfg(any(windows, test))]
+pub(crate) struct StartupSession {
+    pub session: Option<RestoredSession>,
+    pub fallback: Option<PathBuf>,
+    pub invalid_default: Option<PathBuf>,
+}
+
+#[cfg(any(windows, test))]
+impl StartupSession {
+    pub fn fallback(default_directory: Option<PathBuf>) -> Self {
+        let mut invalid_default = None;
+        let fallback = default_directory
+            .filter(|path| {
+                if path.is_dir() {
+                    true
+                } else {
+                    invalid_default = Some(path.clone());
+                    false
+                }
+            })
+            .unwrap_or_else(super::window::home_directory);
+        Self {
+            session: None,
+            fallback: Some(fallback),
+            invalid_default,
+        }
+    }
+}
+
 pub(crate) fn session_path() -> PathBuf {
     crate::storage::config_directory().join(SESSION_FILE_NAME)
 }

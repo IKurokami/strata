@@ -122,6 +122,33 @@ impl TabWindow {
                 .any(|tab| tab.content.browser.browser().has_background_operations())
                 .then(operations_active)
         });
+        #[cfg(windows)]
+        {
+            crate::ui::windows_runtime::bind(window, preferences);
+            let weak = Rc::downgrade(&state);
+            window.connect_close_request(move |window| {
+                let Some(state) = weak.upgrade() else {
+                    return glib::Propagation::Proceed;
+                };
+                if !state.preferences.keep_running_in_background()
+                    || crate::ui::window::visible_modal_layer(window).is_some()
+                {
+                    return glib::Propagation::Proceed;
+                }
+                for tab in state.tabs.borrow().iter() {
+                    tab.content.preview.clear_target();
+                    tab.content.footer.shortcuts.cancel_chord();
+                    tab.content.footer.shortcuts.dismiss_prompt();
+                    tab.content.browser.browser().close_peek();
+                }
+                state.persist_session();
+                if crate::ui::windows_runtime::retain(window, state.active_browser()) {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            });
+        }
         let retained = state.clone();
         window.connect_unrealize(move |window| {
             PreferenceManager::shared().release_bindings_within(window);
@@ -547,6 +574,61 @@ impl TabWindow {
         }
         self.restore_session(session);
         true
+    }
+
+    #[cfg(any(windows, test))]
+    pub(in crate::ui::window) fn restore_when_ready(
+        self: &Rc<Self>,
+        loading: impl std::future::Future<Output = tabs_session::StartupSession> + 'static,
+    ) -> glib::JoinHandle<()> {
+        let state = self.clone();
+        let browser = self.active_browser();
+        let generation = browser.browser().navigation_generation();
+        let active = self.active.get();
+        let next_id = self.next_id.get();
+        glib::MainContext::default().spawn_local(async move {
+            let mut loaded = loading.await;
+            let unchanged = || {
+                browser.overlay().root().is_some()
+                    && state
+                        .window
+                        .upgrade()
+                        .is_some_and(|window| window.application().is_some())
+                    && !state.tabs.borrow().is_empty()
+                    && browser.browser().navigation_generation() == generation
+                    && state.active.get() == active
+                    && state.next_id.get() == next_id
+            };
+            if !unchanged() {
+                return;
+            }
+            while state.blocked() {
+                glib::timeout_future(std::time::Duration::from_millis(25)).await;
+                if !unchanged() {
+                    return;
+                }
+            }
+            if loaded.session.is_some() && !state.preferences.restore_tabs() {
+                let default = state.preferences.default_directory();
+                loaded =
+                    gio::spawn_blocking(move || tabs_session::StartupSession::fallback(default))
+                        .await
+                        .unwrap_or_else(|_| tabs_session::StartupSession::fallback(None));
+            }
+            if !unchanged() {
+                return;
+            }
+            if let Some(invalid) = loaded.invalid_default
+                && state.preferences.default_directory().as_ref() == Some(&invalid)
+            {
+                state.preferences.set_default_directory(None);
+            }
+            if let Some(session) = loaded.session {
+                state.restore_session(session);
+            } else if let Some(fallback) = loaded.fallback {
+                browser.navigate_location(Location::local(fallback));
+            }
+        })
     }
 
     fn restore_session(self: &Rc<Self>, session: tabs_session::RestoredSession) {

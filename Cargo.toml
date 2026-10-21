@@ -1,6 +1,7 @@
 [package]
 name = "strata"
 version = "1.0.0"
+default-run = "strata"
 edition = "2024"
 description = "A fast, keyboard-first file manager for Linux"
 authors = ["LGSE Ltd."]

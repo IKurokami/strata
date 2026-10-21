@@ -388,7 +388,17 @@ impl ViewState {
                     column.show_hidden.set(*show_hidden);
                     column.search_session.set_show_hidden(*show_hidden);
                     touch_source_model(column);
-                    column.filter.changed(gtk::FilterChange::Different);
+                    if !column.recursive_search_active.get() {
+                        if *show_hidden && !column.map.has_query() {
+                            column.filtered_model.set_filter(None::<&gtk::CustomFilter>);
+                        } else if column.filtered_model.filter().is_none() {
+                            column.filtered_model.set_filter(Some(&column.filter));
+                        } else {
+                            column.filter.changed(gtk::FilterChange::Different);
+                        }
+                    } else {
+                        column.filter.changed(gtk::FilterChange::Different);
+                    }
                 }
                 self.mode_views.borrow().set_show_hidden(*show_hidden);
             }

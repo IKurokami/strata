@@ -300,10 +300,42 @@ pub(super) fn present_target(
     auto_navigate: bool,
     restore_tabs: bool,
 ) -> BrowserView {
+    #[cfg(windows)]
+    if let Some(browser) = super::windows_runtime::reuse(application) {
+        if auto_navigate && let Some(location) = location {
+            if selection.is_empty() {
+                browser.navigate_location(location);
+            } else {
+                browser.reveal_locations(location, selection, properties);
+            }
+        }
+        return browser;
+    }
     let present_started = std::time::Instant::now();
+    let preference_manager = super::preferences::PreferenceManager::shared();
+    #[cfg(windows)]
+    let saved_session = auto_navigate
+        && restore_tabs
+        && location.is_none()
+        && preference_manager.restore_tabs()
+        && super::tabs_session::session_path().is_file();
+    #[cfg(windows)]
+    let session_load = saved_session.then(|| {
+        let default_directory = preference_manager.default_directory();
+        gio::spawn_blocking(move || {
+            if let Some(session) = super::tabs_session::load_restorable() {
+                super::tabs_session::StartupSession {
+                    session: Some(session),
+                    fallback: None,
+                    invalid_default: None,
+                }
+            } else {
+                super::tabs_session::StartupSession::fallback(default_directory)
+            }
+        })
+    });
     crate::assets::register_icon_theme();
     let _theme_manager = super::theme::ThemeManager::shared();
-    let preference_manager = super::preferences::PreferenceManager::shared();
     load_styles();
     tracing::debug!(
         elapsed_ms = present_started.elapsed().as_millis() as u64,
@@ -320,11 +352,72 @@ pub(super) fn present_target(
     #[cfg(windows)]
     window.set_decorated(false);
 
-    let tabs = composition::TabWindow::new(&window, &preference_manager, restore_tabs);
+    #[cfg(windows)]
+    super::windows_window_state::bind(&window);
+
+    #[cfg(windows)]
+    super::windows_integration::bind(&window, &preference_manager);
+
+    let persist_session = cfg!(windows) || restore_tabs;
+    let tabs = composition::TabWindow::new(&window, &preference_manager, persist_session);
+    tracing::debug!(
+        elapsed_ms = present_started.elapsed().as_millis() as u64,
+        "present window content constructed"
+    );
     let browser = tabs.active_browser();
+    #[cfg(windows)]
+    let early_navigation = {
+        if auto_navigate && !saved_session {
+            let candidate = location.clone().unwrap_or_else(|| {
+                Location::local(
+                    preference_manager
+                        .default_directory()
+                        .unwrap_or_else(home_directory),
+                )
+            });
+            let local = candidate.native_path().is_some_and(|path| {
+                path.is_absolute() && strata_win_shell::is_fixed_local_drive(path)
+            });
+            if local {
+                let pending = location
+                    .clone()
+                    .unwrap_or_else(|| startup_location(&preference_manager));
+                if selection.is_empty() {
+                    browser.navigate_location(pending);
+                } else {
+                    browser.reveal_locations(pending, selection.clone(), properties);
+                }
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+    #[cfg(not(windows))]
+    let early_navigation = false;
+    let map_started = std::time::Instant::now();
     window.present();
+    tracing::debug!(
+        elapsed_ms = map_started.elapsed().as_millis() as u64,
+        "present native window mapped"
+    );
     crate::metrics::mark_window_presented();
-    if auto_navigate {
+    #[cfg(windows)]
+    if let Some(session_load) = session_load {
+        drop(tabs.restore_when_ready(async move {
+            session_load
+                .await
+                .unwrap_or_else(|_| super::tabs_session::StartupSession {
+                    session: None,
+                    fallback: Some(home_directory()),
+                    invalid_default: None,
+                })
+        }));
+        return browser;
+    }
+    if auto_navigate && !early_navigation {
         let restore = restore_tabs && location.is_none();
         let pending_location = location.unwrap_or_else(|| startup_location(&preference_manager));
         let idle_browser = browser.clone();
@@ -377,7 +470,7 @@ fn schedule_after_first_paint(
             let state = state.clone();
             glib::idle_add_local_once(move || {
                 if let Some(state) = state.upgrade() {
-                    state.rebuild();
+                    state.populate_devices_after_first_paint();
                 }
             });
             let manager = manager.clone();
@@ -1135,6 +1228,7 @@ pub(super) struct SidebarState {
     keycaps: RefCell<Vec<gtk::Label>>,
     keycaps_shown: Cell<bool>,
     visible_pins: RefCell<Vec<Location>>,
+    devices_populated: Cell<bool>,
 }
 
 /// Rows of the Trash sidebar context menu that only make sense while Trash holds items.
@@ -1227,7 +1321,7 @@ impl SidebarView {
                     let weak = weak_state.clone();
                     glib::idle_add_local_once(move || {
                         if let Some(state) = weak.upgrade() {
-                            state.rebuild();
+                            state.populate_devices_after_first_paint();
                         }
                     });
                     return;
@@ -1242,7 +1336,7 @@ impl SidebarView {
                     let weak = weak.clone();
                     glib::idle_add_local_once(move || {
                         if let Some(state) = weak.upgrade() {
-                            state.rebuild();
+                            state.populate_devices_after_first_paint();
                         }
                     });
                 });
@@ -1305,7 +1399,17 @@ impl SidebarState {
         });
     }
 
+    fn populate_devices_after_first_paint(self: &Rc<Self>) {
+        if self.devices_populated.replace(true) {
+            return;
+        }
+        self.append_devices();
+        self.sync_active_place();
+        self.sync_rail_rows();
+    }
+
     fn rebuild(self: &Rc<Self>) {
+        self.devices_populated.set(true);
         self.capture_scroll();
         while let Some(child) = self.widget.first_child() {
             unparent_sidebar_popovers(&child);
@@ -4156,6 +4260,11 @@ fn serialize_pinned_places(places: &[(Location, String)]) -> String {
 }
 
 pub(crate) fn home_directory() -> PathBuf {
+    #[cfg(windows)]
+    {
+        glib::home_dir()
+    }
+    #[cfg(not(windows))]
     env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))

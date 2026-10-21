@@ -54,8 +54,12 @@ fn write_translation_catalogs() {
         catalogs.contains_key("en"),
         "translation catalogs are missing from data/locales"
     );
+    let mut locales: Vec<_> = catalogs.into_iter().collect();
+    locales.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     let mut source = String::from("pub(crate) static CATALOGS: &[(&str, &[(&str, &str)])] = &[\n");
-    for (locale, messages) in &catalogs {
+    for (locale, messages) in locales {
+        let mut messages: Vec<_> = messages.into_iter().collect();
+        messages.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
         writeln!(source, "({locale:?}, &[").expect("format catalog");
         for (key, text) in messages {
             writeln!(source, "({key:?}, {text:?}),").expect("format catalog");

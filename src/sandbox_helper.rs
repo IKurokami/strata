@@ -754,10 +754,13 @@ fn render_image_crate(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     limits.max_alloc = Some(256 * 1024 * 1024);
     let mut reader = reader;
     reader.limits(limits);
-    let image = reader
-        .decode()
-        .map_err(|error| error.to_string())?
-        .thumbnail(size.max(1) as u32, size.max(1) as u32);
+    let decoded = reader.decode().map_err(|error| error.to_string())?;
+    let edge = size.max(1) as u32;
+    let image = if decoded.width() > edge || decoded.height() > edge {
+        decoded.thumbnail(edge, edge)
+    } else {
+        decoded
+    };
     let mut output = Cursor::new(Vec::new());
     image
         .write_to(&mut output, image::ImageFormat::Png)

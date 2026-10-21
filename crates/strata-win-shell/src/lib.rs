@@ -7,9 +7,13 @@
 //! destroying an item the bin cannot hold.
 #![cfg(windows)]
 
+pub mod activation;
+pub mod desktop;
+pub mod file_manager;
 pub mod job;
 mod recycle_bin;
 pub mod volume;
+pub mod window;
 pub use recycle_bin::{
     RecycleBinEntry, RecycleBinListing, delete_recycled, list_recycled, original_path,
 };
@@ -115,6 +119,7 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
         .collect();
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     let mut owner = PSID::default();
+    // SAFETY: The path is terminated and every output points to live storage.
     let status = unsafe {
         GetNamedSecurityInfoW(
             windows::core::PCWSTR(wide.as_ptr()),
@@ -132,22 +137,27 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
     }
 
     let mut token = HANDLE::default();
+    // SAFETY: The process pseudo-handle is valid and token is writable.
     let token_opened = unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) };
     if token_opened.is_err() {
+        // SAFETY: GetNamedSecurityInfoW allocated descriptor with LocalAlloc.
         unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
         return false;
     }
 
     let mut required = 0u32;
+    // SAFETY: A null buffer queries the allocation size for the owned token.
     let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut required) };
     if required == 0 {
+        // SAFETY: This branch owns both allocations and releases each once.
         unsafe {
             let _ = CloseHandle(token);
             LocalFree(Some(HLOCAL(descriptor.0)));
         }
         return false;
     }
-    let mut buffer = vec![0u8; required as usize];
+    let mut buffer = vec![0usize; (required as usize).div_ceil(size_of::<usize>())];
+    // SAFETY: The aligned buffer contains at least required writable bytes.
     let token_result = unsafe {
         GetTokenInformation(
             token,
@@ -158,20 +168,25 @@ pub fn path_owned_by_current_user(path: &Path) -> bool {
         )
     };
     if token_result.is_err() {
+        // SAFETY: This branch owns both allocations and releases each once.
         unsafe {
             let _ = CloseHandle(token);
             LocalFree(Some(HLOCAL(descriptor.0)));
         }
         return false;
     }
+    // SAFETY: TokenUser initialized TOKEN_USER in the aligned, still-live buffer.
     let token_user = unsafe { &*(buffer.as_ptr() as *const TOKEN_USER) };
     let mut descriptor_owner = PSID::default();
     let mut defaulted = windows::core::BOOL(0);
+    // SAFETY: The descriptor is live and both outputs are writable.
     let owner_result =
         unsafe { GetSecurityDescriptorOwner(descriptor, &mut descriptor_owner, &mut defaulted) };
     let matches = owner_result.is_ok()
         && !descriptor_owner.0.is_null()
+        // SAFETY: Both SIDs are backed by live Windows-initialized allocations.
         && unsafe { EqualSid(descriptor_owner, token_user.User.Sid).is_ok() };
+    // SAFETY: This function owns the token and descriptor and releases each once.
     unsafe {
         let _ = CloseHandle(token);
         LocalFree(Some(HLOCAL(descriptor.0)));
@@ -429,7 +444,8 @@ fn perform(operation: &IFileOperation, outcomes: &Rc<RefCell<Outcomes>>) -> io::
     }
 }
 
-fn is_fixed_local_drive(path: &Path) -> bool {
+/// Classifies the drive root without probing the target path.
+pub fn is_fixed_local_drive(path: &Path) -> bool {
     use windows::Win32::Storage::FileSystem::GetDriveTypeW;
     const DRIVE_FIXED: u32 = 3;
     let mut components = path.components();

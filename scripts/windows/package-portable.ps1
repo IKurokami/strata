@@ -32,6 +32,12 @@ if (Test-Path -LiteralPath $Destination) {
 $stageBin = Join-Path $Destination "bin"
 New-Item -ItemType Directory -Path $stageBin -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination (Join-Path $stageBin "strata.exe")
+$shellHelper = Join-Path (Split-Path -Parent $exe) "strata-shell.exe"
+if (-not (Test-Path -LiteralPath $shellHelper -PathType Leaf)) {
+    throw "Standalone shell helper missing. Build strata-shell together with strata using cargo build --bins."
+}
+Copy-Item -LiteralPath $shellHelper -Destination (Join-Path $stageBin "strata-shell.exe")
+Copy-Item -LiteralPath $shellHelper -Destination (Join-Path $Destination "Start-Strata.exe")
 # Ship the media decoders alongside Strata; no machine-level codec installation.
 foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
     $source = Join-Path $runtimeBin $name
@@ -87,6 +93,7 @@ function Queue-Binary([string]$Path) {
     if ($queued.Add($Path)) { $queue.Enqueue($Path) }
 }
 Queue-Binary (Join-Path $stageBin "strata.exe")
+Queue-Binary (Join-Path $stageBin "strata-shell.exe")
 Queue-Binary (Join-Path $stageBin "ffmpeg.exe")
 Queue-Binary (Join-Path $stageBin "ffprobe.exe")
 Queue-Binary $scannerDest
@@ -180,6 +187,13 @@ if (Select-String -LiteralPath $cacheFile -Pattern 'msys64|ucrt64|^[A-Za-z]:' -Q
 $launcher = @'
 @echo off
 setlocal
+set "STRATA_ATTACH_PARENT_CONSOLE=1"
+rem A standalone Windows bundle has no session bus. Preserve an explicitly supplied bus.
+if not defined DBUS_SESSION_BUS_ADDRESS set "DBUS_SESSION_BUS_ADDRESS=disabled:"
+if not defined GDK_DEBUG (
+    if not defined GDK_DISABLE set "GDK_DISABLE=d3d11,d3d12,gl,vulkan"
+    if not defined GSK_RENDERER set "GSK_RENDERER=cairo"
+)
 set "PATH=%~dp0bin;%SystemRoot%\System32;%SystemRoot%"
 set "GSETTINGS_SCHEMA_DIR=%~dp0share\glib-2.0\schemas"
 set "GIO_EXTRA_MODULES=%~dp0lib\gio\modules"
@@ -193,17 +207,20 @@ set "STRATA_FFPROBE=%~dp0bin\ffprobe.exe"
 "%~dp0bin\strata.exe" %*
 exit /b %ERRORLEVEL%
 '@
+$launcher = $launcher.Replace("`r`n", "`n").Replace("`n", "`r`n")
 Set-Content -LiteralPath (Join-Path $Destination "Start-Strata.cmd") -Value $launcher -Encoding ASCII
 
 $warning = if ($Release) {
 @'
 STRATA WINDOWS PORTABLE RELEASE
 
-Start with Start-Strata.cmd. The bundle contains the recursively linked UCRT64
+Start with Start-Strata.exe. The bundle contains the recursively linked UCRT64
 runtime, GTK resources, GStreamer plugins and bundled FFmpeg tools; it does not
 require MSYS2 on PATH. Keep this directory together when moving the application.
 
-This portable build does not install shell registration or request UAC. The
+Shell integration is off by default. Enabling Replace File Explorer in Settings
+registers per-user folder/drive handlers and a small sign-in helper for Win+E.
+Disabling it restores the previous handlers. No administrator rights are needed. The
 runtime DLLs and plugins are open-source third-party components with their own
 licenses (see share/licenses).
 '@
@@ -211,7 +228,7 @@ licenses (see share/licenses).
 @'
 STRATA WINDOWS DEVELOPER BUILD — NOT A RELEASE
 
-Start with Start-Strata.cmd, not from a globally installed MSYS2 terminal.
+Start with Start-Strata.exe, not from a globally installed MSYS2 terminal.
 This bundle contains the recursively linked UCRT64 runtime and GTK resources.
 Use the release switch only after the isolated GUI smoke and native regression
 gates have passed on the same build.
@@ -251,6 +268,48 @@ if ($process.ExitCode -ne 0 -or $output -notmatch 'strata\s+1\.\d+') {
     throw "Packaged executable failed without MSYS2 PATH. Exit=$($process.ExitCode), output='$output', stderr='$errorOutput'"
 }
 Write-Host "Portable PE smoke passed: $($output.Trim())"
+
+$start.FileName = Join-Path $Destination 'Start-Strata.exe'
+$process = [Diagnostics.Process]::Start($start)
+if (-not $process.WaitForExit(15000)) {
+    $process.Kill($true)
+    throw 'Native portable launcher smoke timed out'
+}
+$output = $process.StandardOutput.ReadToEnd()
+$errorOutput = $process.StandardError.ReadToEnd()
+if ($process.ExitCode -ne 0 -or $output -notmatch '^strata\s+1\.\d+' -or $errorOutput) {
+    throw "Native portable launcher failed: $output $errorOutput"
+}
+Write-Host "Native portable launcher smoke passed: $($output.Trim())"
+
+$helperScratch = Join-Path ([IO.Path]::GetTempPath()) ("strata-shell-smoke-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $helperScratch | Out-Null
+Copy-Item -LiteralPath $shellHelper -Destination (Join-Path $helperScratch 'strata-shell.exe')
+try {
+    $helper = [Diagnostics.ProcessStartInfo]::new()
+    $helper.FileName = Join-Path $helperScratch 'strata-shell.exe'
+    $helper.Arguments = '--version'
+    $helper.WorkingDirectory = $helperScratch
+    $helper.UseShellExecute = $false
+    $helper.CreateNoWindow = $true
+    $helper.RedirectStandardOutput = $true
+    $helper.RedirectStandardError = $true
+    $helper.Environment['PATH'] = "$env:SystemRoot\System32;$env:SystemRoot"
+    $helperProcess = [Diagnostics.Process]::Start($helper)
+    if (-not $helperProcess.WaitForExit(15000)) {
+        $helperProcess.Kill($true)
+        throw 'Standalone folder helper smoke timed out'
+    }
+    $helperOutput = $helperProcess.StandardOutput.ReadToEnd()
+    $helperError = $helperProcess.StandardError.ReadToEnd()
+    if ($helperProcess.ExitCode -ne 0 -or $helperOutput -notmatch '^strata-shell\s+1\.\d+' -or $helperError) {
+        throw "Standalone folder helper requires missing runtime files: $helperOutput $helperError"
+    }
+    Write-Host "Standalone folder helper smoke passed: $($helperOutput.Trim())"
+} finally {
+    Remove-Item -LiteralPath (Join-Path $helperScratch 'strata-shell.exe') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $helperScratch -ErrorAction SilentlyContinue
+}
 
 $cmd = [System.Diagnostics.ProcessStartInfo]::new()
 $cmd.FileName = Join-Path $env:SystemRoot "System32\cmd.exe"

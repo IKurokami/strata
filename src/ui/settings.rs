@@ -3110,7 +3110,7 @@ fn translated(message: &str) -> String {
 fn translated_in(locale: &str, message: &str) -> String {
     use super::keys::{
         Keys::One,
-        bindings::{REFERENCE, SIDEBAR_FOCUS, TENXER_MODE},
+        bindings::{FILE_EXPLORER, REFERENCE, SIDEBAR_FOCUS, TENXER_MODE},
         label_in,
     };
     rust_i18n::t!(
@@ -3118,7 +3118,8 @@ fn translated_in(locale: &str, message: &str) -> String {
         locale = locale,
         reference_keys = label_in(locale, &One(REFERENCE)),
         sidebar_focus_keys = label_in(locale, &One(SIDEBAR_FOCUS)),
-        tenxer_mode_keys = label_in(locale, &One(TENXER_MODE))
+        tenxer_mode_keys = label_in(locale, &One(TENXER_MODE)),
+        explorer_keys = label_in(locale, &One(FILE_EXPLORER))
     )
     .into_owned()
 }
