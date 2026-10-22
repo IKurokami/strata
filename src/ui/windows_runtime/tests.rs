@@ -5,7 +5,13 @@ use crate::{model::Location, ui::window::present_target};
 
 fn wait_for_navigation(browser: &BrowserView, location: &Location) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while browser.browser().active_location().as_ref() != Some(location) {
+    while browser.browser().active_location().as_ref() != Some(location)
+        || browser
+            .browser()
+            .active_depth()
+            .and_then(|depth| browser.browser().column_snapshot(depth))
+            .is_none_or(|column| column.loading)
+    {
         while glib::MainContext::default().pending() {
             glib::MainContext::default().iteration(false);
         }
