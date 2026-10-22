@@ -56,14 +56,15 @@ exec "$engine" run "${options[@]}" \
       case "${STRATA_QUALITY_TASK:-test}" in
         build) python3 scripts/quality_ci.py build ;;
         shard)
-          xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -noreset" dbus-run-session -- env -u WAYLAND_DISPLAY GDK_BACKEND=x11 \
+          xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -noreset" dbus-run-session -- env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSK_RENDERER=cairo \
             GTK_A11Y=none NO_AT_BRIDGE=1 STRATA_REQUIRE_GTK_TESTS=1 \
             STRATA_REQUIRE_DEVICE_TESTS=1 python3 scripts/quality_ci.py run
           ;;
         test)
-          xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -noreset" dbus-run-session -- env -u WAYLAND_DISPLAY GDK_BACKEND=x11 \
+          # Match test-headless.py/E2E; software GL on Xvfb can starve UI timers.
+          xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -noreset" dbus-run-session -- env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSK_RENDERER=cairo \
             GTK_A11Y=none NO_AT_BRIDGE=1 STRATA_REQUIRE_GTK_TESTS=1 \
-            cargo test --locked --all-targets --all-features
+            STRATA_REQUIRE_DEVICE_TESTS=1 cargo test --locked --all-targets --all-features
           ;;
         *) echo "Invalid STRATA_QUALITY_TASK" >&2; exit 2 ;;
       esac

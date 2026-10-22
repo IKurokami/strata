@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 
+import importlib.util
 import os
 import signal
 import sys
@@ -21,6 +22,41 @@ from tests.e2e.scenarios.test_marquee_scrolling import (
     _entry_name,
     _visible_entries,
 )
+
+
+def test_rust_headless_keeps_the_requested_build_cache_and_resource_limits(monkeypatch, tmp_path):
+    source = Path(__file__).resolve().parents[3] / "scripts/test-headless.py"
+    spec = importlib.util.spec_from_file_location("strata_headless_runner", source)
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    build_environment = {
+        "CARGO_TARGET_DIR": str(tmp_path / "selected-build-cache"),
+        "CARGO_BUILD_JOBS": "3",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "RUST_TEST_THREADS": "2",
+    }
+    for name, value in build_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("UNRELATED_PARENT_SETTING", "must-not-reach-child")
+    monkeypatch.setattr(sys, "argv", [str(source), "selected::regression"])
+    display = Mock(environment={})
+    home = Mock()
+    home.variables.return_value = {}
+    process = Mock()
+    process.wait.return_value = 17
+    spawn = Mock(return_value=process)
+    monkeypatch.setattr(runner, "HeadlessDisplay", lambda: display)
+    monkeypatch.setattr(runner, "TestEnvironment", lambda: home)
+    monkeypatch.setattr(runner.subprocess, "Popen", spawn)
+    monkeypatch.setattr(runner, "terminate", Mock())
+    assert runner.main() == 17
+    child_environment = spawn.call_args.kwargs["env"]
+    for name, value in build_environment.items():
+        assert child_environment[name] == value
+    assert "UNRELATED_PARENT_SETTING" not in child_environment
+    display.stop.assert_called_once()
+    home.cleanup.assert_called_once()
 
 
 VISIBLE = ("showing", "visible")
