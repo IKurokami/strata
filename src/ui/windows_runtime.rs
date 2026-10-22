@@ -19,16 +19,14 @@ enum Request {
         arguments: Vec<Vec<u16>>,
     },
     Quit,
+    Unlock {
+        operand: String,
+    },
 }
 
 fn activation_scope() -> String {
-    let executable = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.canonicalize().ok())
-        .unwrap_or_default();
     format!(
-        "{}|{}",
-        executable.display(),
+        "io.github.lgse.Strata|{}",
         glib::user_config_dir().display()
     )
     .to_lowercase()
@@ -47,10 +45,21 @@ pub(super) fn shell_activation() -> std::io::Result<Option<(String, Vec<u8>)>> {
     Ok(Some((activation_scope(), message)))
 }
 
-/// Each installation/configuration has a separate primary; transport also scopes by user/session.
+/// One primary per configuration, current user and logon session, across installations.
 pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::ExitCode> {
     let request = if arguments.len() == 2 && arguments[1] == "--quit" {
         Request::Quit
+    } else if arguments.len() == 3 && arguments[1] == "--unlock-volume" {
+        Request::Unlock {
+            operand: arguments[2].to_string_lossy().into_owned(),
+        }
+    } else if arguments.len() == 2
+        && matches!(
+            arguments[1].to_str(),
+            Some("--help" | "-h" | "--help-all" | "--help-gapplication")
+        )
+    {
+        return Ok(None);
     } else {
         let mut literal = false;
         let mut files = Vec::new();
@@ -60,16 +69,22 @@ pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::Exit
                 continue;
             }
             if !literal && argument.to_string_lossy().starts_with('-') {
-                // GApplication retains option parsing and usage errors for other CLI modes.
-                return Ok(None);
+                if argument == "--gapplication-service" {
+                    continue;
+                }
+                eprintln!(
+                    "Unsupported Windows application option: {}",
+                    argument.to_string_lossy()
+                );
+                return Err(glib::ExitCode::FAILURE);
             }
             files.push(argument.encode_wide().collect());
         }
         if files.len() > 256 {
-            return Ok(None);
+            return Err(glib::ExitCode::FAILURE);
         }
         let Ok(cwd) = std::env::current_dir() else {
-            return Ok(None);
+            return Err(glib::ExitCode::FAILURE);
         };
         Request::Open {
             cwd: cwd.as_os_str().encode_wide().collect(),
@@ -78,7 +93,7 @@ pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::Exit
     };
     let scope = activation_scope();
     let Ok(message) = serde_json::to_vec(&request) else {
-        return Ok(None);
+        return Err(glib::ExitCode::FAILURE);
     };
     let forwarded = activation::forward(&scope, &message);
     if forwarded.is_ok() {
@@ -100,7 +115,7 @@ pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::Exit
         Ok(server) => Ok(Some(server)),
         Err(error) => {
             // A simultaneous first launch may have claimed the endpoint just after our probe.
-            let deadline = std::time::Instant::now() + Duration::from_millis(200);
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
             while std::time::Instant::now() < deadline {
                 if activation::forward(&scope, &message).is_ok() {
                     return Err(glib::ExitCode::SUCCESS);
@@ -108,7 +123,7 @@ pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::Exit
                 std::thread::sleep(Duration::from_millis(10));
             }
             eprintln!("Windows activation unavailable: {error}");
-            Ok(None)
+            Err(glib::ExitCode::FAILURE)
         }
     }
 }
@@ -161,6 +176,11 @@ fn dispatch(application: &gtk::Application, message: &[u8]) {
     };
     match request {
         Request::Quit => quit(application),
+        Request::Unlock { operand } => {
+            if let Ok(target) = crate::UnlockTarget::parse(&operand) {
+                super::present_unlock(application, target);
+            }
+        }
         Request::Open { cwd, arguments } => {
             if arguments.len() > 256
                 || cwd.contains(&0)
@@ -187,6 +207,15 @@ fn dispatch(application: &gtk::Application, message: &[u8]) {
 thread_local! {
     static AVAILABLE: Cell<bool> = const { Cell::new(false) };
     static HIDDEN: RefCell<Option<(glib::WeakRef<gtk::ApplicationWindow>, BrowserView)>> = const { RefCell::new(None) };
+}
+
+pub(super) fn present_window(window: &impl IsA<gtk::Window>) {
+    window.present();
+    if let Some(window) = window.as_ref().downcast_ref::<gtk::ApplicationWindow>()
+        && let Some(handle) = super::windows_window_state::handle(window)
+    {
+        strata_win_shell::window::foreground(handle);
+    }
 }
 
 pub(super) fn retain(window: &gtk::ApplicationWindow, browser: BrowserView) -> bool {
@@ -230,7 +259,7 @@ pub(super) fn reuse(application: &gtk::Application) -> Option<BrowserView> {
         return None;
     }
     let started = std::time::Instant::now();
-    window.present();
+    present_window(&window);
     browser.restore_listing_focus();
     tracing::info!(
         elapsed_ms = started.elapsed().as_millis() as u64,
@@ -255,7 +284,7 @@ pub(super) fn present_existing(application: &gtk::Application) -> bool {
     let Some(window) = window else {
         return false;
     };
-    window.present();
+    present_window(&window);
     true
 }
 

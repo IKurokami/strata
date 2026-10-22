@@ -57,6 +57,37 @@ fn repeated_activation_reuses_one_window_and_preserves_existing_tabs() {
             }
             super::super::present(&application);
             assert_eq!(application.windows().len(), 1);
+            let selected = browser
+                .browser()
+                .selected_entries()
+                .iter()
+                .map(|entry| entry.location.clone())
+                .collect::<Vec<_>>();
+            let same_folder = serde_json::to_vec(&Request::Open {
+                cwd: directory.path().as_os_str().encode_wide().collect(),
+                arguments: vec![directory.path().as_os_str().encode_wide().collect()],
+            })
+            .unwrap();
+            for _ in 0..12 {
+                dispatch(&application, &same_folder);
+                assert!(
+                    browser
+                        .browser()
+                        .column_snapshot(0)
+                        .is_some_and(|column| !column.loading),
+                    "opening the loaded folder must not restart loading"
+                );
+                assert_eq!(
+                    browser
+                        .browser()
+                        .selected_entries()
+                        .iter()
+                        .map(|entry| entry.location.clone())
+                        .collect::<Vec<_>>(),
+                    selected
+                );
+                assert_eq!(application.windows().len(), 1);
+            }
             let child = directory.path().join("explicit target");
             std::fs::create_dir(&child).expect("child directory");
             dispatch(
@@ -67,11 +98,64 @@ fn repeated_activation_reuses_one_window_and_preserves_existing_tabs() {
                 })
                 .expect("target packet"),
             );
+            let child_location = Location::local(&child);
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while super::super::tabs_session::load_restorable()
+                .is_none_or(|session| !session.tabs.contains(&child_location))
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "external tab did not load"
+                );
+                glib::MainContext::default().iteration(false);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let session = super::super::tabs_session::load_restorable().unwrap();
+            for _ in 0..12 {
+                dispatch(
+                    &application,
+                    &serde_json::to_vec(&Request::Open {
+                        cwd: directory.path().as_os_str().encode_wide().collect(),
+                        arguments: vec![child.as_os_str().encode_wide().collect()],
+                    })
+                    .unwrap(),
+                );
+                assert_eq!(application.windows().len(), 1);
+                assert_eq!(
+                    super::super::tabs_session::load_restorable().unwrap().tabs,
+                    session.tabs
+                );
+            }
             assert_eq!(application.windows().len(), 1);
             assert_eq!(browser.browser().active_location(), Some(location));
             for window in application.windows() {
                 window.destroy();
             }
+        },
+    );
+}
+
+#[test]
+fn secondary_claim_forwards_without_starting_another_application() {
+    crate::test_support::gtk_test(
+        "ui::windows_runtime::tests::secondary_claim_forwards_without_starting_another_application",
+        || {
+            let server = Server::bind(&activation_scope()).expect("primary");
+            for argument in ["C:\\", "--quit"] {
+                assert!(matches!(
+                    claim(&[
+                        OsString::from("different-installation.exe"),
+                        OsString::from(argument)
+                    ]),
+                    Err(glib::ExitCode::SUCCESS)
+                ));
+                assert!(server.receive().is_some());
+            }
+            assert!(matches!(
+                claim(&[OsString::from("strata.exe"), OsString::from("--invalid")]),
+                Err(glib::ExitCode::FAILURE)
+            ));
+            assert!(server.receive().is_none());
         },
     );
 }

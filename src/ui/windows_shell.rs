@@ -39,7 +39,7 @@ pub(super) fn bind(
             let Some(window) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
-            if !enabled.get() || !window.is_visible() {
+            if !enabled.get() {
                 registered.borrow_mut().take();
                 return glib::ControlFlow::Continue;
             }
@@ -105,7 +105,7 @@ pub(super) fn bind(
                 show = true;
             }
             if show {
-                window.present();
+                super::windows_runtime::present_window(&window);
             }
             glib::ControlFlow::Continue
         },

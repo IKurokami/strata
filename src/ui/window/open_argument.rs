@@ -37,7 +37,6 @@ fn present_window(
     location: Location,
     file: gio::File,
 ) -> BrowserView {
-    let probe = native_probe(&location);
     let browser = present_target(
         application,
         Some(location.clone()),
@@ -46,6 +45,13 @@ fn present_window(
         false,
         false,
     );
+    #[cfg(windows)]
+    if browser.browser().active_location().as_ref() == Some(&location) {
+        browser.browser().bump_navigation_generation();
+        clear_status(&browser);
+        return browser;
+    }
+    let probe = native_probe(&location);
     classify_with_probe(browser.clone(), file, location, probe);
     browser
 }

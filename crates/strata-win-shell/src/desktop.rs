@@ -3,7 +3,9 @@
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
-    io,
+    fs::{File, OpenOptions},
+    io::{self, Write},
+    sync::Mutex,
 };
 use windows::{
     Win32::{
@@ -55,13 +57,74 @@ pub struct Console {
     owned: bool,
 }
 
+const HISTORY_LIMIT: usize = 256 * 1024;
+
+#[derive(Default)]
+struct Diagnostics {
+    history: VecDeque<u8>,
+    console: Option<File>,
+}
+
+static DIAGNOSTICS: Mutex<Diagnostics> = Mutex::new(Diagnostics {
+    history: VecDeque::new(),
+    console: None,
+});
+
+/// Keep a bounded startup history and mirror logs to our own console independently
+/// of Rust's cached standard streams and any launcher redirection.
+pub fn write_diagnostics(bytes: &[u8]) -> bool {
+    let mut diagnostics = DIAGNOSTICS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(console) = diagnostics.console.as_mut() {
+        let _ = console.write_all(bytes);
+    }
+    let retained = bytes.len().min(HISTORY_LIMIT);
+    let discard = (diagnostics.history.len() + retained).saturating_sub(HISTORY_LIMIT);
+    diagnostics.history.drain(..discard);
+    diagnostics.history.extend(&bytes[bytes.len() - retained..]);
+    let mut mode = CONSOLE_MODE::default();
+    // SAFETY: This only queries the process's borrowed standard output handle.
+    diagnostics.console.is_some()
+        && unsafe {
+            GetStdHandle(STD_OUTPUT_HANDLE)
+                .is_ok_and(|handle| GetConsoleMode(handle, &mut mode).is_ok())
+        }
+}
+
 impl Console {
     pub fn set_visible(&mut self, visible: bool) -> io::Result<()> {
         // SAFETY: These APIs operate on the current process's console only.
         unsafe {
             if visible && GetConsoleWindow().is_invalid() {
+                let redirected: Vec<_> = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]
+                    .into_iter()
+                    .filter_map(|id| {
+                        let handle = GetStdHandle(id).ok()?;
+                        let kind = windows::Win32::Storage::FileSystem::GetFileType(handle);
+                        (kind == windows::Win32::Storage::FileSystem::FILE_TYPE_DISK
+                            || kind == windows::Win32::Storage::FileSystem::FILE_TYPE_PIPE)
+                            .then_some((id, handle))
+                    })
+                    .collect();
                 AllocConsole().map_err(io::Error::other)?;
+                for (id, handle) in redirected {
+                    let _ = SetStdHandle(id, handle);
+                }
                 self.owned = true;
+                let _ = SetConsoleOutputCP(65001);
+                let mut console = OpenOptions::new().write(true).open("CONOUT$")?;
+                let mut diagnostics = DIAGNOSTICS
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                let history = diagnostics.history.make_contiguous();
+                // Drop a possibly truncated UTF-8 prefix at the history boundary.
+                let start = history
+                    .iter()
+                    .position(|byte| byte & 0xc0 != 0x80)
+                    .unwrap_or(history.len());
+                console.write_all(&history[start..])?;
+                diagnostics.console = Some(console);
                 let _ = SetConsoleTitleW(w!("Strata"));
                 // The console is a diagnostic view, not a second application quit route.
                 let menu = GetSystemMenu(GetConsoleWindow(), false);
@@ -75,6 +138,9 @@ impl Console {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 const CALLBACK: u32 = WM_APP + 71;
 

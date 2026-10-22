@@ -1167,6 +1167,11 @@ fn external_reveal_reuses_tabs_and_preserves_other_folder_state() {
             let first = tabs.active.get();
             let file = location.native_path().unwrap().join("tiếng Việt 中文.txt");
             std::fs::write(&file, b"fixture").expect("selected file");
+            let other_file = location
+                .native_path()
+                .unwrap()
+                .join("another selection.txt");
+            std::fs::write(&other_file, b"other fixture").expect("other file");
             let target = Location::local(&file);
             let opened =
                 tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
@@ -1187,7 +1192,48 @@ fn external_reveal_reuses_tabs_and_preserves_other_folder_state() {
                 Some(Location::local(root.path()))
             );
             tabs.select(first);
-            tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
+            let selection_updates = Rc::new(Cell::new(0));
+            let updates = selection_updates.clone();
+            opened.browser().observe(move |event| {
+                if matches!(event, crate::app::BrowserEvent::SelectionSetChanged { .. }) {
+                    updates.set(updates.get() + 1);
+                }
+            });
+            for _ in 0..12 {
+                tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
+                assert!(
+                    opened
+                        .browser()
+                        .selected_entries()
+                        .iter()
+                        .any(|entry| entry.location == target)
+                );
+                assert!(
+                    opened
+                        .browser()
+                        .column_snapshot(0)
+                        .is_some_and(|column| !column.loading),
+                    "repeated reveal must preserve the loaded directory"
+                );
+            }
+            assert_eq!(
+                selection_updates.get(),
+                0,
+                "identical external selections must not restart preview observers"
+            );
+            let other = Location::local(other_file);
+            tabs.present_external(Some(location.clone()), vec![other.clone()], false, true);
+            assert!(
+                opened
+                    .browser()
+                    .selected_entries()
+                    .iter()
+                    .any(|entry| entry.location == other)
+            );
+            assert!(
+                selection_updates.get() > 0,
+                "a changed file request must still update the preview"
+            );
             assert_eq!(tabs.active.get(), second);
             assert_eq!(tabs.tabs.borrow().len(), 2);
             assert_eq!(window.application().unwrap().windows().len(), 1);

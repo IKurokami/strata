@@ -20,11 +20,18 @@ fn primary_queues_exact_requests_and_rejects_duplicate_claims() {
         Server::bind(&scope).is_err(),
         "only one primary may own this endpoint"
     );
-    for message in [b"first request".as_slice(), b"second request"] {
-        forward(&scope, message).expect("acknowledged activation");
-        assert_eq!(server.receive().as_deref(), Some(message));
+    let started = Instant::now();
+    for index in 0..12 {
+        let message = format!("request {index}");
+        forward(&scope, message.as_bytes()).expect("acknowledged activation");
+        assert_eq!(server.receive().as_deref(), Some(message.as_bytes()));
         assert!(server.receive().is_none());
     }
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "acknowledged requests must release the endpoint immediately: {:?}",
+        started.elapsed()
+    );
     assert!(forward(&scope, &vec![0; MAX_MESSAGE + 1]).is_err());
     forward(&scope, b"healthy after rejected oversized request").expect("healthy endpoint");
     assert_eq!(

@@ -54,9 +54,18 @@ redirected streams. Ordinary GUI launches do not attach to a parent console.
 Settings → General → Desktop integration →
 **Show application console** enables or hides Strata's own diagnostic console
 immediately and remembers the choice. It never hides an existing caller terminal.
+An allocated console shows the latest 256 KiB of application logs, including
+startup diagnostics, then streams new logs. Launcher output redirection remains
+active independently of this view.
 The tray icon provides Open Strata, the same console toggle and Quit Strata.
 Enable **Keep Strata running in the background** to reopen from the tray after
 closing the window; Quit retains the active-operation guards.
+External opens share one browser window per user, logon session and configuration,
+including launches from different installation paths. A matching folder tab is
+selected or a new tab is created, and the existing window is restored and activated.
+Shell selection registration stays available while the resident window is hidden.
+An unavailable activation endpoint fails the launch instead of creating another
+browser window.
 The executable depends on the adjacent `bin`, `lib`, `libexec`, `share`, and
 `etc` directories. The package smoke checks exclude MSYS2 from PATH.
 

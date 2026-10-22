@@ -918,6 +918,17 @@ impl BrowserView {
         self.state.reveal_locations(directory, targets, properties);
     }
 
+    #[cfg(windows)]
+    pub(crate) fn reveal_external_locations(
+        &self,
+        directory: Location,
+        targets: Vec<Location>,
+        properties: bool,
+    ) {
+        self.state
+            .reveal_external_locations(directory, targets, properties);
+    }
+
     pub(super) fn refresh_source_filter(&self) {
         if let Some(last) = self.state.browser.active_depth() {
             for depth in 0..=last {

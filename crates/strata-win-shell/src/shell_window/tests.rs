@@ -152,8 +152,18 @@ fn chrome_selection_reaches_registered_window_and_navigation_revokes_old_folder(
                     child.cast_const()
                 })
                 .collect();
-            // Chrome passes an absolute file PIDL, rather than an immediate child ID.
-            let outcome = SHOpenFolderAndSelectItems(parent, Some(&children), 0);
+            // Exercise consecutive Chrome-style requests, including changed selections,
+            // before the original bulk-selection case.
+            let mut outcome = Ok(());
+            for index in 0..12 {
+                outcome = SHOpenFolderAndSelectItems(parent, Some(&children[index..index + 1]), 0);
+                if outcome.is_err() {
+                    break;
+                }
+            }
+            if outcome.is_ok() {
+                outcome = SHOpenFolderAndSelectItems(parent, Some(&children), 0);
+            }
             for child in children {
                 CoTaskMemFree(Some(child.cast()));
             }

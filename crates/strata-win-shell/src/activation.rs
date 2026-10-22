@@ -32,7 +32,7 @@ use windows::{
             Pipes::{
                 ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
                 GetNamedPipeServerProcessId, PIPE_NOWAIT, PIPE_READMODE_BYTE,
-                PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, SetNamedPipeHandleState,
+                PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PeekNamedPipe, SetNamedPipeHandleState,
             },
             Threading::{GetCurrentProcess, OpenProcessToken},
         },
@@ -199,7 +199,12 @@ pub fn forward(scope: &str, message: &[u8]) -> io::Result<()> {
     loop {
         let mut acknowledgement = [0];
         match read_pipe(&file, &mut acknowledgement) {
-            Ok(1) if acknowledgement[0] == 1 => return Ok(()),
+            Ok(1) if acknowledgement[0] == 1 => {
+                // A disconnected non-blocking reader also reports NO_DATA. An explicit
+                // receipt lets the server recycle its only instance without a timeout.
+                let _ = file.write_all(&[1]);
+                return Ok(());
+            }
             Ok(0) if Instant::now() < deadline => thread::sleep(POLL),
             Err(error) if error.raw_os_error() == Some(232) && Instant::now() < deadline => {
                 thread::sleep(POLL)
@@ -302,14 +307,22 @@ impl Server {
                         } else if buffer.len() == length + 4 {
                             let accepted = sender.try_send(buffer[4..].to_vec()).is_ok();
                             let _ = file.write_all(&[u8::from(accepted)]);
-                            // Let the client read its acknowledgement before disconnecting.
-                            // A byte-mode pipe retains unread server data until the client closes.
+                            // Keep the acknowledgement alive until the client confirms receipt.
                             while connected.is_some_and(|start| start.elapsed() < CLIENT_TIMEOUT)
                                 && !stopping.load(Ordering::Acquire)
                             {
                                 match read_pipe(&file, &mut bytes) {
                                     Ok(0) => thread::sleep(POLL),
                                     Err(error) if error.raw_os_error() == Some(232) => {
+                                        // SAFETY: Peek only inspects this owned pipe. Unlike
+                                        // ReadFile, it distinguishes an absent writer from NO_DATA.
+                                        if unsafe {
+                                            PeekNamedPipe(handle(&file), None, 0, None, None, None)
+                                        }
+                                        .is_err()
+                                        {
+                                            break;
+                                        }
                                         thread::sleep(POLL)
                                     }
                                     _ => break,

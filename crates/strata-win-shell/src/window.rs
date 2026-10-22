@@ -3,10 +3,23 @@
 use windows::Win32::{
     Foundation::{HWND, RECT},
     UI::WindowsAndMessaging::{
-        GetWindowPlacement, SW_SHOWMAXIMIZED, SW_SHOWNORMAL, SetWindowPlacement, WINDOWPLACEMENT,
+        GetWindowPlacement, IsIconic, SW_RESTORE, SW_SHOWMAXIMIZED, SW_SHOWNORMAL,
+        SetForegroundWindow, SetWindowPlacement, ShowWindow, WINDOWPLACEMENT,
         WPF_RESTORETOMAXIMIZED,
     },
 };
+
+/// Activate the existing browser after a user-initiated external open request.
+pub fn foreground(handle: isize) {
+    let window = HWND(handle as *mut _);
+    // SAFETY: Windows validates the borrowed HWND; no GTK objects cross threads.
+    unsafe {
+        if IsIconic(window).as_bool() {
+            let _ = ShowWindow(window, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(window);
+    }
+}
 
 /// Match the process to the installed Start menu and desktop shortcuts.
 pub fn set_application_id(id: &str) -> windows_core::Result<()> {

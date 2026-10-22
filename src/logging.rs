@@ -16,6 +16,22 @@ use tracing_subscriber::{
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PipeSafeWriter<W>(pub W);
 
+struct ApplicationWriter;
+
+impl Write for ApplicationWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        #[cfg(windows)]
+        if strata_win_shell::desktop::write_diagnostics(bytes) {
+            return Ok(bytes.len());
+        }
+        PipeSafeWriter(io::stdout()).write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        PipeSafeWriter(io::stdout()).flush()
+    }
+}
+
 impl<W: Write> Write for PipeSafeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self.0.write(buf) {
@@ -39,8 +55,10 @@ pub fn initialize() {
         Ok(var) => Targets::from_str(&var).unwrap_or_default(),
         Err(_) => Targets::default().with_default(LevelFilter::INFO),
     };
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(|| PipeSafeWriter(io::stdout()))
+    let formatter = tracing_subscriber::fmt().with_writer(|| ApplicationWriter);
+    #[cfg(windows)]
+    let formatter = formatter.with_ansi(false);
+    let subscriber = formatter
         .with_max_level(LevelFilter::TRACE)
         .log_internal_errors(false)
         .finish()

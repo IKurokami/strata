@@ -258,7 +258,7 @@ impl TabWindow {
     ) -> BrowserView {
         let Some(location) = location else {
             if let Some(window) = self.window.upgrade() {
-                window.present();
+                crate::ui::windows_runtime::present_window(&window);
             }
             return self.active_browser();
         };
@@ -285,7 +285,7 @@ impl TabWindow {
                     browser.navigate_location(location);
                 }
             } else {
-                browser.reveal_locations(location, selection, properties);
+                browser.reveal_external_locations(location, selection, properties);
             }
         }
         self.select(tab.id);
@@ -304,13 +304,13 @@ impl TabWindow {
                 }
                 state.select(id);
                 if let Some(window) = state.window.upgrade() {
-                    window.present();
+                    crate::ui::windows_runtime::present_window(&window);
                 }
                 glib::ControlFlow::Break
             });
         }
         if let Some(window) = self.window.upgrade() {
-            window.present();
+            crate::ui::windows_runtime::present_window(&window);
         }
         browser
     }
