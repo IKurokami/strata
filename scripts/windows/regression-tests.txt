@@ -1,6 +1,11 @@
 native_rename_never_clobbers_an_existing_file
 ui::windows_runtime::tests::retained_window_reopens_and_live_preference_releases_only_hidden_windows
 ui::windows_runtime::tests::activation_resolves_relative_paths_in_the_senders_directory
+ui::windows_runtime::tests::repeated_activation_reuses_one_window_and_preserves_existing_tabs
+ui::window::composition::tabs::tests::external_reveal_reuses_tabs_and_preserves_other_folder_state
+ui::window::composition::tabs::tests::open_in_new_window_routes_to_the_platform_browsing_context
+ui::windows_open::tests::helper_failure_and_native_crash_are_reported_without_panicking
+ui::windows_open::tests::successful_activation_does_not_report_shell_diagnostics_as_failure
 startup_windows::tests::bundled_font_shapes_vietnamese_without_a_display
 startup_windows::tests::fontconfig_preserves_windows_script_fallback
 startup_windows::tests::direct_composition_detection_matches_gdk_debug_tokens
@@ -58,3 +63,4 @@ late_startup_session_respects_tabs_preferences_and_modal_lifecycle
 ui::windows_desktop::tests::saved_console_binding_applies_before_settings_and_survives_window_rebuilds
 ui::settings::search::tests::every_page_row_is_registered_for_search
 ui::settings::search::tests::global_search_routes_every_target_to_its_page
+ui::browser::context_menu::actions::tests::send_to_updates_an_open_menu_and_reopens_without_navigation

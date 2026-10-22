@@ -22,6 +22,7 @@ OutputBaseFilename=Strata-{#AppVersion}-windows-x64-setup
 Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\data\brand\strata.ico
 UninstallDisplayIcon={app}\bin\strata.exe
 CloseApplications=yes
 RestartApplications=no
@@ -44,8 +45,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"
-Name: "{autodesktop}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"; Tasks: desktopicon
+Name: "{group}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"; AppUserModelID: "io.github.lgse.Strata"
+Name: "{autodesktop}\Strata"; Filename: "{app}\bin\strata.exe"; WorkingDir: "{app}"; IconFilename: "{app}\bin\strata.exe"; AppUserModelID: "io.github.lgse.Strata"; Tasks: desktopicon
 
 [UninstallRun]
 Filename: "{app}\bin\strata.exe"; Parameters: "--quit"; Flags: runhidden waituntilterminated; RunOnceId: "QuitStrata"

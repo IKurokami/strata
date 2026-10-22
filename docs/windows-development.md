@@ -17,7 +17,7 @@ the core update requests it), then install the same packages as the Windows CI:
 
 ```bash
 pacman -Syu
-pacman -S --needed mingw-w64-ucrt-x86_64-{rust,gcc,clang,pkgconf,gtk4,gtksourceview5,gstreamer,ffmpeg,gst-plugins-base,gst-plugins-good,poppler,glib2,fontconfig,cmake}
+pacman -S --needed mingw-w64-ucrt-x86_64-{rust,gcc,clang,pkgconf,gtk4,gtksourceview5,gstreamer,ffmpeg,gst-plugins-base,gst-plugins-good,gst-libav,poppler,glib2,fontconfig,cmake,meson,ninja,shaderc,vulkan-headers}
 ```
 
 ## Build, test, run, and package
@@ -64,6 +64,9 @@ Windows startup reuses the Fontconfig font backend that holds the bundled
 JetBrains Mono font, avoiding a second font enumeration through Pango's Win32
 backend. An explicitly supplied `PANGOCAIRO_BACKEND` remains authoritative; if
 the Fontconfig backend is unavailable, Pango keeps its platform default.
+Release bundles include the [private Windows IME runtime](../packaging/windows/runtime/README.md).
+Build it before packaging; it fixes input-context teardown and uses native
+Windows fonts for IMM32 composition without changing widget font rendering.
 The portable launcher and development script also avoid D-Bus autolaunch when
 no `DBUS_SESSION_BUS_ADDRESS` is supplied. An explicit session bus is preserved.
 
@@ -95,11 +98,33 @@ Locally generated installers are unsigned; release signing remains a separate st
 
 ## Current limits
 
+Windows builds embed `data/brand/strata.ico` in both executables. The installer
+shortcuts and the running application share `io.github.lgse.Strata` as their
+AppUserModelID, so the taskbar uses the same identity as the installed shortcut.
+The GNU build needs `windres` on PATH (`WINDRES` can select a cross compiler).
+After changing the application SVG, regenerate its Windows icon with
+`python scripts/windows/generate-icon.py --renderer rsvg-convert`.
+
+Ordinary local file activation uses the native Windows Shell in `strata-shell.exe`, which
+honors Windows default applications, shortcuts, packaged applications and UAC
+requests from executable manifests. An unknown file type and **Open With** use
+the Windows application chooser. Cancelling a chooser or UAC prompt is harmless.
+The shell helper runs separately from GTK so a failing shell extension cannot
+crash the file-manager process. Keep `strata-shell.exe` beside `strata.exe`,
+including for development builds (`cargo build --bins`).
+Explicit video start times retain the existing player-specific launch path;
+if its handler is unavailable or rejects the launch, Windows opens the file normally.
+
 For faster reopening, enable **Settings → General → Startup → Keep Strata running
 in the background**. Close retains one initialized window and clears its media
 preview. Open Strata again to reuse it; explicit paths still navigate to the
-requested target. Use **Quit Strata** in Settings or `Start-Strata.cmd --quit` to
-exit completely. The option is off by default and does not register a login task.
+requested target in a matching or new tab. Opening Strata without a path,
+including Win+E and the tray action, brings the existing window forward.
+Base styles and the bundled icon resource path are registered once per display,
+so repeated activation does not reload icons or restyle existing widgets.
+Use **Quit Strata** in
+Settings or `Start-Strata.cmd --quit` to exit completely. The option is off by
+default and does not register a login task.
 Windows activation uses a bounded local named pipe with a current-user-only ACL,
 session/configuration isolation, and no remote clients. Native directory scans
 start off the GTK thread while eligible startup windows are being mapped. Starts
@@ -128,6 +153,16 @@ stops the helper and restores the prior entry.
 Win+E sends a bounded activation request directly to an existing Strata process,
 avoiding another GTK executable load. If its endpoint is absent, the helper
 starts the application normally.
+
+Windows uses one Strata browser window. Plain launches and Win+E present that
+window; explicit folder requests activate an existing matching tab or open a new
+tab, preserving the other tabs. The legacy new-window action also routes to a
+tab on Windows.
+The visible native-folder tab registers with Windows Shell so callers such as
+Chrome's **Show in folder** can select the requested file through
+`SHOpenFolderAndSelectItems`. Navigation, closing the window, and disabling
+Explorer replacement revoke that registration. Shell requests cross to GTK on
+the main thread; COM calls run in their own apartment.
 The uninstaller also requests
 normal application shutdown, including an idle retained window, before removing
 files. Windows file dialogs retain their

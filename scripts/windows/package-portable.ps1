@@ -7,6 +7,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string]$UcrtRoot,
     [Parameter(Mandatory = $true)][string]$Destination,
+    [string]$GtkRuntime = (Join-Path $PSScriptRoot '../../target/windows-gtk-runtime'),
     [switch]$Release
 )
 
@@ -25,6 +26,9 @@ $autoAudioPlugin = Join-Path $prefix "lib/gstreamer-1.0/libgstautodetect.dll"
 if (-not (Test-Path -LiteralPath $autoAudioPlugin)) {
     throw "Required GStreamer audio plugin missing: $autoAudioPlugin. Install mingw-w64-ucrt-x86_64-gst-plugins-good."
 }
+if (-not (Test-Path -LiteralPath (Join-Path $prefix 'lib/gstreamer-1.0/libgstlibav.dll'))) {
+    throw 'Required GStreamer H.264/audio decoder missing. Install mingw-w64-ucrt-x86_64-gst-libav.'
+}
 
 if (Test-Path -LiteralPath $Destination) {
     throw "Destination already exists. Choose a new staging directory: $Destination"
@@ -38,6 +42,40 @@ if (-not (Test-Path -LiteralPath $shellHelper -PathType Leaf)) {
 }
 Copy-Item -LiteralPath $shellHelper -Destination (Join-Path $stageBin "strata-shell.exe")
 Copy-Item -LiteralPath $shellHelper -Destination (Join-Path $Destination "Start-Strata.exe")
+if (Test-Path -LiteralPath $GtkRuntime -PathType Container) {
+    $runtime = Get-Content -LiteralPath (Join-Path $GtkRuntime 'runtime.json') -Raw | ConvertFrom-Json
+    $patch = Join-Path $PSScriptRoot '../../packaging/windows/runtime/gtk-4.24.1-ime-lifetime.patch'
+    $privateGtk = Join-Path $GtkRuntime 'libgtk-4-1.dll'
+    $privateGst = Join-Path $GtkRuntime 'libgstplay-1.0-0.dll'
+    $gstPatch = Join-Path $PSScriptRoot '../../packaging/windows/runtime/gstreamer-1.28.8-defer-worker-finalize.patch'
+    if ($runtime.format -ne 'strata-private-gtk-v1' -or $runtime.version -ne '4.24.1' -or
+        $runtime.architecture -ne 'x86_64' -or
+        $runtime.source_sha256 -ne 'e98abe720e16129c8c0f50761dee0a2e9ae2478055e31018f6cf977fcf6513e9' -or
+        $runtime.patch_sha256 -ine (Get-FileHash $patch).Hash -or
+        $runtime.dll_sha256 -ine (Get-FileHash $privateGtk).Hash -or
+        $runtime.gstreamer_version -ne '1.28.8' -or
+        $runtime.gstreamer_source_sha256 -ne '670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104' -or
+        $runtime.gstreamer_patch_sha256 -ine (Get-FileHash $gstPatch).Hash -or
+        $runtime.gstplay_dll_sha256 -ine (Get-FileHash $privateGst).Hash) {
+        throw 'Private GTK provenance does not match the pinned source, patch, and DLL.'
+    }
+    Copy-Item -LiteralPath $privateGtk -Destination (Join-Path $stageBin 'libgtk-4-1.dll')
+    Copy-Item -LiteralPath $privateGst -Destination (Join-Path $stageBin 'libgstplay-1.0-0.dll')
+    $runtimeNotice = Join-Path $Destination 'share/strata/runtime'
+    New-Item -ItemType Directory -Path $runtimeNotice -Force | Out-Null
+    foreach ($name in @('runtime.json', 'gtk-4.24.1.tar.xz', '001-fix-font-rendering.patch', 'gtk-4.24.1-ime-lifetime.patch', 'COPYING', 'gst-plugins-bad-1.28.8.tar.xz', 'gstreamer-1.28.8-defer-worker-finalize.patch', 'COPYING-gstreamer')) {
+        Copy-Item -LiteralPath (Join-Path $GtkRuntime $name) -Destination $runtimeNotice
+    }
+    if ((Get-FileHash (Join-Path $runtimeNotice 'gtk-4.24.1.tar.xz')).Hash -ine $runtime.source_sha256 -or
+        (Get-FileHash (Join-Path $runtimeNotice 'gtk-4.24.1-ime-lifetime.patch')).Hash -ine $runtime.patch_sha256 -or
+        (Get-FileHash (Join-Path $runtimeNotice '001-fix-font-rendering.patch')).Hash -ine 'ebac78616a7668edbfdd77b9959ad63239aa59ed12b995a9663bf2df7158be26' -or
+        (Get-FileHash (Join-Path $runtimeNotice 'gst-plugins-bad-1.28.8.tar.xz')).Hash -ine $runtime.gstreamer_source_sha256 -or
+        (Get-FileHash (Join-Path $runtimeNotice 'gstreamer-1.28.8-defer-worker-finalize.patch')).Hash -ine $runtime.gstreamer_patch_sha256) {
+        throw 'Private GTK corresponding source or patches do not match the provenance.'
+    }
+} elseif ($Release) {
+    throw 'Release packaging requires the private Windows IME runtime. Run scripts/windows/build-gtk-runtime.ps1 first.'
+}
 # Ship the media decoders alongside Strata; no machine-level codec installation.
 foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
     $source = Join-Path $runtimeBin $name

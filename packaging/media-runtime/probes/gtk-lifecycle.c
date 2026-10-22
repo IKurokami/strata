@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 #include <gtk/gtk.h>
+#ifdef G_OS_WIN32
+#include <windows.h>
+#include <tlhelp32.h>
+#else
 #include <dirent.h>
+#endif
 #include <stdio.h>
 
 static GtkMediaFile *media;
@@ -9,6 +14,7 @@ static GMainLoop *loop;
 static GBytes *bytes;
 static guint cycles, finalizations, limit = 50;
 static gboolean playing, failed;
+static gint64 prepare_deadline;
 
 static void
 finalized(gpointer data, GObject *object)
@@ -21,6 +27,27 @@ finalized(gpointer data, GObject *object)
 static int
 count_entries(const char *path)
 {
+#ifdef G_OS_WIN32
+  if (g_str_equal(path, "/proc/self/fd")) {
+    DWORD count;
+    return GetProcessHandleCount(GetCurrentProcess(), &count) ? (int)count : -1;
+  }
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+  if (snapshot == INVALID_HANDLE_VALUE)
+    return -1;
+  THREADENTRY32 entry = { .dwSize = sizeof(THREADENTRY32) };
+  int count = 0;
+  if (Thread32First(snapshot, &entry)) {
+    do {
+      if (entry.th32OwnerProcessID == GetCurrentProcessId())
+        count++;
+    } while (Thread32Next(snapshot, &entry));
+  } else {
+    count = -1;
+  }
+  CloseHandle(snapshot);
+  return count;
+#else
   DIR *directory = opendir(path);
   if (!directory)
     return -1;
@@ -31,6 +58,7 @@ count_entries(const char *path)
       count++;
   closedir(directory);
   return count;
+#endif
 }
 
 static gboolean
@@ -40,7 +68,13 @@ tick(gpointer data)
   if (!playing) {
     int fds = count_entries("/proc/self/fd");
     int threads = count_entries("/proc/self/task");
-    printf("checkpoint %u fds=%d threads=%d finalized=%u\n",
+    printf("checkpoint %u "
+#ifdef G_OS_WIN32
+           "handles=%d "
+#else
+           "fds=%d "
+#endif
+           "threads=%d finalized=%u\n",
            cycles, fds, threads, finalizations);
     fflush(stdout);
     if (fds < 0 || threads < 0 || finalizations != cycles) {
@@ -59,11 +93,17 @@ tick(gpointer data)
     gtk_picture_set_paintable(GTK_PICTURE(picture), GDK_PAINTABLE(media));
     gtk_media_stream_set_loop(GTK_MEDIA_STREAM(media), TRUE);
     gtk_media_stream_play(GTK_MEDIA_STREAM(media));
+    prepare_deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
     playing = TRUE;
   } else {
-    if (!gtk_media_stream_is_prepared(GTK_MEDIA_STREAM(media)) ||
-        gtk_media_stream_get_error(GTK_MEDIA_STREAM(media))) {
-      fprintf(stderr, "Media failed to prepare; this is not a passing lifecycle test\n");
+    const GError *error = gtk_media_stream_get_error(GTK_MEDIA_STREAM(media));
+    gboolean progressed = gtk_media_stream_is_prepared(GTK_MEDIA_STREAM(media)) &&
+                          gtk_media_stream_get_timestamp(GTK_MEDIA_STREAM(media)) > 0;
+    if (!error && !progressed && g_get_monotonic_time() < prepare_deadline)
+      return G_SOURCE_CONTINUE;
+    if (error || !progressed) {
+      fprintf(stderr, "Media failed to prepare: %s; this is not a passing lifecycle test\n",
+              error ? error->message : "preparation/playback deadline expired");
       failed = TRUE;
     }
     gtk_media_stream_pause(GTK_MEDIA_STREAM(media));

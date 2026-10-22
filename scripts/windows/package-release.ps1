@@ -3,14 +3,15 @@
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string]$UcrtRoot,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [string]$GtkRuntime = (Join-Path $PSScriptRoot '../../target/windows-gtk-runtime')
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Destination = [System.IO.Path]::GetFullPath($Destination)
 
-& (Join-Path $PSScriptRoot 'package-portable.ps1') -Executable $Executable -UcrtRoot $UcrtRoot -Destination $Destination -Release
+& (Join-Path $PSScriptRoot 'package-portable.ps1') -Executable $Executable -UcrtRoot $UcrtRoot -Destination $Destination -GtkRuntime $GtkRuntime -Release
 if ($LASTEXITCODE -ne 0) {
     throw 'Portable release staging failed'
 }

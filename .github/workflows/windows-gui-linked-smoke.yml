@@ -20,7 +20,7 @@ jobs:
   build-and-smoke:
     name: Link Windows strata.exe and run executable
     runs-on: windows-2025
-    timeout-minutes: 55
+    timeout-minutes: 80
     # Unlike the old compile-only diagnostic, failure of any step here is
     # a real failing CI check. We never claim the GUI runs on a successful
     # cargo check alone.
@@ -44,10 +44,15 @@ jobs:
             mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-libav
             mingw-w64-ucrt-x86_64-poppler
             mingw-w64-ucrt-x86_64-glib2
             mingw-w64-ucrt-x86_64-fontconfig
             mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-shaderc
+            mingw-w64-ucrt-x86_64-vulkan-headers
 
       - name: Verify the native UCRT64 toolchain
         shell: msys2 {0}
@@ -62,6 +67,21 @@ jobs:
           pkgconf --modversion poppler-glib
           # Pass the actual MSYS2 location to native PowerShell steps.
           echo "STRATA_UCRT_ROOT=$(cygpath -w /ucrt64)" >> "$GITHUB_ENV"
+
+      - name: Build and verify the private Windows IME runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = "$env:STRATA_UCRT_ROOT\bin;$env:Path"
+          & .\scripts\windows\build-gtk-runtime.ps1 `
+            -BuildRoot (Join-Path $env:RUNNER_TEMP 'strata-gtk-build') `
+            -Destination '.\target\windows-gtk-runtime' -UcrtRoot $env:STRATA_UCRT_ROOT -Jobs 2
+          & .\scripts\windows\test-gtk-runtime.ps1 `
+            -GtkDll '.\target\windows-gtk-runtime\libgtk-4-1.dll' `
+            -Output (Join-Path $env:RUNNER_TEMP 'strata-ime-probes') -UcrtRoot $env:STRATA_UCRT_ROOT
+          New-Item -ItemType Directory -Path '.\target\debug' -Force | Out-Null
+          Copy-Item '.\target\windows-gtk-runtime\libgtk-4-1.dll' '.\target\debug\libgtk-4-1.dll'
+          Copy-Item '.\target\windows-gtk-runtime\libgstplay-1.0-0.dll' '.\target\debug\libgstplay-1.0-0.dll'
 
       - name: Compile and LINK the Windows GUI binary
         shell: msys2 {0}
@@ -126,6 +146,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Run Windows native Shell and filesystem regressions
+        shell: msys2 {0}
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path crates/strata-win-shell/Cargo.toml --locked --all-targets -- --test-threads=1
+          cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets -- --test-threads=1
+
       - name: Compile all Windows GUI unit tests
         shell: msys2 {0}
         env:
@@ -134,6 +164,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked --no-default-features --bin strata --no-run
+          cp target/windows-gtk-runtime/libgtk-4-1.dll target/debug/deps/
+          cp target/windows-gtk-runtime/libgstplay-1.0-0.dll target/debug/deps/
 
       - name: Run Windows-only safety and filesystem tests
         shell: msys2 {0}

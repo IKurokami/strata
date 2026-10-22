@@ -12,3 +12,6 @@ tests/fixtures/documents/*.pdf whitespace=-blank-at-eol
 
 # Rustfmt expects LF files on Windows runners even when core.autocrlf is enabled.
 *.rs text eol=lf
+
+# Unified-diff context markers on blank lines are part of the pinned patch data.
+packaging/windows/runtime/*.patch whitespace=-blank-at-eol,-blank-at-eof

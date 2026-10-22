@@ -3,8 +3,11 @@
 This directory preserves an experimental GStreamer fix, pinned source archives,
 and standalone reproducers for [#779](https://github.com/lgse/strata/issues/779).
 It is independent of the [diagnostics PR #782](https://github.com/lgse/strata/pull/782).
-**It does not change Strata's binary, installer, or release workflow. Building
-Strata alone does not apply the patch. This is not a shipping runtime yet.**
+**These original Linux commands remain opt-in. Building Strata alone does not
+apply the patch.** The [Windows runtime recipe](../windows/runtime/README.md)
+separately rebases the GstPlay fix onto 1.28.8 and integrates it into Windows
+release packaging. That runtime requires its own baseline, patched-library and
+installed-artifact validation; the historical results below do not certify it.
 
 ## GTK patch removal
 
