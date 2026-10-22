@@ -9,7 +9,7 @@ use std::{
 
 use gtk::{gio, prelude::*};
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -70,6 +70,26 @@ impl Drop for ActionMenuSection {
         if self.popover.parent().is_some() {
             self.popover.unparent();
         }
+        detach_menu_model(&self.popover, self.header.as_ref());
+    }
+}
+
+fn detach_menu_model(popover: &gtk::PopoverMenu, header: Option<&gtk::Widget>) {
+    let Some(model) = popover.menu_model().and_downcast::<gio::Menu>() else {
+        return;
+    };
+    let items: Vec<_> = (0..model.n_items())
+        .map(|index| gio::MenuItem::from_model(&model, index))
+        .collect();
+    if let Some(header) = header {
+        popover.remove_child(header);
+    }
+    // Destroy trackers while their stack and action muxer are still attached.
+    // GTK otherwise removes action observers reentrantly during stack teardown.
+    model.remove_all();
+    popover.set_menu_model(gio::MenuModel::NONE);
+    for item in items {
+        model.append_item(&item);
     }
 }
 
@@ -86,6 +106,19 @@ impl ActionMenuSection {
         let popover =
             gtk::PopoverMenu::from_model_full(&gio::Menu::new(), gtk::PopoverMenuFlags::NESTED);
         popover.set_menu_model(gio::MenuModel::NONE);
+        let detached_header = header.map(gtk::prelude::ObjectExt::downgrade);
+        popover.connect_local("unrealize", true, move |values| {
+            let popover = values[0]
+                .get::<gtk::PopoverMenu>()
+                .expect("popover unrealize receiver");
+            // Remove action observers before GTK detaches the parent muxer.
+            // Run after GtkPopoverMenu resets its submenu during unrealize.
+            let header = detached_header
+                .as_ref()
+                .and_then(gtk::glib::WeakRef::upgrade);
+            detach_menu_model(&popover, header.as_ref());
+            None
+        });
         popover.set_has_arrow(false);
         popover.add_css_class("folder-context-popover");
         popover.add_css_class("actions-context-popover");

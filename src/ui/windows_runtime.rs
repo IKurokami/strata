@@ -239,6 +239,26 @@ pub(super) fn reuse(application: &gtk::Application) -> Option<BrowserView> {
     Some(browser)
 }
 
+pub(super) fn present_existing(application: &gtk::Application) -> bool {
+    if reuse(application).is_some() {
+        return true;
+    }
+    let window = application
+        .active_window()
+        .filter(|window| window.is_visible())
+        .or_else(|| {
+            application
+                .windows()
+                .into_iter()
+                .find(|window| window.is_visible() && window.is::<gtk::ApplicationWindow>())
+        });
+    let Some(window) = window else {
+        return false;
+    };
+    window.present();
+    true
+}
+
 pub(super) fn bind(window: &gtk::ApplicationWindow, preferences: &Rc<PreferenceManager>) {
     super::windows_desktop::bind(window, preferences);
     preferences.bind_preference(

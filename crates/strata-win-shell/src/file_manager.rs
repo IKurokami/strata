@@ -40,7 +40,7 @@ impl Default for Registration {
     }
 }
 
-fn same_path(first: &Path, second: &Path) -> bool {
+pub(crate) fn same_path(first: &Path, second: &Path) -> bool {
     let first: Vec<u16> = first.as_os_str().encode_wide().collect();
     let second: Vec<u16> = second.as_os_str().encode_wide().collect();
     // SAFETY: Both length-delimited UTF-16 buffers remain valid for the call.
@@ -87,6 +87,10 @@ impl Registration {
     }
 
     fn activate_running(&self) -> bool {
+        self.forward_running(None)
+    }
+
+    fn forward_running(&self, message: Option<&[u8]>) -> bool {
         use windows::Win32::System::Registry::REG_BINARY;
 
         let Ok(Some(value)) = registry::get(&self.state, "Activation") else {
@@ -103,7 +107,7 @@ impl Registration {
         let Ok(scope) = std::str::from_utf8(&value.data[4..4 + length]) else {
             return false;
         };
-        crate::activation::forward(scope, &value.data[4 + length..]).is_ok()
+        crate::activation::forward(scope, message.unwrap_or(&value.data[4 + length..])).is_ok()
     }
 
     fn shell(&self, class: &str) -> String {
@@ -425,6 +429,11 @@ pub fn disable(executable: &Path) -> io::Result<()> {
 /// The stable proxy survives removal of a portable app directory. On its first
 /// invocation after removal it repairs the association before opening Explorer.
 pub fn open(folder: &OsStr) -> io::Result<()> {
+    open_with_request(folder, None)
+}
+
+/// Route a native shell invocation straight to the owning installation's pipe.
+pub fn open_with_request(folder: &OsStr, request: Option<&[u8]>) -> io::Result<()> {
     let registration = Registration::default();
     let target = (|| -> io::Result<Option<PathBuf>> {
         let _guard = lock::acquire()?;
@@ -439,6 +448,11 @@ pub fn open(folder: &OsStr) -> io::Result<()> {
         eprintln!("Unable to inspect or repair folder handler: {error}");
     }
     if let Ok(Some(executable)) = target {
+        if let Some(request) = request
+            && registration.forward_running(Some(request))
+        {
+            return Ok(());
+        }
         if let Ok(mut child) = Command::new(&executable).arg("--").arg(folder).spawn() {
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(150);
             loop {

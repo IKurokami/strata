@@ -17,7 +17,26 @@ fn main() -> std::process::ExitCode {
             println!("strata-shell {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        [mode, folder] if mode == "--open" => strata_win_shell::file_manager::open(folder),
+        [mode, folder] if mode == "--open" => {
+            use std::os::windows::ffi::OsStrExt;
+            let request = std::env::current_dir().ok().and_then(|cwd| {
+                serde_json::to_vec(&serde_json::json!({"Open": {
+                    "cwd": cwd.as_os_str().encode_wide().collect::<Vec<_>>(),
+                    "arguments": [folder.encode_wide().collect::<Vec<_>>()]
+                }}))
+                .ok()
+            });
+            strata_win_shell::file_manager::open_with_request(folder, request.as_deref())
+        }
+        [mode, file] if mode == "--launch" || mode == "--choose" => {
+            match strata_win_shell::launch::open(std::path::Path::new(file), mode == "--choose") {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    eprintln!("{error}");
+                    return std::process::ExitCode::FAILURE;
+                }
+            }
+        }
         [mode] if mode == "--watch" => strata_win_shell::file_manager::watch(),
         [mode, flag, target] if mode == "--unregister" && flag == "--target" => {
             strata_win_shell::file_manager::disable(std::path::Path::new(target))

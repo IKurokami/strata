@@ -215,19 +215,48 @@ pub(crate) fn on_press(
     });
     signals::pressed(controller, move |controller, keyval, keycode, state| {
         if let Some(field) = composition::composing_field(controller) {
-            // Forwarding needs a real event, and forwarding from the field's own
-            // controller would run that controller again.
-            if controller.current_event().is_none() || controller.widget().as_ref() == Some(&field)
+            #[cfg(windows)]
             {
-                return Propagation::Proceed;
+                // Win32 delivers IME composition through native window messages.
+                // Redispatching the GDK event re-enters that input context.
+                let _ = field;
+                let modifiers = read(controller, keyval, keycode, state).modifiers();
+                if !modifiers.intersects(
+                    Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK,
+                ) {
+                    return Propagation::Proceed;
+                }
             }
-            if controller.forward(&field) {
-                forwarded.press(keyval, &field);
-                return Propagation::Stop;
+            #[cfg(not(windows))]
+            {
+                // Forwarding needs a real event, and forwarding from the field's own
+                // controller would run that controller again.
+                if controller.current_event().is_none()
+                    || controller.widget().as_ref() == Some(&field)
+                {
+                    return Propagation::Proceed;
+                }
+                if controller.forward(&field) {
+                    forwarded.press(keyval, &field);
+                    return Propagation::Stop;
+                }
             }
         }
         handler(controller, &read(controller, keyval, keycode, state))
     })
+}
+
+#[cfg(windows)]
+pub(crate) fn release_native_text_focus(scope: &impl IsA<gtk::Widget>) {
+    use gtk::prelude::*;
+    let scope = scope.as_ref();
+    if let Some(root) = scope.root()
+        && let Some(focus) = root.focus()
+        && (focus.is::<gtk::Text>() || focus.is::<gtk::TextView>())
+        && (&focus == scope || focus.is_ancestor(scope))
+    {
+        root.set_focus(None::<&gtk::Widget>);
+    }
 }
 
 pub(crate) fn on_release(

@@ -382,6 +382,23 @@ impl BrowserView {
                                 .eq(locations.iter())
                     })
             };
+            #[cfg(windows)]
+            if let Some(paths) = files
+                .iter()
+                .map(|file| file.path())
+                .collect::<Option<Vec<_>>>()
+            {
+                for path in paths {
+                    if !unchanged() {
+                        break;
+                    }
+                    let result = crate::ui::windows_open::launch(path, true).await;
+                    if let Some(state) = state.upgrade() {
+                        crate::ui::windows_open::report(&state.overlay, result);
+                    }
+                }
+                return;
+            }
             let Some(resolved) = crate::ui::open_with::resolve(&files, &unchanged).await else {
                 return;
             };

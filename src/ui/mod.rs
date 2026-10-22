@@ -72,7 +72,11 @@ mod windows_desktop;
 #[cfg(windows)]
 mod windows_integration;
 #[cfg(windows)]
+mod windows_open;
+#[cfg(windows)]
 pub(crate) mod windows_runtime;
+#[cfg(windows)]
+mod windows_shell;
 #[cfg(windows)]
 mod windows_window_state;
 

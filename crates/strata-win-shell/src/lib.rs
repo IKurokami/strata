@@ -11,7 +11,9 @@ pub mod activation;
 pub mod desktop;
 pub mod file_manager;
 pub mod job;
+pub mod launch;
 mod recycle_bin;
+pub mod shell_window;
 pub mod volume;
 pub mod window;
 pub use recycle_bin::{

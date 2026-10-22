@@ -246,7 +246,8 @@ fn mouse_history_action(button: u32) -> Option<MouseHistoryAction> {
 }
 
 pub fn present(application: &gtk::Application) {
-    present_target(application, None, Vec::new(), false, true, true);
+    let restore_tabs = !cfg!(windows) || application.windows().is_empty();
+    present_target(application, None, Vec::new(), false, true, restore_tabs);
 }
 
 /// Opens the requested directory with the named items selected.
@@ -300,6 +301,11 @@ pub(super) fn present_target(
     auto_navigate: bool,
     restore_tabs: bool,
 ) -> BrowserView {
+    #[cfg(windows)]
+    if let Some(tabs) = composition::existing_tab_window(application) {
+        let _ = super::windows_runtime::reuse(application);
+        return tabs.present_external(location, selection, properties, auto_navigate);
+    }
     #[cfg(windows)]
     if let Some(browser) = super::windows_runtime::reuse(application) {
         if auto_navigate && let Some(location) = location {
@@ -4291,14 +4297,28 @@ fn startup_location(manager: &PreferenceManager) -> Location {
 mod tests;
 
 pub(super) fn load_styles() {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(include_str!("../style.css"));
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    thread_local! {
+        static STYLED_DISPLAYS: RefCell<Vec<glib::WeakRef<gtk::gdk::Display>>> = const { RefCell::new(Vec::new()) };
+    }
+    STYLED_DISPLAYS.with_borrow_mut(|displays| {
+        displays.retain(|display| display.upgrade().is_some());
+        if displays
+            .iter()
+            .any(|registered| registered.upgrade().as_ref() == Some(&display))
+        {
+            return;
+        }
+        let provider = gtk::CssProvider::new();
+        provider.load_from_string(include_str!("../style.css"));
 
-    if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
-    }
+        displays.push(display.downgrade());
+    });
 }

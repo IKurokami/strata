@@ -37,13 +37,18 @@ pub(in crate::ui) fn open_location_at(
         );
         return;
     }
-    // Windows does not expose every .exe through GIO's desktop application
-    // registry. Resolve and run it directly so GIO cannot reject a valid
-    // native executable with the opaque "Invalid argument" error.
     #[cfg(windows)]
-    if location.native_path().is_some_and(is_regular_executable) {
-        confirm_run_program(location, parent);
-        return;
+    if let Some(path) = location.native_path() {
+        if is_regular_executable(path) {
+            confirm_run_program(location, parent);
+            return;
+        }
+        // Keep the existing player-specific seek arguments for explicit timed
+        // opens; ordinary activation uses Windows associations directly.
+        if position.is_none() {
+            crate::ui::windows_open::open(path.to_owned(), parent);
+            return;
+        }
     }
     let file = gio_file_for_location(location);
     let context = parent.as_ref().display().app_launch_context();
@@ -61,6 +66,13 @@ pub(in crate::ui) fn open_location_at(
                     Some(&context),
                 );
                 if let Some(parent) = parent.upgrade() {
+                    #[cfg(windows)]
+                    if result.is_err()
+                        && let Some(path) = location.native_path()
+                    {
+                        crate::ui::windows_open::open(path.to_owned(), &parent);
+                        return;
+                    }
                     report_open_result(&location, &parent, result);
                 }
             }
@@ -68,6 +80,11 @@ pub(in crate::ui) fn open_location_at(
                 let Some(parent) = parent.upgrade() else {
                     return;
                 };
+                #[cfg(windows)]
+                if let Some(path) = location.native_path() {
+                    crate::ui::windows_open::open(path.to_owned(), &parent);
+                    return;
+                }
                 if file.is_native() && location.native_path().is_some_and(is_regular_executable) {
                     confirm_run_program(&location, &parent);
                 } else {
@@ -76,6 +93,11 @@ pub(in crate::ui) fn open_location_at(
             }
             Err(error) => {
                 if let Some(parent) = parent.upgrade() {
+                    #[cfg(windows)]
+                    if let Some(path) = location.native_path() {
+                        crate::ui::windows_open::open(path.to_owned(), &parent);
+                        return;
+                    }
                     report_open_result(&location, &parent, Err(error));
                 }
             }
@@ -249,6 +271,11 @@ pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Wi
     let error_parent = parent.as_ref().clone();
     run.connect_clicked(move |_| {
         dismiss_modal_layer(&run_layer, &run_overlay, run_root.as_ref());
+        #[cfg(windows)]
+        if let Some(path) = run_location.native_path() {
+            crate::ui::windows_open::open(path.to_owned(), &error_parent);
+        }
+        #[cfg(not(windows))]
         if let Err(error) = launch_program(&run_location) {
             tracing::warn!(%error, "unable to run program");
             show_error_dialog(
@@ -260,6 +287,7 @@ pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Wi
     });
 }
 
+#[cfg(not(windows))]
 fn launch_program(location: &Location) -> std::io::Result<()> {
     let path = location.native_path().ok_or_else(|| {
         std::io::Error::new(
@@ -270,6 +298,7 @@ fn launch_program(location: &Location) -> std::io::Result<()> {
     terminal::spawn_reaped(program_command(path, terminal::Terminal::resolve)?)
 }
 
+#[cfg(not(windows))]
 fn program_command(
     path: &Path,
     resolve_terminal: impl FnOnce() -> Option<terminal::Terminal>,
@@ -307,6 +336,7 @@ fn program_command(
 }
 
 /// A printf format whose only conversion is the exit status.
+#[cfg(not(windows))]
 fn exit_prompt_format() -> String {
     rust_i18n::t!(
         "Process exited with status %{status}. Press Enter to close…",

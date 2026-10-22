@@ -20,7 +20,7 @@ fn path() -> std::path::PathBuf {
     unsafe_code,
     reason = "GDK exposes native HWND access only through its Win32 C API"
 )]
-fn handle(window: &gtk::ApplicationWindow) -> Option<isize> {
+pub(super) fn handle(window: &gtk::ApplicationWindow) -> Option<isize> {
     use glib::translate::ToGlibPtr;
     unsafe extern "C" {
         fn gdk_win32_surface_get_handle(surface: *mut gtk::gdk::ffi::GdkSurface) -> *mut c_void;

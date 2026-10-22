@@ -23,8 +23,9 @@ fn has_visible_label(widget: &gtk::Widget, text: &str) -> bool {
 
 #[test]
 fn send_to_updates_an_open_menu_and_reopens_without_navigation() {
-    crate::test_support::gtk_test(
+    crate::test_support::gtk_test_with_env(
         "ui::browser::context_menu::actions::tests::send_to_updates_an_open_menu_and_reopens_without_navigation",
+        [("G_DEBUG", "fatal-warnings")],
         || {
             let directory = tempfile::tempdir().expect("source fixture");
             std::fs::write(directory.path().join("note.txt"), b"source").expect("source file");

@@ -1132,9 +1132,9 @@ fn open_tab_at_action_reaches_the_new_tab_helper() {
 }
 
 #[test]
-fn open_in_new_window_presents_a_window_at_the_target() {
+fn open_in_new_window_routes_to_the_platform_browsing_context() {
     gtk_test(
-        "ui::window::composition::tabs::tests::open_in_new_window_presents_a_window_at_the_target",
+        "ui::window::composition::tabs::tests::open_in_new_window_routes_to_the_platform_browsing_context",
         || {
             let (_root, window, tabs, location) = open_target_fixture();
             let before = gtk::Window::list_toplevels().len();
@@ -1143,14 +1143,56 @@ fn open_in_new_window_presents_a_window_at_the_target() {
                 .expect("new window browser");
             assert_eq!(
                 gtk::Window::list_toplevels().len(),
-                before + 1,
-                "a new window is presented"
+                before + usize::from(!cfg!(windows)),
+                "Windows uses a tab in the existing window"
             );
             wait_until(|| view.browser().active_location().is_some());
             assert_eq!(view.browser().active_location(), Some(location));
             if let Some(opened) = view.overlay().root().and_downcast::<gtk::Window>() {
                 opened.destroy();
             }
+            window.destroy();
+        },
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn external_reveal_reuses_tabs_and_preserves_other_folder_state() {
+    gtk_test(
+        "ui::window::composition::tabs::tests::external_reveal_reuses_tabs_and_preserves_other_folder_state",
+        || {
+            let (root, window, tabs, location) = open_target_fixture();
+            let original = tabs.active_browser();
+            let first = tabs.active.get();
+            let file = location.native_path().unwrap().join("tiếng Việt 中文.txt");
+            std::fs::write(&file, b"fixture").expect("selected file");
+            let target = Location::local(&file);
+            let opened =
+                tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
+            let second = tabs.active.get();
+            assert_ne!(first, second);
+            // A second request can arrive before the directory result is published.
+            tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
+            assert_eq!(tabs.tabs.borrow().len(), 2);
+            wait_until(|| {
+                opened
+                    .browser()
+                    .selected_entries()
+                    .iter()
+                    .any(|entry| entry.location == target)
+            });
+            assert_eq!(
+                original.browser().active_location(),
+                Some(Location::local(root.path()))
+            );
+            tabs.select(first);
+            tabs.present_external(Some(location.clone()), vec![target.clone()], false, true);
+            assert_eq!(tabs.active.get(), second);
+            assert_eq!(tabs.tabs.borrow().len(), 2);
+            assert_eq!(window.application().unwrap().windows().len(), 1);
+            tabs.present_external(None, Vec::new(), false, true);
+            assert_eq!(tabs.active.get(), second);
             window.destroy();
         },
     );

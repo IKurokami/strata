@@ -18,6 +18,65 @@ fn wait_for_navigation(browser: &BrowserView, location: &Location) {
 }
 
 #[test]
+fn repeated_activation_reuses_one_window_and_preserves_existing_tabs() {
+    crate::test_support::gtk_test(
+        "ui::windows_runtime::tests::repeated_activation_reuses_one_window_and_preserves_existing_tabs",
+        || {
+            let application = gtk::Application::builder()
+                .application_id("io.github.lgse.Strata.ReactivationTest")
+                .flags(gio::ApplicationFlags::NON_UNIQUE)
+                .build();
+            application
+                .register(None::<&gio::Cancellable>)
+                .expect("application");
+            let manager = PreferenceManager::shared();
+            manager.set_restore_tabs(true);
+            manager.set_keep_running_in_background(false);
+            let directory = tempfile::tempdir().expect("fixture directory");
+            let location = Location::local(directory.path());
+            let browser = present_target(
+                &application,
+                Some(location.clone()),
+                Vec::new(),
+                false,
+                true,
+                false,
+            );
+            wait_for_navigation(&browser, &location);
+            let original = application.windows().pop().expect("browser window");
+            let request = serde_json::to_vec(&Request::Open {
+                cwd: directory.path().as_os_str().encode_wide().collect(),
+                arguments: Vec::new(),
+            })
+            .expect("activation packet");
+            for _ in 0..2 {
+                dispatch(&application, &request);
+                assert_eq!(application.windows().len(), 1);
+                assert!(original.is_visible());
+                assert_eq!(browser.browser().active_location(), Some(location.clone()));
+            }
+            super::super::present(&application);
+            assert_eq!(application.windows().len(), 1);
+            let child = directory.path().join("explicit target");
+            std::fs::create_dir(&child).expect("child directory");
+            dispatch(
+                &application,
+                &serde_json::to_vec(&Request::Open {
+                    cwd: directory.path().as_os_str().encode_wide().collect(),
+                    arguments: vec![child.as_os_str().encode_wide().collect()],
+                })
+                .expect("target packet"),
+            );
+            assert_eq!(application.windows().len(), 1);
+            assert_eq!(browser.browser().active_location(), Some(location));
+            for window in application.windows() {
+                window.destroy();
+            }
+        },
+    );
+}
+
+#[test]
 fn explicit_windows_target_is_saved_for_the_next_plain_launch() {
     crate::test_support::gtk_test(
         "ui::windows_runtime::tests::explicit_windows_target_is_saved_for_the_next_plain_launch",
@@ -144,19 +203,6 @@ fn retained_window_reopens_and_live_preference_releases_only_hidden_windows() {
                 .root()
                 .and_downcast::<gtk::Window>()
                 .expect("first window");
-            let second_browser = present_target(
-                &application,
-                Some(Location::local(directory.path())),
-                Vec::new(),
-                false,
-                true,
-                false,
-            );
-            let second = application
-                .windows()
-                .into_iter()
-                .find(|window| *window != first)
-                .expect("second window");
             first.close();
             assert!(!first.is_visible());
             assert!(application.windows().contains(&first));
@@ -175,13 +221,24 @@ fn retained_window_reopens_and_live_preference_releases_only_hidden_windows() {
             }
             assert_eq!(
                 application.windows().len(),
-                2,
+                1,
                 "reuse creates no extra window"
             );
             assert!(first.is_visible());
             first.close();
             manager.set_keep_running_in_background(false);
             assert!(!application.windows().contains(&first));
+            let second_browser = present_target(
+                &application,
+                Some(Location::local(directory.path())),
+                Vec::new(),
+                false,
+                true,
+                false,
+            );
+            let second = application.windows().pop().expect("replacement window");
+            manager.set_keep_running_in_background(true);
+            manager.set_keep_running_in_background(false);
             assert!(second.is_visible());
             assert!(application.windows().contains(&second));
             second_browser.set_view_mode(crate::ui::browser_modes::BrowserMode::Icons);
@@ -286,7 +343,9 @@ fn activation_resolves_relative_paths_in_the_senders_directory() {
                 &serde_json::to_vec(&request).expect("activation packet"),
             );
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            while browser.browser().active_location() != Some(Location::local(&child)) {
+            while super::super::tabs_session::load_restorable()
+                .is_none_or(|session| !session.tabs.contains(&Location::local(&child)))
+            {
                 while glib::MainContext::default().pending() {
                     glib::MainContext::default().iteration(false);
                 }

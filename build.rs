@@ -7,6 +7,7 @@ use std::{
 };
 
 fn main() {
+    embed_windows_icon();
     println!("cargo::rerun-if-changed=data/locales");
     write_translation_catalogs();
     glib_build_tools::compile_resources(&["data"], "data/strata.gresource.xml", "strata.gresource");
@@ -43,6 +44,32 @@ fn main() {
         })
         .unwrap_or_else(|| "stable".to_owned());
     println!("cargo::rustc-env=STRATA_BUILD_KIND={build_kind}");
+}
+
+fn embed_windows_icon() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    println!("cargo::rerun-if-changed=packaging/windows/strata.rc");
+    println!("cargo::rerun-if-changed=data/brand/strata.ico");
+    println!("cargo::rerun-if-env-changed=WINDRES");
+    let output = Path::new(&env::var_os("OUT_DIR").expect("OUT_DIR")).join("windows-icon.o");
+    let status = Command::new(env::var_os("WINDRES").unwrap_or_else(|| "windres".into()))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "--input",
+            "packaging/windows/strata.rc",
+            "--output-format",
+            "coff",
+        ])
+        .arg("--output")
+        .arg(&output)
+        .status()
+        .expect("run windres from the Windows GNU toolchain");
+    assert!(status.success(), "Windows icon resource compilation failed");
+    for binary in ["strata", "strata-shell"] {
+        println!("cargo::rustc-link-arg-bin={binary}={}", output.display());
+    }
 }
 
 /// Embeds the catalogs as static tables. rust-i18n's own `i18n!` loader emits one

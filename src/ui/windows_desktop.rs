@@ -91,12 +91,8 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
             let event = TRAY.with(|slot| slot.borrow().as_ref().and_then(Tray::receive));
             match event {
                 Some(Event::Open) => {
-                    if super::windows_runtime::reuse(&application).is_none() {
-                        if let Some(window) = application.active_window() {
-                            window.present();
-                        } else {
-                            application.activate();
-                        }
+                    if !super::windows_runtime::present_existing(&application) {
+                        super::present(&application);
                     }
                 }
                 Some(Event::Console) => {

@@ -69,6 +69,9 @@ fn shortcut_reuses_the_running_endpoint_and_falls_back_after_shutdown() {
         .unwrap();
     assert!(registration.activate_running());
     assert_eq!(server.receive().as_deref(), Some(request.as_slice()));
+    let folder_request = b"open folder and select file";
+    assert!(registration.forward_running(Some(folder_request)));
+    assert_eq!(server.receive().as_deref(), Some(folder_request.as_slice()));
     assert!(registration.set_activation(Some(("", request))).is_err());
     assert!(
         registration.activate_running(),

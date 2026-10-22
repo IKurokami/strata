@@ -18,6 +18,8 @@ mod settings;
 mod tabs;
 mod tenxer_splash;
 
+#[cfg(windows)]
+pub(super) use tabs::existing as existing_tab_window;
 pub(super) use tabs::{TabWindow, is_tab_shortcut, tab_index};
 
 pub(super) struct WindowContent {

@@ -8,6 +8,13 @@ use windows::Win32::{
     },
 };
 
+/// Match the process to the installed Start menu and desktop shortcuts.
+pub fn set_application_id(id: &str) -> windows_core::Result<()> {
+    let id = windows::core::HSTRING::from(id);
+    // SAFETY: The identifier remains live for this synchronous Shell call.
+    unsafe { windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(&id) }
+}
+
 /// Normal workspace coordinates, independent of the window's minimized state.
 #[derive(Clone, Copy)]
 pub struct Placement {

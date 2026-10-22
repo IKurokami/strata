@@ -612,6 +612,8 @@ pub(super) fn dismiss_modal_layer_then(
         return;
     }
     layer.add_css_class("dismissing");
+    #[cfg(windows)]
+    super::keys::release_native_text_focus(layer);
     layer.set_sensitive(false);
     let overlay = overlay.clone();
     let layer_for_anim = layer.clone();

@@ -442,6 +442,10 @@ fn handle_command_line(
 }
 
 fn install_application_identity() {
+    #[cfg(windows)]
+    if let Err(error) = strata_win_shell::window::set_application_id(APPLICATION_ID) {
+        eprintln!("Windows application identity: {error}");
+    }
     glib::set_prgname(Some(APPLICATION_ID));
     glib::set_application_name("Strata");
 }

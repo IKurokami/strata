@@ -873,6 +873,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::OpenInNewWindow,
     );
     let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window]);
+    open_in_window.set_visible(!cfg!(windows));
     let open_with = item_context_option(
         crate::assets::icons::APP_WINDOW,
         "Open With…",
@@ -1070,6 +1071,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         &open_in_multiple,
         [&open_in_tab_multiple, &open_in_window_multiple],
     );
+    open_in_window_multiple.set_visible(!cfg!(windows));
     let open_with_multiple = item_context_option(
         crate::assets::icons::APP_WINDOW,
         "Open With…",
@@ -2276,5 +2278,5 @@ fn prepare_open_with(
     });
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests;
