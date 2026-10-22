@@ -199,17 +199,22 @@ fn measure_entry(
 ) -> MeasurementFuture {
     Box::pin(async move {
         let is_directory = crate::services::gio_file_type(&info) == Some(gio::FileType::Directory);
+        let is_regular = crate::services::gio_file_type(&info) == Some(gio::FileType::Regular);
+        let has_size = info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_SIZE);
         let is_hidden = hidden_ancestor || info.is_hidden();
         let mut summary = DirectorySummary {
             item_count: 1,
-            total_size: if crate::services::gio_file_type(&info) == Some(gio::FileType::Regular) {
+            total_size: if is_regular && has_size {
                 info.size().max(0) as u64
             } else {
                 0
             },
             visible_file_count: usize::from(!is_hidden && !is_directory),
             visible_folder_count: usize::from(!is_hidden && is_directory),
-            issues: MeasurementIssues::default(),
+            issues: MeasurementIssues {
+                unreadable: is_regular && !has_size,
+                ..MeasurementIssues::default()
+            },
         };
         let mut total = budget.total.get();
         total.include(summary);
@@ -238,3 +243,6 @@ fn measure_entry(
 
 #[cfg(all(test, not(windows)))]
 mod tests;
+
+#[cfg(test)]
+mod metadata_tests;

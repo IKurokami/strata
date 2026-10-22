@@ -64,3 +64,5 @@ ui::windows_desktop::tests::saved_console_binding_applies_before_settings_and_su
 ui::settings::search::tests::every_page_row_is_registered_for_search
 ui::settings::search::tests::global_search_routes_every_target_to_its_page
 ui::browser::context_menu::actions::tests::send_to_updates_an_open_menu_and_reopens_without_navigation
+adapters::local_files::metadata_tests::missing_optional_attributes_use_safe_defaults
+adapters::directory_summary::metadata_tests::missing_sizes_keep_known_bytes_and_report_partial_measurement

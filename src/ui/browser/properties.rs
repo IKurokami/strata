@@ -838,7 +838,7 @@ impl ViewState {
             else {
                 return;
             };
-            if !is_directory {
+            if !is_directory && info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_SIZE) {
                 size.set_text(&format_file_size(info.size().max(0) as u64));
             }
             if let Some(time) = info.modification_date_time() {

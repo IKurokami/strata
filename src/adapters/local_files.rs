@@ -2088,10 +2088,12 @@ fn fill_icon_details_with_probe(
 fn update_from_info(info: &gio::FileInfo, location: &Location) -> (MetadataUpdate, bool) {
     let size = if info_file_type(info) == gio::FileType::Directory {
         MetadataValue::Unknown
-    } else {
+    } else if info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_SIZE) {
         u64::try_from(info.size())
             .map(MetadataValue::Known)
             .unwrap_or(MetadataValue::Unavailable)
+    } else {
+        MetadataValue::Unavailable
     };
     let modified_unix_seconds = info
         .modification_date_time()
@@ -2457,3 +2459,6 @@ fn query_monitored_entry(
 
 #[cfg(all(test, not(windows)))]
 mod tests;
+
+#[cfg(test)]
+mod metadata_tests;
