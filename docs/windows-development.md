@@ -107,6 +107,38 @@ Locally generated installers are unsigned; release signing remains a separate st
 
 ## Current limits
 
+### Windows release updates
+
+Windows checks releases and release notes from `IKurokami/strata`; Linux keeps
+the upstream `lgse/strata` feed. Windows update caches have separate filenames so
+older Linux-feed responses cannot hide a fork release. An installable Windows
+asset is named `strata-VERSION-x86_64-pc-windows-gnu.zip`. Package the complete
+portable directory, including its private runtime, into that archive. The archive
+may contain the bundle directly or one enclosing directory; updates replace the
+bundle root, including `bin/`, rather than copying another `bin/` into it.
+
+Publish `strata-update-manifest.json` and
+`strata-update-manifest.signatures.json` beside the ZIP. The manifest must identify
+`IKurokami/strata`, the exact tag, and the `x86_64-pc-windows-gnu` artifact.
+Generate and sign it with:
+
+```powershell
+python scripts/sign_update_manifest.py --platform windows --directory dist `
+  --version VERSION --source-commit SOURCE_SHA
+```
+
+As with Linux signing, `UPDATE_SIGNING_KEY` supplies the private Ed25519 PEM.
+Windows trusts only public keys compiled from `data/windows-update-keys.json`;
+upstream's Linux signing key does not authorize fork updates. The Windows trust
+store is initially empty until the fork owner provisions their release key.
+Unsigned releases and releases without a trusted Windows signature cannot be
+installed in the app. Keep the private key outside the checkout and release
+archives. See [signed updates](signed-updates.md) for the signature format.
+
+Windows video seeks reuse successful file probes while the file's metadata
+fingerprint and decoder tool are unchanged. Replacing the file invalidates those
+results. Decoder cancellation and process reaping run outside GTK's event loop.
+
 Windows builds embed `data/brand/strata.ico` in both executables. The installer
 shortcuts and the running application share `io.github.lgse.Strata` as their
 AppUserModelID, so the taskbar uses the same identity as the installed shortcut.

@@ -32,13 +32,13 @@ use serde::Deserialize;
 use super::release_channel::Version;
 use crate::services::{InstallSource, ensure_self_managed, installed_executable};
 
-const RELEASE_DOWNLOAD_ROOT: &str = "https://github.com/lgse/strata/releases/download";
-const REPOSITORY: &str = "lgse/strata";
+const RELEASE_DOWNLOAD_ROOT: &str = "https://github.com/IKurokami/strata/releases/download";
+const REPOSITORY: &str = "IKurokami/strata";
 const MAX_UPDATE_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_SIGNATURES_BYTES: u64 = 16 * 1024;
 const DOMAIN: &[u8] = b"strata-update-manifest-v1\0";
-const TRUSTED_KEYS_JSON: &str = include_str!("../../data/update-keys.json");
+const TRUSTED_KEYS_JSON: &str = include_str!("../../data/windows-update-keys.json");
 
 const INSTALL_OPEN: u8 = 0;
 const INSTALL_CANCELLED: u8 = 1;
@@ -216,11 +216,7 @@ pub(crate) fn is_release_token(value: &str) -> bool {
 }
 
 pub(crate) fn is_valid_windows_archive_name(name: &str, version: &str) -> bool {
-    let prefixes = [format!("strata-{version}-"), format!("strata-v{version}-")];
-    let valid_prefix = prefixes.iter().any(|p| name.starts_with(p));
-    let valid_suffix =
-        name.ends_with(".zip") || name.ends_with(".tar.gz") || name.ends_with(".exe");
-    valid_prefix && valid_suffix
+    name == super::update_check::archive_name(version)
 }
 
 pub(crate) fn verified_download_url(request: &InstallRequest) -> Result<String, String> {
@@ -339,6 +335,7 @@ fn authenticate_with_keys(
         })?;
 
     if artifact.size == 0
+        || artifact.target != format!("{}-pc-windows-gnu", std::env::consts::ARCH)
         || artifact.size > MAX_UPDATE_ARCHIVE_BYTES
         || !lower_hex(&artifact.sha256, 64)
     {
@@ -389,9 +386,7 @@ fn perform_windows_install(
 
     let current_exe =
         installed_executable().map_err(|error| crate::services::io_error_message(&error))?;
-    let exe_dir = current_exe
-        .parent()
-        .ok_or_else(|| crate::i18n::tr("Could not determine the install directory"))?;
+    let install_root = bundle_root(&current_exe)?;
 
     let _ = progress.send(UpdateInstall::Verifying);
     cancel.check()?;
@@ -403,8 +398,15 @@ fn perform_windows_install(
 
     let archive_path = workdir.path().join(&request.asset_name);
 
-    let manifest_bytes = fetch_url_bytes(&format!("{download_url}.manifest.json"), cancel)?;
-    let sig_bytes = fetch_url_bytes(&format!("{download_url}.manifest.signatures.json"), cancel)?;
+    let release_root = format!("{RELEASE_DOWNLOAD_ROOT}/{}", request.tag);
+    let manifest_bytes = fetch_url_bytes(
+        &format!("{release_root}/strata-update-manifest.json"),
+        cancel,
+    )?;
+    let sig_bytes = fetch_url_bytes(
+        &format!("{release_root}/strata-update-manifest.signatures.json"),
+        cancel,
+    )?;
     let release = authenticate_manifest(&manifest_bytes, &sig_bytes, request)?;
 
     let _ = progress.send(UpdateInstall::Downloading {
@@ -436,8 +438,12 @@ fn perform_windows_install(
     let _ = progress.send(UpdateInstall::Installing);
     cancel.check()?;
 
-    let handoff_script =
-        prepare_windows_handoff_script(exe_dir, &staged_extract, &current_exe, std::process::id())?;
+    let handoff_script = prepare_windows_handoff_script(
+        install_root,
+        bundle_root(&staged_exe)?,
+        &current_exe,
+        std::process::id(),
+    )?;
 
     if !cancel.try_commit() {
         let _ = fs::remove_file(&handoff_script);
@@ -661,6 +667,23 @@ fn find_executable_in_tree(root: &Path) -> Option<PathBuf> {
     None
 }
 
+fn bundle_root(executable: &Path) -> Result<&Path, String> {
+    let parent = executable
+        .parent()
+        .ok_or_else(|| crate::i18n::tr("Could not determine the install directory"))?;
+    if parent
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("bin"))
+    {
+        parent
+            .parent()
+            .ok_or_else(|| crate::i18n::tr("Could not determine the install directory"))
+    } else {
+        Ok(parent)
+    }
+}
+
 pub(crate) fn prepare_windows_handoff_script(
     target_dir: &Path,
     staged_dir: &Path,
@@ -698,7 +721,9 @@ pub(crate) fn prepare_windows_handoff_script(
 }
 
 fn launch_windows_handoff(script: &Path) -> Result<(), InstallStop> {
+    use std::os::windows::process::CommandExt;
     Command::new("powershell.exe")
+        .creation_flags(0x0800_0000)
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -733,91 +758,5 @@ pub(super) fn omarchy_repository_version() -> Result<Version, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample() -> InstallRequest {
-        InstallRequest {
-            tag: "v1.0.0".to_owned(),
-            asset_name: "untrusted.tar.gz".to_owned(),
-            advertised_url: "https://example.invalid/binary".to_owned(),
-        }
-    }
-
-    #[test]
-    fn cannot_install_or_launch_untrusted_archive() {
-        let update = install_update(sample(), InstallCancel::new());
-        let event = update.recv().unwrap();
-        assert!(matches!(event, UpdateInstall::Failed(message) if message.contains("Windows")));
-        assert!(update.try_recv().is_err());
-    }
-
-    #[test]
-    fn cancellation_precedes_any_installation() {
-        let cancel = InstallCancel::new();
-        assert!(cancel.cancel());
-        assert!(cancel.cancel());
-        let update = install_update(sample(), cancel);
-        assert_eq!(update.recv().unwrap(), UpdateInstall::Cancelled);
-    }
-
-    #[test]
-    fn test_verified_download_url_rejects_mismatch() {
-        let mut req = sample();
-        assert!(verified_download_url(&req).is_err());
-
-        req.asset_name = "strata-1.0.0-x86_64-pc-windows-msvc.zip".to_owned();
-        assert!(verified_download_url(&req).is_err()); // URL still invalid
-
-        req.advertised_url = format!("{RELEASE_DOWNLOAD_ROOT}/v1.0.0/{}", req.asset_name);
-        assert!(verified_download_url(&req).is_ok());
-    }
-
-    #[test]
-    fn test_sanitize_update_relative_path_rejects_traversal() {
-        assert!(sanitize_update_relative_path(Path::new("../evil.exe")).is_err());
-        assert!(sanitize_update_relative_path(Path::new("subdir/../../evil.exe")).is_err());
-        assert!(
-            sanitize_update_relative_path(Path::new("C:\\Windows\\system32\\calc.exe")).is_err()
-        );
-        assert!(sanitize_update_relative_path(Path::new("CON")).is_err());
-        assert!(sanitize_update_relative_path(Path::new("valid/path/strata.exe")).is_ok());
-    }
-
-    #[test]
-    fn test_prepare_windows_handoff_script_creates_valid_powershell() {
-        let temp = tempfile::tempdir().unwrap();
-        let target_dir = temp.path().join("app");
-        let stage_dir = temp.path().join("stage");
-        let target_exe = target_dir.join("strata.exe");
-        fs::create_dir_all(&stage_dir).unwrap();
-
-        let script =
-            prepare_windows_handoff_script(&target_dir, &stage_dir, &target_exe, 12345).unwrap();
-
-        assert!(script.is_file());
-        let content = fs::read_to_string(script).unwrap();
-        assert!(content.contains("$oldPid = 12345"));
-        assert!(content.contains("Get-Process -Id $oldPid"));
-        assert!(content.contains("Copy-Item -LiteralPath"));
-        assert!(content.contains("strata.exe"));
-    }
-
-    #[test]
-    fn test_windows_archive_name_validation() {
-        assert!(is_valid_windows_archive_name(
-            "strata-1.2.3-x86_64-pc-windows-msvc.zip",
-            "1.2.3"
-        ));
-        assert!(is_valid_windows_archive_name(
-            "strata-1.2.3-x86_64-pc-windows-gnu.tar.gz",
-            "1.2.3"
-        ));
-        assert!(is_valid_windows_archive_name(
-            "strata-v1.2.3-setup.exe",
-            "1.2.3"
-        ));
-        assert!(!is_valid_windows_archive_name("malicious.zip", "1.2.3"));
-        assert!(!is_valid_windows_archive_name("strata-2.0.0.zip", "1.2.3"));
-    }
-}
+#[path = "update_install_windows/tests.rs"]
+mod tests;

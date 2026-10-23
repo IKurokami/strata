@@ -20,9 +20,18 @@ use super::{
     release_channel::{BuildKind, Channel, ReleaseSummary, Version, best_update, rollback_target},
 };
 
+#[cfg(not(windows))]
 const API_ROOT: &str = "https://api.github.com/repos/lgse/strata/releases";
+#[cfg(windows)]
+const API_ROOT: &str = "https://api.github.com/repos/IKurokami/strata/releases";
+#[cfg(not(windows))]
 const COMMITS_ROOT: &str = "https://api.github.com/repos/lgse/strata/commits";
+#[cfg(windows)]
+const COMMITS_ROOT: &str = "https://api.github.com/repos/IKurokami/strata/commits";
+#[cfg(not(windows))]
 const RELEASES_URL: &str = "https://github.com/lgse/strata/releases";
+#[cfg(windows)]
+const RELEASES_URL: &str = "https://github.com/IKurokami/strata/releases";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Minimum interval between automatic checks against the same channel.
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -111,6 +120,12 @@ struct ReleaseAsset {
 
 /// The asset naming convention published by `.github/workflows/release.yml`.
 pub(super) fn archive_name(version: &str) -> String {
+    #[cfg(windows)]
+    return format!(
+        "strata-{version}-{}-pc-windows-gnu.zip",
+        std::env::consts::ARCH
+    );
+    #[cfg(not(windows))]
     format!(
         "strata-{version}-{}-unknown-linux-gnu.tar.gz",
         std::env::consts::ARCH
@@ -243,10 +258,16 @@ fn cache_dir() -> PathBuf {
 }
 
 fn update_check_cache_path() -> PathBuf {
+    #[cfg(windows)]
+    return cache_dir().join("update-check-ikurokami-windows.toml");
+    #[cfg(not(windows))]
     cache_dir().join("update-check.toml")
 }
 
 fn release_notes_cache_path() -> PathBuf {
+    #[cfg(windows)]
+    return cache_dir().join("release-notes-ikurokami-windows.toml");
+    #[cfg(not(windows))]
     cache_dir().join("release-notes.toml")
 }
 

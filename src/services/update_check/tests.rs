@@ -33,6 +33,28 @@ fn matching_asset_json(version: &str) -> String {
     format!(r#"{{"name":"{name}","browser_download_url":"https://example.invalid/{name}"}}"#)
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_updates_ignore_linux_and_wrong_architecture_assets() {
+    let other_arch = if std::env::consts::ARCH == "x86_64" {
+        "aarch64"
+    } else {
+        "x86_64"
+    };
+    let response = release_response(&format!(
+        r#"{{"tag_name":"v9.0.0","assets":[
+        {{"name":"strata-9.0.0-x86_64-unknown-linux-gnu.tar.gz","browser_download_url":"https://example.invalid/linux"}},
+        {{"name":"strata-9.0.0-{other_arch}-pc-windows-gnu.zip","browser_download_url":"https://example.invalid/other"}}
+    ]}}"#
+    ));
+    let summary = to_release_summary(&response).unwrap();
+    assert!(summary.download_url.is_none());
+    assert!(matches!(
+        super::available_check(&summary),
+        UpdateCheck::UpToDate
+    ));
+}
+
 #[test]
 fn package_update_requires_the_release_matching_the_repository_version() {
     let asset = matching_asset_json("0.8.2");
@@ -156,10 +178,7 @@ fn release_metadata_carries_channel_identity_fields() {
     // branch for a release published against an existing tag. The metadata
     // leaves `commit` unresolved for `resolve_commit` to fill in.
     assert!(metadata.commit.is_none());
-    assert_eq!(
-        metadata.url,
-        "https://github.com/lgse/strata/releases/tag/v0.5.0-rc.1"
-    );
+    assert_eq!(metadata.url, release_page_url("v0.5.0-rc.1"));
 }
 
 // --- release notes plumbing, unchanged --------------------------------
@@ -217,10 +236,11 @@ fn other_api_failures_include_the_status() {
 
 #[test]
 fn release_page_url_uses_the_exact_published_tag() {
-    assert_eq!(
-        release_page_url("v1.2.3"),
-        "https://github.com/lgse/strata/releases/tag/v1.2.3"
-    );
+    #[cfg(not(windows))]
+    let expected = "https://github.com/lgse/strata/releases/tag/v1.2.3";
+    #[cfg(windows)]
+    let expected = "https://github.com/IKurokami/strata/releases/tag/v1.2.3";
+    assert_eq!(release_page_url("v1.2.3"), expected);
 }
 
 // --- channel selection, fixture-driven, no network -----------------------
@@ -398,7 +418,7 @@ fn a_cached_update_reuses_its_resolved_commit() {
 fn a_cached_failure_remains_a_failure() {
     let mut cache = cache(Channel::Stable, 1_000);
     cache.failure = Some(NetworkError::from_ureq(&ureq::Error::Io(
-        std::io::Error::from_raw_os_error(libc::ECONNREFUSED),
+        std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
     )));
     let restored: UpdateCheckCache =
         toml::from_str(&toml::to_string_pretty(&cache).expect("cache should serialize"))

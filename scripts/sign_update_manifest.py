@@ -21,25 +21,31 @@ NUMBER = r"(?:0|[1-9][0-9]*)"
 VERSION = re.compile(rf"{NUMBER}\.{NUMBER}\.{NUMBER}(?:-(?:(?:alpha|beta|rc)\.[1-9][0-9]*|nightly\.[0-9]{{8}}(?:\.[1-9][0-9]*)?))?")
 
 
-def manifest_bytes(directory, version, source_commit):
+def manifest_bytes(directory, version, source_commit, platform="linux"):
     if not VERSION.fullmatch(version) or any(int(number) > 2**64 - 1 for number in re.findall(r"[0-9]+", version)):
         raise ValueError("Invalid release version")
     if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
         raise ValueError("Invalid source commit")
-    expected = {f"strata-{version}-{target}.tar.gz" for target in TARGETS}
-    if {path.name for path in directory.glob("*.tar.gz")} != expected:
-        raise ValueError("Release archives must exactly match both supported targets")
+    if platform not in ("linux", "windows"):
+        raise ValueError("Unsupported release platform")
+    targets = TARGETS if platform == "linux" else ("x86_64-pc-windows-gnu",)
+    extension = "tar.gz" if platform == "linux" else "zip"
+    limit = MAX_ARCHIVE_BYTES if platform == "linux" else 256 * 1024 * 1024
+    expected = {f"strata-{version}-{target}.{extension}" for target in targets}
+    if {path.name for path in directory.glob(f"*.{extension}")} != expected:
+        raise ValueError("Release archives must exactly match the supported targets")
     artifacts = []
-    for target in TARGETS:
-        name = f"strata-{version}-{target}.tar.gz"
+    for target in targets:
+        name = f"strata-{version}-{target}.{extension}"
         path = directory / name
         info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_ARCHIVE_BYTES:
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
             raise ValueError(f"Invalid release archive: {name}")
         with path.open("rb") as archive:
             checksum = hashlib.file_digest(archive, "sha256").hexdigest()
         artifacts.append({"name": name, "target": target, "size": info.st_size, "sha256": checksum})
-    value = {"schema": 1, "repository": "lgse/strata", "tag": f"v{version}", "source_commit": source_commit, "artifacts": artifacts}
+    repository = "lgse/strata" if platform == "linux" else "IKurokami/strata"
+    value = {"schema": 1, "repository": repository, "tag": f"v{version}", "source_commit": source_commit, "artifacts": artifacts}
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
@@ -87,15 +93,18 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--trusted-keys", type=Path, default=Path(__file__).resolve().parent.parent / "data/update-keys.json")
+    parser.add_argument("--platform", choices=("linux", "windows"), default="linux")
+    parser.add_argument("--trusted-keys", type=Path)
     args = parser.parse_args()
     # Remove key material before spawning OpenSSL; only private temporary files carry it.
     private_pems = [os.environ.pop(name, "") for name in ("UPDATE_SIGNING_KEY", "UPDATE_SIGNING_KEY_NEXT")]
     if not private_pems[0]:
         parser.error("UPDATE_SIGNING_KEY is required; unsigned publication is not supported")
     try:
-        manifest = manifest_bytes(args.directory, args.version, args.source_commit)
-        trusted_keys = json.loads(args.trusted_keys.read_text())
+        manifest = manifest_bytes(args.directory, args.version, args.source_commit, args.platform)
+        trusted_path = args.trusted_keys or Path(__file__).resolve().parent.parent / "data" / (
+            "windows-update-keys.json" if args.platform == "windows" else "update-keys.json")
+        trusted_keys = json.loads(trusted_path.read_text())
         with tempfile.TemporaryDirectory(prefix="strata-release-keys-") as staging:
             private_keys = []
             for index, pem in enumerate(private_pems):

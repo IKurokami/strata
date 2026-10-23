@@ -57,6 +57,22 @@ class SignedUpdateTests(unittest.TestCase):
             self.assertEqual(entry["size"], len(data))
             self.assertEqual(entry["sha256"], hashlib.sha256(data).hexdigest())
 
+    def test_windows_manifest_binds_the_fork_and_gnu_bundle(self):
+        archive = self.dist / "strata-0.12.0-x86_64-pc-windows-gnu.zip"
+        archive.write_bytes(b"Windows bundle fixture")
+        manifest = signing.manifest_bytes(self.dist, "0.12.0", "a" * 40, "windows")
+        value = json.loads(manifest)
+        self.assertEqual(value["repository"], "IKurokami/strata")
+        self.assertEqual(value["artifacts"], [{
+            "name": archive.name, "target": "x86_64-pc-windows-gnu",
+            "size": archive.stat().st_size, "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }])
+        signatures = signing.sign_manifest(manifest, [self.key], [self.public])
+        self.assertEqual(len(json.loads(signatures)["signatures"]), 1)
+        archive.rename(archive.with_name("strata-0.12.0-x86_64-pc-windows-msvc.zip"))
+        with self.assertRaises(ValueError):
+            signing.manifest_bytes(self.dist, "0.12.0", "a" * 40, "windows")
+
     def test_missing_extra_empty_symlinked_and_oversized_archives_fail(self):
         path = next(self.dist.glob("*.tar.gz"))
         content = path.read_bytes()
