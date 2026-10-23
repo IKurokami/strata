@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::{cell::Cell, ffi::c_void};
+use std::ffi::c_void;
 
 use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,10 @@ pub(super) fn handle(window: &gtk::ApplicationWindow) -> Option<isize> {
     (!handle.is_null()).then_some(handle as isize)
 }
 
-fn save(window: &gtk::ApplicationWindow) {
+pub(super) fn save(window: &gtk::ApplicationWindow) {
+    if !window.is_visible() {
+        return;
+    }
     let Some(handle) = handle(window) else { return };
     let Ok(placement) = window::placement(handle) else {
         return;
@@ -53,30 +56,34 @@ fn save(window: &gtk::ApplicationWindow) {
 }
 
 pub(super) fn bind(window: &gtk::ApplicationWindow) {
-    let saved = std::fs::read_to_string(path())
-        .ok()
-        .and_then(|contents| toml::from_str::<SavedPlacement>(&contents).ok());
-    let restored = Cell::new(false);
-    window.connect_map(move |window| {
-        if restored.replace(true) {
-            return;
-        }
-        if let Some(saved) = saved.as_ref()
-            && let Some(handle) = handle(window)
-            && let Err(error) = window::restore(
-                handle,
-                Placement {
-                    normal: saved.normal,
-                    maximized: saved.maximized,
-                },
-            )
-        {
-            tracing::warn!(%error, "unable to restore browser window placement");
-        }
-    });
     window.connect_close_request(|window| {
         save(window);
         glib::Propagation::Proceed
     });
-    window.connect_unmap(save);
+}
+
+pub(super) fn present(window: &gtk::ApplicationWindow) {
+    let saved = (!window.is_visible())
+        .then(|| {
+            std::fs::read_to_string(path())
+                .ok()
+                .and_then(|contents| {
+                    let saved = toml::from_str::<SavedPlacement>(&contents).ok()?;
+                    Some(Placement {
+                        normal: saved.normal,
+                        maximized: saved.maximized,
+                    })
+                })
+                .or_else(|| handle(window).and_then(|handle| window::placement(handle).ok()))
+        })
+        .flatten();
+    // Apply the native placement after GTK has completed map/present, including
+    // resident-window reuse, which can run Win32's default placement again.
+    window.present();
+    if let Some(saved) = saved
+        && let Some(handle) = handle(window)
+        && let Err(error) = window::restore(handle, saved)
+    {
+        tracing::warn!(%error, "unable to restore browser window placement");
+    }
 }

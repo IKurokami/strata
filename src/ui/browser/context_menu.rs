@@ -1300,6 +1300,18 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         if !selection.entries_match_target(&context_entries(&state, &open_multiple_target)) {
             return;
         }
+        #[cfg(windows)]
+        if let Some(paths) = selection
+            .files
+            .iter()
+            .map(|file| file.path())
+            .collect::<Option<Vec<_>>>()
+        {
+            for path in paths {
+                crate::ui::windows_open::open(path, &state.overlay);
+            }
+            return;
+        }
         let Some(app) = selection.default else {
             return;
         };
@@ -1332,6 +1344,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             return;
         };
         if selection.entries_match_target(&context_entries(&state, &open_with_target)) {
+            #[cfg(windows)]
+            if selection.show_native(&state.overlay) {
+                return;
+            }
             let browser = Rc::downgrade(&state.browser);
             crate::ui::open_with::show(
                 &state.overlay,
@@ -1363,6 +1379,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             return;
         };
         if selection.entries_match_target(&context_entries(&state, &open_with_multiple_target)) {
+            #[cfg(windows)]
+            if selection.show_native(&state.overlay) {
+                return;
+            }
             let browser = Rc::downgrade(&state.browser);
             crate::ui::open_with::show(
                 &state.overlay,
@@ -2203,6 +2223,20 @@ struct OpenWithSelection {
 }
 
 impl OpenWithSelection {
+    #[cfg(windows)]
+    fn show_native(&self, parent: &impl IsA<gtk::Widget>) -> bool {
+        let Some(paths) = self
+            .files
+            .iter()
+            .map(|file| file.path())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        crate::ui::windows_open::choose(paths, parent);
+        true
+    }
+
     fn entries_match_target(&self, entries: &[FileEntry]) -> bool {
         self.locations.len() == entries.len()
             && self
@@ -2242,6 +2276,25 @@ fn prepare_open_with(
         .iter()
         .map(|entry| gio_file_for_location(&entry.location))
         .collect::<Vec<_>>();
+    #[cfg(windows)]
+    if files.iter().all(|file| file.path().is_some()) {
+        // Windows resolves associations inside the isolated shell helper. GIO's
+        // application enumeration must not load shell handlers into GTK.
+        result.replace(Some(OpenWithSelection {
+            locations,
+            files,
+            content_types: Vec::new(),
+            recommended_apps: Vec::new(),
+            other_apps: Vec::new(),
+            default: None,
+        }));
+        open_button.set_visible(true);
+        for button in [single_button, multiple_button] {
+            button.set_sensitive(true);
+            set_open_with_explanation(button, None);
+        }
+        return;
+    }
     let single_button = single_button.clone();
     let multiple_button = multiple_button.clone();
     let open_button = open_button.clone();

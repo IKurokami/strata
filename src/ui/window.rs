@@ -404,6 +404,9 @@ pub(super) fn present_target(
     #[cfg(not(windows))]
     let early_navigation = false;
     let map_started = std::time::Instant::now();
+    #[cfg(windows)]
+    super::windows_runtime::present_window(&window);
+    #[cfg(not(windows))]
     window.present();
     tracing::debug!(
         elapsed_ms = map_started.elapsed().as_millis() as u64,
