@@ -105,9 +105,7 @@ PATH. Uninstall restores this installation's owned folder handlers, then removes
 retaining preferences and user data outside the installation directory.
 Locally generated installers are unsigned; release signing remains a separate step.
 
-## Current limits
-
-### Windows release updates
+## Windows release updates
 
 Windows checks releases and release notes from `IKurokami/strata`; Linux keeps
 the upstream `lgse/strata` feed. Windows update caches have separate filenames so
@@ -135,9 +133,14 @@ Unsigned releases and releases without a trusted Windows signature cannot be
 installed in the app. Keep the private key outside the checkout and release
 archives. See [signed updates](signed-updates.md) for the signature format.
 
+## Video seeking
+
 Windows video seeks reuse successful file probes while the file's metadata
 fingerprint and decoder tool are unchanged. Replacing the file invalidates those
-results. Decoder cancellation and process reaping run outside GTK's event loop.
+results. Decoder cancellation, process reaping and audio-device shutdown run
+outside GTK's event loop.
+
+## Current limits
 
 Windows builds embed `data/brand/strata.ico` in both executables. The installer
 shortcuts and the running application share `io.github.lgse.Strata` as their
