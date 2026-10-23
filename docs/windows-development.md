@@ -128,7 +128,8 @@ python scripts/sign_update_manifest.py --platform windows --directory dist `
 As with Linux signing, `UPDATE_SIGNING_KEY` supplies the private Ed25519 PEM.
 Windows trusts only public keys compiled from `data/windows-update-keys.json`;
 upstream's Linux signing key does not authorize fork updates. The Windows trust
-store is initially empty until the fork owner provisions their release key.
+store contains the fork's release public key; its private counterpart is held
+separately by the fork owner.
 Unsigned releases and releases without a trusted Windows signature cannot be
 installed in the app. Keep the private key outside the checkout and release
 archives. See [signed updates](signed-updates.md) for the signature format.
