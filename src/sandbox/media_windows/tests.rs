@@ -3,6 +3,92 @@ use super::*;
 use std::time::{Duration, Instant};
 
 #[test]
+fn cancellation_does_not_wait_for_the_child_registry() {
+    let children = Arc::new(Mutex::new(Vec::new()));
+    let guard = children.lock().unwrap();
+    let session = Session {
+        cancelled: Arc::new(AtomicBool::new(false)),
+        receiver: mpsc::channel().1,
+        worker: None,
+        children: children.clone(),
+    };
+    let (sender, receiver) = mpsc::channel();
+    let caller = thread::spawn(move || {
+        session.cancel();
+        sender.send(()).unwrap();
+    });
+    let returned = receiver.recv_timeout(Duration::from_secs(1));
+    drop(guard);
+    caller.join().unwrap();
+    assert!(returned.is_ok(), "cancellation waited for decoder teardown");
+}
+
+#[test]
+fn windows_video_seek_resumes_at_the_requested_frame() {
+    let (_dir, path) = generated_media(
+        "mp4",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=128x72:rate=30",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=48000",
+            "-t",
+            "3",
+            "-c:v",
+            "mpeg4",
+            "-c:a",
+            "aac",
+            "-shortest",
+        ],
+    );
+    let source = test_source(path, false);
+    let initial = Session::start(source.clone(), 0).unwrap();
+    let (_, before) = first_frame(&initial);
+    initial.cancel();
+    let sought = Session::start(source, FPS * 2).unwrap();
+    let (header, after) = first_frame(&sought);
+    assert_eq!(header.start_tick, FPS * 2);
+    assert_eq!(after.tick, FPS * 2);
+    assert_ne!(before.pixels, after.pixels);
+    assert!(header.audio);
+    assert!(after.samples.iter().any(|byte| *byte != 0));
+}
+
+#[test]
+fn cached_probe_is_invalidated_when_media_is_replaced() {
+    let (_first_dir, path) = generated_media(
+        "wav",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000",
+            "-t",
+            "1",
+        ],
+    );
+    let (_second_dir, replacement) = generated_media(
+        "wav",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=48000",
+            "-t",
+            "2",
+        ],
+    );
+    assert_eq!(probe_duration(&path), Some(1_000_000));
+    assert_eq!(probe_duration(&path), Some(1_000_000));
+    std::fs::copy(replacement, &path).unwrap();
+    assert_eq!(probe_duration(&path), Some(2_000_000));
+}
+
+#[test]
 fn cancellation_releases_a_full_packet_queue() {
     let (sender, _receiver) = mpsc::sync_channel(1);
     sender

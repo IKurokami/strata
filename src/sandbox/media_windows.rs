@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        Arc, Mutex,
+        Arc, LazyLock, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -66,9 +66,16 @@ impl Session {
         self.receiver.try_recv().ok()
     }
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
-        // Avoid waiting for a decoder process from the GTK event loop.
-        kill_children(&self.children);
+        if !self.cancelled.swap(true, Ordering::AcqRel) {
+            let children = self.children.clone();
+            // Even dropping the final child handle waits for stderr to drain.
+            // Keep termination and handle destruction off the GTK event loop.
+            let _ = thread::Builder::new()
+                .name("media-cancel".into())
+                .spawn(move || {
+                    kill_children(&children);
+                });
+        }
     }
     pub fn finished(&self) -> bool {
         self.worker
@@ -106,21 +113,22 @@ fn send(
 }
 
 fn kill_children(children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>) {
-    if let Ok(mut jobs) = children.lock() {
-        for child in jobs.iter_mut() {
-            child.terminate();
-        }
+    let jobs = children.lock().map(|jobs| jobs.clone()).unwrap_or_default();
+    for child in jobs {
+        child.terminate();
     }
 }
 
 fn terminate_children(children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>) {
     // Called from the worker, never the GTK event loop: reap all subprocesses.
-    if let Ok(mut jobs) = children.lock() {
-        for child in jobs.iter_mut() {
-            child.terminate();
-            child.wait();
-        }
-        jobs.clear();
+    // Do not hold the shared registry while waiting for process teardown.
+    let jobs = children
+        .lock()
+        .map(|mut jobs| std::mem::take(&mut *jobs))
+        .unwrap_or_default();
+    for child in jobs {
+        child.terminate();
+        child.wait();
     }
 }
 
@@ -215,8 +223,33 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
     cmd
 }
 
+struct ProbeCacheEntry {
+    path: PathBuf,
+    stamp: strata_native_io::windows_file_stamp::FileStamp,
+    executable: PathBuf,
+    arguments: Vec<String>,
+    stdout: Vec<u8>,
+}
+
+static PROBE_CACHE: LazyLock<Mutex<Vec<ProbeCacheEntry>>> = LazyLock::new(Mutex::default);
+
 fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::SandboxedOutput> {
     let executable = PathBuf::from(media_tool("STRATA_FFPROBE", "ffprobe.exe"));
+    let stamp = strata_native_io::windows_file_stamp::from_metadata(&std::fs::metadata(path).ok()?);
+    if let Ok(cache) = PROBE_CACHE.lock()
+        && let Some(entry) = cache.iter().find(|entry| {
+            entry.path == path
+                && entry.stamp == stamp
+                && entry.executable == executable
+                && entry.arguments == arguments
+        })
+    {
+        return Some(strata_win_shell::SandboxedOutput {
+            exit_code: 0,
+            stdout: entry.stdout.clone(),
+            stderr: Vec::new(),
+        });
+    }
     let mut args: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     args.push(path.as_os_str().to_owned());
     let arg_refs: Vec<&std::ffi::OsStr> = args.iter().map(OsString::as_os_str).collect();
@@ -226,7 +259,7 @@ fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::Sand
         kill_on_job_close: true,
         restrict_ui: true,
     };
-    strata_win_shell::run_in_job(
+    let output = strata_win_shell::run_in_job(
         &executable,
         &arg_refs,
         None,
@@ -234,7 +267,28 @@ fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::Sand
         std::time::Duration::from_secs(5),
         None,
     )
-    .ok()
+    .ok()?;
+    if output.exit_code == 0
+        && let Ok(mut cache) = PROBE_CACHE.lock()
+    {
+        cache.retain(|entry| {
+            entry.path != path || (entry.stamp == stamp && entry.arguments != arguments)
+        });
+        if cache.len() >= 32 {
+            cache.remove(0);
+        }
+        cache.push(ProbeCacheEntry {
+            path: path.to_owned(),
+            stamp,
+            executable,
+            arguments: arguments
+                .iter()
+                .map(|argument| (*argument).to_owned())
+                .collect(),
+            stdout: output.stdout.clone(),
+        });
+    }
+    Some(output)
 }
 
 fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> {
