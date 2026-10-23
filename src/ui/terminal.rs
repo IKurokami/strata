@@ -3,12 +3,17 @@
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
+#[cfg(not(windows))]
+use std::process::{Child, Stdio};
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(windows))]
 pub(super) const PREFERRED_LAUNCHER: &str = "xdg-terminal-exec";
+#[cfg(windows)]
+pub(super) const PREFERRED_LAUNCHER: &str = "wt.exe";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectoryStyle {
@@ -32,6 +37,37 @@ struct KnownTerminal {
     exec: ExecStyle,
 }
 
+// Native Windows terminal commands inherit the selected directory without a shell
+// interpreter. Windows Terminal supports -d; PowerShell and cmd inherit cwd.
+#[cfg(windows)]
+const KNOWN_TERMINALS: &[KnownTerminal] = &[
+    KnownTerminal {
+        program: "wt.exe",
+        leading: &[],
+        directory: DirectoryStyle::Separate("-d"),
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "pwsh.exe",
+        leading: &["-NoLogo"],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "powershell.exe",
+        leading: &["-NoLogo"],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+    KnownTerminal {
+        program: "cmd.exe",
+        leading: &[],
+        directory: DirectoryStyle::Inherited,
+        exec: ExecStyle::Direct,
+    },
+];
+
+#[cfg(not(windows))]
 const KNOWN_TERMINALS: &[KnownTerminal] = &[
     KnownTerminal {
         program: PREFERRED_LAUNCHER,
@@ -151,6 +187,10 @@ impl Terminal {
     fn base(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.leading);
+        // Linux GUI terminals manage their own pseudo-terminal and do not need
+        // inherited handles. Native Windows PowerShell/cmd *do* need interactive
+        // console input/output: redirecting to NUL makes them unusable.
+        #[cfg(not(windows))]
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -209,26 +249,49 @@ impl Terminal {
 }
 
 pub(super) fn no_terminal_message() -> String {
-    // Program names are identifiers, so they keep ASCII separators that wrap between names
-    // even in languages whose list separator has no space; they start on their own line.
-    let fallbacks = KNOWN_TERMINALS
-        .iter()
-        .skip(1)
-        .map(|known| known.program)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let fallbacks = format!("\n{fallbacks}");
-    rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+    #[cfg(windows)]
+    {
+        return rust_i18n::t!(
+            "No Windows terminal was found. Install %{PREFERRED_LAUNCHER}, or enable PowerShell or Command Prompt on PATH.",
+            PREFERRED_LAUNCHER = PREFERRED_LAUNCHER
+        )
+        .into_owned();
+    }
+    #[cfg(not(windows))]
+    {
+        // Program names are identifiers, so they keep ASCII separators that wrap between names
+        // even in languages whose list separator has no space; they start on their own line.
+        let fallbacks = KNOWN_TERMINALS
+            .iter()
+            .skip(1)
+            .map(|known| known.program)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let fallbacks = format!("\n{fallbacks}");
+        rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+    }
 }
 
-/// Reaps the child off-thread so exited launchers never linger as defunct.
+/// Launch an external application without keeping a Windows reaper thread
+/// alive for the lifetime of Explorer or an interactive terminal. Closing the
+/// Win32 process handle does not stop the launched program, and Windows has no
+/// Unix zombie process to reap. Unix still needs wait() in a background thread.
 pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
-    let program = command.get_program().to_owned();
-    let child = command.spawn()?;
-    reap_in_background(child, program);
-    Ok(())
+    #[cfg(windows)]
+    {
+        drop(command.spawn()?);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let program = command.get_program().to_owned();
+        let child = command.spawn()?;
+        reap_in_background(child, program);
+        Ok(())
+    }
 }
 
+#[cfg(not(windows))]
 fn reap_in_background(mut child: Child, program: OsString) {
     let label = program.to_string_lossy().into_owned();
     let spawned = std::thread::Builder::new()
@@ -252,9 +315,16 @@ fn explicit_terminal(path_var: Option<&OsStr>, terminal_var: Option<&OsStr>) -> 
     let mut words = glib::shell_parse_argv(text).ok()?.into_iter();
     let program = words.next()?;
     let file_name = Path::new(&program).file_name()?.to_str()?;
-    let known = KNOWN_TERMINALS
-        .iter()
-        .find(|known| known.program == file_name);
+    let known = KNOWN_TERMINALS.iter().find(|known| {
+        #[cfg(windows)]
+        {
+            known.program.eq_ignore_ascii_case(file_name)
+        }
+        #[cfg(not(windows))]
+        {
+            known.program == file_name
+        }
+    });
     let leading = known
         .into_iter()
         .flat_map(|known| known.leading.iter().map(OsString::from))

@@ -97,6 +97,7 @@ fn ranks_exact_labels_aliases_and_small_typing_errors() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn luks_and_udiskie_queries_hit_unlock_target() {
     let luks = find_matches(&normalized("luks"));
     assert!(
@@ -287,6 +288,7 @@ fn late_page_filter_uses_the_current_query_and_recovers_its_sections() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn luks_keeps_desktop_heading_and_hides_portal_row() {
     crate::test_support::gtk_test(
         "ui::settings::search::tests::luks_keeps_desktop_heading_and_hides_portal_row",
@@ -507,7 +509,11 @@ fn every_page_row_is_registered_for_search() {
                 .iter()
                 .find(|(page, _)| *page == "actions")
                 .expect("Actions page");
-            for fixture in ["Demo", "actions/broken"] {
+            let broken = std::path::Path::new("actions")
+                .join("broken")
+                .display()
+                .to_string();
+            for fixture in ["Demo", broken.as_str()] {
                 assert!(
                     descendants(actions_page)
                         .iter()

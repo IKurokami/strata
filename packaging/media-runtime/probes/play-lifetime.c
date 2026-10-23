@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include <gst/play/play.h>
 #include <stdio.h>
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
 
 static GMutex lock;
 static GCond cond;
@@ -41,6 +44,14 @@ on_message(GstBus *bus, GstMessage *message, gpointer data)
 int
 main(int argc, char **argv)
 {
+#ifdef G_OS_WIN32
+  SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+  wchar_t module[MAX_PATH];
+  g_assert_cmpuint(GetModuleFileNameW(GetModuleHandleW(L"libgstplay-1.0-0.dll"), module, MAX_PATH), >, 0);
+  char *module_utf8 = g_utf16_to_utf8((gunichar2 *)module, -1, NULL, NULL, NULL);
+  g_print("Loaded GstPlay: %s\n", module_utf8);
+  g_free(module_utf8);
+#endif
   gst_init(&argc, &argv);
   if (argc != 3 || (!g_str_equal(argv[2], "worker") &&
                     !g_str_equal(argv[2], "repeat-dispose") &&

@@ -16,12 +16,13 @@ use std::{
 };
 
 use gdk_pixbuf::prelude::*;
+use image::GenericImageView;
 
 use super::{
     bounded_output, bounded_output_with_timeout, bounded_surface_dimensions,
     exceeds_decoded_frame_budget, is_svg_head, pdf_render_request, read_exif_thumbnail,
-    read_limited, render_pixbuf, render_raw, render_raw_thumbnail, render_simple_dcraw, run,
-    scale_embedded_thumbnail, svg_source,
+    read_limited, render_image_crate, render_pixbuf, render_raw, render_raw_thumbnail,
+    render_simple_dcraw, run, scale_embedded_thumbnail, svg_source,
 };
 
 #[test]
@@ -145,12 +146,41 @@ fn image_previews_preserve_small_sources_and_bound_large_decodes() {
             .expect("source image");
         source.fill(0x3366_99ff);
         source.savev(&path, "png", &[]).expect("save source");
-        let png = render_raw(&path, 800).expect("render image preview");
-        let loader = gdk_pixbuf::PixbufLoader::new();
-        loader.write(&png).expect("load preview");
-        loader.close().expect("finish preview");
-        let preview = loader.pixbuf().expect("decoded preview");
-        assert_eq!((preview.width(), preview.height()), expected);
+        for render in [render_raw, render_image_crate] {
+            let png = render(&path, 800).expect("render image preview");
+            let preview = image::load_from_memory(&png).expect("decoded preview");
+            assert_eq!(preview.dimensions(), expected);
+        }
+    }
+}
+
+#[test]
+fn webp_and_gif_previews_have_a_decoder_fallback() {
+    let directory = tempfile::tempdir().expect("image fixture");
+    let webp = directory.path().join("image.webp");
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        80,
+        40,
+        image::Rgba([0x33, 0x66, 0x99, 0xff]),
+    ))
+    .save_with_format(&webp, image::ImageFormat::WebP)
+    .expect("write WebP fixture");
+
+    let gif = directory.path().join("image.gif");
+    let mut bytes = Vec::new();
+    image::codecs::gif::GifEncoder::new(&mut bytes)
+        .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
+            64,
+            32,
+            image::Rgba([0x99, 0x66, 0x33, 0xff]),
+        )))
+        .expect("write GIF fixture");
+    std::fs::write(&gif, bytes).expect("save GIF fixture");
+
+    for (path, dimensions) in [(&webp, (80, 40)), (&gif, (64, 32))] {
+        let png = render_raw(path, 800).expect("render image preview");
+        let decoded = image::load_from_memory(&png).expect("decode PNG preview");
+        assert_eq!(decoded.dimensions(), dimensions, "{}", path.display());
     }
 }
 

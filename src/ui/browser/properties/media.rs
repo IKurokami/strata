@@ -149,7 +149,9 @@ pub(super) fn load(section: &gtk::Box, path: PathBuf) -> MetadataLoad {
         else {
             return;
         };
-        if cancellation.is_cancelled() || info.file_type() != gio::FileType::Regular {
+        if cancellation.is_cancelled()
+            || crate::services::gio_file_type(&info) != Some(gio::FileType::Regular)
+        {
             return;
         }
         let Some(mime) = info

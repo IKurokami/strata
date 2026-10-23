@@ -3,7 +3,12 @@
 /// Inputs must be Unicode-folded.
 pub(crate) fn filter_name_matches(name: &str, query: &str) -> bool {
     let Some((prefix, rest)) = query.split_once('*') else {
-        return name.contains(query) || typo_matches_word(name, query);
+        return name.contains(query)
+            || typo_matches_word(name, query)
+            || (query.contains(char::is_whitespace)
+                && query
+                    .split_whitespace()
+                    .all(|word| name.contains(word) || typo_matches_word(name, word)));
     };
     let Some(name) = name.strip_prefix(prefix) else {
         return false;

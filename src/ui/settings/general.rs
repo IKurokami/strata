@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+#[cfg(windows)]
+use gtk::gio;
 use gtk::prelude::*;
 
 use crate::{
@@ -102,7 +104,58 @@ pub(super) fn general_page(
     #[cfg(not(target_os = "linux"))]
     let desktop_rows = Vec::new();
 
+    #[cfg(windows)]
+    {
+        let desktop = super::settings_group(&preferences, "DESKTOP INTEGRATION");
+        append_preference_switch(
+            &desktop,
+            &manager,
+            PreferenceSwitch {
+                title: "Show application console",
+                description: "Show a separate console for diagnostic logs. Changes apply immediately.",
+                read: PreferenceManager::show_console,
+                write: PreferenceManager::set_show_console,
+            },
+        );
+        append_preference_switch(
+            &desktop,
+            &manager,
+            PreferenceSwitch {
+                title: "Replace File Explorer",
+                description: "Open folders, drives and %{explorer_keys} in Strata. A small helper starts at sign-in. Turning this off restores your previous file manager immediately.",
+                read: PreferenceManager::replace_file_explorer,
+                write: PreferenceManager::set_replace_file_explorer,
+            },
+        );
+    }
+
     let startup = super::settings_group(&preferences, "STARTUP");
+    #[cfg(windows)]
+    {
+        let (row, toggle) = settings_option(
+            "Keep Strata running in the background",
+            "Keep one window ready after closing it for faster reopening.",
+            manager.keep_running_in_background(),
+        );
+        bind_switch(
+            &manager,
+            &toggle,
+            PreferenceManager::keep_running_in_background,
+            PreferenceManager::set_keep_running_in_background,
+        );
+        let quit = gtk::Button::with_label(&crate::i18n::tr("Quit Strata"));
+        quit.add_css_class("form-control");
+        quit.set_valign(gtk::Align::Center);
+        quit.connect_clicked(|_| {
+            if let Some(application) =
+                gio::Application::default().and_downcast::<gtk::Application>()
+            {
+                crate::ui::windows_runtime::quit(&application);
+            }
+        });
+        row.append(&quit);
+        startup.append(&row);
+    }
     append_default_directory_option(&startup, &manager);
     append_preference_switch(
         &startup,

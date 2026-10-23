@@ -155,8 +155,11 @@ ignoring case. Queries of at least four letters or digits also allow one inserte
 missing, substituted, or adjacent swapped character within a whole filename word.
 Words are separated by punctuation or spaces. For example, `trahs` finds
 `strata-trash.svg`, but `trash` does not find `strata-search.svg`. Shorter queries
-and queries containing punctuation remain literal. Indexed results rank literal
-matches ahead of typo matches; parent paths do not qualify a result.
+and queries containing punctuation remain literal. A query with spaces first
+matches the whole phrase, then names that contain every word in any order, so
+`duck txt` also finds `ducks_in_the_pool.txt`. Indexed results rank literal
+matches ahead of typo matches and scattered words; parent paths do not qualify
+a result.
 
 Add `*` for a whole-filename pattern without typo tolerance:
 

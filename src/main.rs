@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
 
 // build.rs embeds data/locales; this path holds no catalogs, so the macro adds none itself.
 rust_i18n::i18n!(
@@ -27,12 +28,10 @@ mod sandbox;
 #[cfg(windows)]
 #[path = "sandbox_windows.rs"]
 mod sandbox;
-#[cfg(not(windows))]
-mod sandbox_helper;
-#[cfg(windows)]
-#[path = "sandbox_helper_windows.rs"]
 mod sandbox_helper;
 mod services;
+#[cfg(windows)]
+mod startup_windows;
 #[cfg(not(windows))]
 mod storage;
 #[cfg(windows)]
@@ -171,7 +170,16 @@ fn run_udiskie_hook(arguments: &[OsString]) -> gtk::glib::ExitCode {
 
 fn main() -> gtk::glib::ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().collect();
-    match launch_mode(&arguments) {
+    let mode = launch_mode(&arguments);
+    #[cfg(windows)]
+    if mode == LaunchMode::Version
+        || (mode == LaunchMode::Application
+            && std::env::var_os("STRATA_ATTACH_PARENT_CONSOLE").as_deref()
+                == Some(std::ffi::OsStr::new("1")))
+    {
+        strata_win_shell::desktop::attach_parent_console();
+    }
+    match mode {
         LaunchMode::BrowserWorker => {
             return match sandbox::browser::run() {
                 Ok(()) => gtk::glib::ExitCode::SUCCESS,
@@ -225,6 +233,13 @@ fn main() -> gtk::glib::ExitCode {
         LaunchMode::Application => {}
     }
 
+    #[cfg(windows)]
+    startup_windows::configure_runtime_environment();
+    #[cfg(windows)]
+    let activation = match ui::windows_runtime::claim(&arguments) {
+        Ok(server) => server,
+        Err(code) => return code,
+    };
     install_application_identity();
     metrics::initialize();
     logging::initialize();
@@ -273,16 +288,35 @@ fn main() -> gtk::glib::ExitCode {
     if let Err(error) = assets::prepare() {
         eprintln!("Unable to prepare bundled assets: {error}");
     }
+    #[cfg(windows)]
+    startup_windows::configure_font_map();
     tracing::debug!(
         elapsed_ms = assets_started.elapsed().as_millis() as u64,
         total_elapsed_ms = launched.elapsed().as_millis() as u64,
         "startup bundled assets prepared"
     );
 
+    let flags = gio::ApplicationFlags::HANDLES_OPEN | gio::ApplicationFlags::HANDLES_COMMAND_LINE;
+    #[cfg(windows)]
+    let flags = flags | gio::ApplicationFlags::NON_UNIQUE;
     let application = gtk::Application::builder()
         .application_id(APPLICATION_ID)
-        .flags(gio::ApplicationFlags::HANDLES_OPEN | gio::ApplicationFlags::HANDLES_COMMAND_LINE)
+        .flags(flags)
         .build();
+    #[cfg(windows)]
+    if let Some(server) = activation {
+        ui::windows_runtime::install(&application, server);
+    }
+    tracing::debug!(
+        elapsed_ms = launched.elapsed().as_millis() as u64,
+        "startup application constructed"
+    );
+    application.connect_startup(move |_| {
+        tracing::debug!(
+            elapsed_ms = launched.elapsed().as_millis() as u64,
+            "startup GTK initialized and application registered"
+        );
+    });
 
     application.add_main_option(
         "unlock-volume",
@@ -408,6 +442,10 @@ fn handle_command_line(
 }
 
 fn install_application_identity() {
+    #[cfg(windows)]
+    if let Err(error) = strata_win_shell::window::set_application_id(APPLICATION_ID) {
+        eprintln!("Windows application identity: {error}");
+    }
     glib::set_prgname(Some(APPLICATION_ID));
     glib::set_application_name("Strata");
 }

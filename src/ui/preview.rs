@@ -18,7 +18,7 @@ use crate::{
     services::{
         ArchivePreviewTree, DocumentLayout, LoadHandle, MediaPreviewSize, PdfTextLayer, Preview,
         PreviewContent, PreviewEvent, PreviewProvider, PreviewRequest, PreviewRequestId,
-        SecretString, normalize_preview_text,
+        SecretString, is_gif_path, normalize_preview_text,
     },
 };
 
@@ -101,6 +101,11 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     let (content_type, uncertain) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
     let content = crate::services::content_family(&content_type);
+    // Windows installations often lack a complete shared MIME database.
+    // Keep quick preview available for known image/media extensions; the
+    // provider still validates and decodes the actual file before rendering.
+    let extension_preview = crate::services::is_image_path(Path::new(&entry.native_name))
+        || crate::services::is_media_path(Path::new(&entry.native_name));
     if crate::services::table::is_workbook(&content_type, &entry.native_name)
         || crate::services::docx::is_document(&content_type, &entry.native_name)
     {
@@ -119,7 +124,8 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
         return true;
     }
     // An uncertain name guess defers to the loader, which resolves the file's content type.
-    !matches!(content, PreviewContent::Unsupported)
+    extension_preview
+        || !matches!(content, PreviewContent::Unsupported)
         || uncertain
         || gio::content_type_is_a(&content_type, "text/plain")
         || crate::services::has_plain_text_extension(&entry.native_name)
@@ -148,7 +154,7 @@ struct PendingSourcePreview {
 }
 
 struct SourcePreviewView {
-    view: sourceview5::View,
+    view: RefCell<Option<sourceview5::View>>,
     scroll: RefCell<Option<gtk::ScrolledWindow>>,
     virtual_state: RefCell<Option<Rc<super::virtual_preview::VirtualPreviewState>>>,
     generation: Rc<Cell<u64>>,
@@ -195,8 +201,6 @@ struct PreviewState {
     open: gtk::Button,
     print: gtk::Button,
     wrap: gtk::ToggleButton,
-    text_view: RefCell<Option<sourceview5::View>>,
-    text_scroll: RefCell<Option<gtk::ScrolledWindow>>,
     archive_browser: RefCell<Option<archive::ArchiveBrowser>>,
     password_entry: RefCell<Option<gtk::PasswordEntry>>,
     media: RefCell<Option<gtk::MediaStream>>,
@@ -429,8 +433,6 @@ impl PreviewDrawer {
             open: open.clone(),
             print: print.clone(),
             wrap: wrap.clone(),
-            text_view: RefCell::new(None),
-            text_scroll: RefCell::new(None),
             archive_browser: RefCell::new(None),
             password_entry: RefCell::new(None),
             media: RefCell::new(None),
@@ -967,9 +969,12 @@ impl PreviewState {
         // The preview closes now, so input such as the next Escape already
         // reaches the files; only the drawer's slide out waits.
         let restore_focus = tree_focused || self.hide_intent();
-        if self.is_enabled() {
-            self.dismissed.set(true);
-        }
+        // Closing the preview hides its content but keeps the reserved column
+        // slot. The appearance toggle clears `reserve_columns` before it
+        // calls close when the user explicitly releases that space.
+        // An explicit close suppresses selection-following until a later
+        // explicit preview request reopens the drawer.
+        self.dismissed.set(true);
         self.set_enabled(false);
         self.child_pane.set(false);
         self.content.set_focusable(false);
@@ -1209,6 +1214,7 @@ impl PreviewState {
                     }
                     PreviewContent::Image
                     | PreviewContent::Model { .. }
+                    | PreviewContent::RawImage { .. }
                     | PreviewContent::Media
                     | PreviewContent::SandboxedMedia { .. }
                     | PreviewContent::Archive { .. }
@@ -1537,10 +1543,6 @@ impl PreviewState {
                     truncated,
                 );
                 self.content.append(&view);
-                self.text_view
-                    .replace(Some(self.source_preview.view.clone()));
-                self.text_scroll
-                    .replace(self.source_preview.scroll.borrow().clone());
                 self.wrap.set_active(
                     super::preferences::PreferenceManager::shared().preview_text_wrap(),
                 );
@@ -1582,6 +1584,46 @@ impl PreviewState {
                 self.rendered_text.replace(Some(state));
                 self.content.append(&view);
             }
+            PreviewContent::RawImage {
+                width,
+                height,
+                pixels,
+            } => {
+                // The Windows worker decoded this once; create a memory-backed
+                // GDK texture without an intermediate PNG encoder/decoder.
+                let stride = (width as usize).saturating_mul(4);
+                if width == 0
+                    || height == 0
+                    || width > 1280
+                    || height > 1280
+                    || pixels.len() != stride.saturating_mul(height as usize)
+                {
+                    self.show_message(
+                        &crate::i18n::tr("Preview unavailable"),
+                        "Invalid decoded image dimensions",
+                    );
+                } else {
+                    self.print.set_visible(true);
+                    let bytes = glib::Bytes::from_owned(pixels);
+                    let texture = gtk::gdk::MemoryTexture::new(
+                        width as i32,
+                        height as i32,
+                        gtk::gdk::MemoryFormat::R8g8b8a8,
+                        &bytes,
+                        stride,
+                    );
+                    let picture = gtk::Picture::for_paintable(&texture);
+                    picture.add_css_class("preview-image");
+                    picture.set_can_shrink(true);
+                    picture.set_content_fit(gtk::ContentFit::Contain);
+                    picture.set_hexpand(true);
+                    picture.set_vexpand(true);
+                    picture.set_cursor_from_name(Some("grab"));
+                    install_preview_drag(&picture, self);
+                    self.content
+                        .append(&media_layout::section(&picture, &texture));
+                }
+            }
             PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => {
                 let model = crate::services::is_model(&preview.entry.native_name);
                 let cover =
@@ -1617,10 +1659,11 @@ impl PreviewState {
                 }
             }
             PreviewContent::SandboxedMedia { media: mut source } => {
-                let is_gif = preview.content_type == "image/gif";
+                let is_gif = matches!(preview.content_type.as_str(), "image/gif" | "image/x-gif")
+                    || is_gif_path(Path::new(&preview.entry.native_name));
                 let family = media_family(&preview.content_type);
                 let handed_off = self.handed_off.borrow().as_ref() == Some(&preview.entry.location);
-                source.audio_only = family == Some(MediaFamily::Audio);
+                source.audio_only |= family == Some(MediaFamily::Audio);
                 let media =
                     super::media::DecodedMedia::new(source.clone()).upcast::<gtk::MediaStream>();
                 self.media.replace(Some(media.clone()));
@@ -1688,7 +1731,9 @@ impl PreviewState {
                     }
                 };
                 if !handed_off
-                    && (preferences.preview_autoplay() || (continue_playback && family.is_some()))
+                    && (is_gif
+                        || preferences.preview_autoplay()
+                        || (continue_playback && family.is_some()))
                 {
                     if preferences.preview_autoplay() && !continue_playback {
                         match family {
@@ -2946,8 +2991,6 @@ impl PreviewState {
         }
         self.print.set_visible(false);
         self.wrap.set_visible(false);
-        self.text_view.take();
-        self.text_scroll.take();
         self.archive_browser.take();
         self.clear_password_entry();
         match (keep, audio, video) {
@@ -3547,10 +3590,19 @@ fn document_view_action(view: DocumentView) -> (&'static str, &'static str) {
 
 impl SourcePreviewView {
     fn new() -> Self {
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        Self {
+            view: RefCell::new(None),
+            scroll: RefCell::new(None),
+            virtual_state: RefCell::new(None),
+            generation: Rc::new(Cell::new(0)),
+        }
+    }
+
+    fn ensure_view(&self) -> sourceview5::View {
+        if let Some(view) = self.view.borrow().as_ref() {
+            return view.clone();
+        }
         let view = sourceview5::View::builder()
-            .buffer(&buffer)
             .cursor_visible(true)
             .editable(false)
             .highlight_current_line(false)
@@ -3563,12 +3615,8 @@ impl SourcePreviewView {
             .wrap_mode(gtk::WrapMode::None)
             .build();
         view.add_css_class("preview-text");
-        Self {
-            view,
-            scroll: RefCell::new(None),
-            virtual_state: RefCell::new(None),
-            generation: Rc::new(Cell::new(0)),
-        }
+        self.view.replace(Some(view.clone()));
+        view
     }
 
     fn show(
@@ -3581,11 +3629,13 @@ impl SourcePreviewView {
         self.cancel();
         self.scroll.borrow_mut().take();
         self.virtual_state.borrow_mut().take();
-        if let Some(parent) = self.view.parent() {
+        if let Some(view) = self.view.borrow().as_ref()
+            && let Some(parent) = view.parent()
+        {
             if let Ok(scroll) = parent.downcast::<gtk::ScrolledWindow>() {
                 scroll.set_child(None::<&gtk::Widget>);
             } else {
-                self.view.unparent();
+                view.unparent();
             }
         }
         let languages = sourceview5::LanguageManager::default();
@@ -3597,14 +3647,15 @@ impl SourcePreviewView {
             self.virtual_state.replace(Some(state));
             return (container.upcast(), true);
         }
+        let view = self.ensure_view();
         let display = normalize_preview_text(content).into_owned();
         let buffer = sourceview5::Buffer::new(None);
         super::theme::register_source_buffer(&buffer);
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
-        self.view.set_buffer(Some(&buffer));
+        view.set_buffer(Some(&buffer));
         let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
-        self.view.set_wrap_mode(text_wrap_mode(wrapped));
+        view.set_wrap_mode(text_wrap_mode(wrapped));
         fill_source_buffer(
             &buffer,
             display,
@@ -3614,7 +3665,7 @@ impl SourcePreviewView {
         );
 
         let scroll = gtk::ScrolledWindow::builder()
-            .child(&self.view)
+            .child(&view)
             .hscrollbar_policy(text_hscroll_policy(wrapped))
             .vscrollbar_policy(gtk::PolicyType::Automatic)
             .hexpand(true)
@@ -3625,7 +3676,9 @@ impl SourcePreviewView {
     }
 
     fn set_wrapped(&self, wrapped: bool) {
-        self.view.set_wrap_mode(text_wrap_mode(wrapped));
+        if let Some(view) = self.view.borrow().as_ref() {
+            view.set_wrap_mode(text_wrap_mode(wrapped));
+        }
         if let Some(scroll) = self.scroll.borrow().as_ref() {
             scroll.set_hscrollbar_policy(text_hscroll_policy(wrapped));
         }

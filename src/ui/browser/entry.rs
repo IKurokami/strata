@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::adapters::directory_summary::{DirectorySummary, summarize_directory};
-use crate::adapters::gio_file_for_location;
+use crate::adapters::read_file_for_location;
 use crate::assets::icons;
 use crate::model::{EntryKind, FileEntry, MetadataValue};
 use crate::services::{
@@ -361,7 +361,7 @@ pub(super) async fn aggregate_directory_summary(entries: &[FileEntry]) -> Direct
             glib::timeout_future(std::time::Duration::ZERO).await;
         }
         if entry.is_directory() {
-            let directory = gio_file_for_location(&entry.location);
+            let directory = read_file_for_location(&entry.location);
             match summarize_directory(&directory).await {
                 Ok(summary) => {
                     total.item_count = total.item_count.saturating_add(summary.item_count);

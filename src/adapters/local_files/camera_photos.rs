@@ -84,7 +84,10 @@ impl Library {
                 }
                 let mut entries = Vec::new();
                 for info in infos {
-                    let Some(child) = location.child(info.name().as_os_str()) else {
+                    let Some(name) = super::info_name(&info) else {
+                        continue;
+                    };
+                    let Some(child) = location.child(name.as_os_str()) else {
                         continue;
                     };
                     if !(child.is_within(&request.location)
@@ -93,7 +96,7 @@ impl Library {
                     {
                         continue;
                     }
-                    match info.file_type() {
+                    match super::info_file_type(&info) {
                         gio::FileType::Directory => {
                             if self.seen.insert(child.clone()) {
                                 self.pending
@@ -101,7 +104,7 @@ impl Library {
                             }
                         }
                         gio::FileType::Regular => {
-                            if !is_photo_media(info.name().as_os_str()) {
+                            if !is_photo_media(name.as_os_str()) {
                                 continue;
                             }
                             if self.files == request.max_entries {

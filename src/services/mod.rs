@@ -37,6 +37,16 @@ mod update_install;
 #[path = "update_install_windows.rs"]
 mod update_install;
 
+use gtk::gio;
+
+pub(crate) fn gio_file_type(info: &gio::FileInfo) -> Option<gio::FileType> {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_TYPE)
+        .then(|| info.file_type())
+}
+
+#[cfg(test)]
+mod file_info_tests;
+
 pub use actions::{
     ActionAvailability, ActionHandle, ActionLoadFailure, ActionProgram, ActionRegistry,
     ActionScript, ActionWriteRequest, MatchedAction,
@@ -88,7 +98,7 @@ pub use preview::{
 };
 pub(crate) use preview::{
     INCORRECT_ARCHIVE_PASSWORD, archive_preview_format, content_family, has_plain_text_extension,
-    is_extensionless_dotfile, is_image_path, is_media_path, is_model,
+    is_audio_path, is_extensionless_dotfile, is_gif_path, is_image_path, is_media_path, is_model,
     is_non_executable_extensionless_dotfile, normalize_preview_text, split_archive_name,
     supports_remote_video,
 };
@@ -101,6 +111,8 @@ pub(crate) use transfer_action::{
 // `update_check` (which imports them directly from `release_channel`) has any
 // business calling it. Widening this re-export would make that bypass
 // reachable from UI code.
+#[cfg(windows)]
+pub(crate) use file_source::io_error_reason;
 pub(crate) use release_channel::{BuildKind, Channel, Version};
 pub(crate) use remote_download::{
     RemoteDownload, download_remote, prune_stale_downloads, remote_file_name, remote_file_url,

@@ -88,8 +88,8 @@ pub struct SearchItem {
     pub is_directory: bool,
     pub kind: EntryKind,
     pub mode: MetadataValue<u32>,
-    search_path: String,
-    search_name_start: usize,
+    search_path: Box<str>,
+    search_name_start: u32,
     depth: u8,
 }
 
@@ -103,18 +103,20 @@ impl SearchItem {
         )
     }
 
-    pub(super) fn for_history(path: PathBuf) -> Self {
-        let name = path
+    pub(super) fn for_history(mut path: PathBuf) -> Self {
+        path.shrink_to_fit();
+        let mut name = path
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy()
             .into_owned();
-        let search_path = fold_for_search(&path.to_string_lossy());
+        name.shrink_to_fit();
+        let search_path = fold_for_search(&path.to_string_lossy()).into_boxed_str();
         let search_name_start = search_path
             .rfind(std::path::MAIN_SEPARATOR)
             .map_or(0, |position| {
                 position + std::path::MAIN_SEPARATOR.len_utf8()
-            });
+            }) as u32;
         Self {
             path,
             name,
@@ -128,7 +130,7 @@ impl SearchItem {
     }
 
     pub(super) fn path_score(&self, matcher: &mut PathMatcher) -> Option<TextScore> {
-        matcher.score(&self.search_path, self.search_name_start)
+        matcher.score(&self.search_path, self.search_name_start as usize)
     }
 
     pub(super) fn name_is(&self, normalized_name: &str) -> bool {
@@ -146,29 +148,31 @@ impl SearchItem {
     }
 
     fn with_metadata(
-        path: PathBuf,
+        mut path: PathBuf,
         root: &Path,
         is_directory: bool,
         kind: EntryKind,
         mode: MetadataValue<u32>,
     ) -> Self {
-        let name = path
+        path.shrink_to_fit();
+        let mut name = path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
+        name.shrink_to_fit();
         let relative = path.strip_prefix(root).unwrap_or(&path);
         let depth = relative
             .components()
             .count()
             .saturating_sub(1)
             .min(MAX_INDEX_DEPTH) as u8;
-        let search_path = fold_for_search(&relative.to_string_lossy());
+        let search_path = fold_for_search(&relative.to_string_lossy()).into_boxed_str();
         let search_name_start = search_path
             .rfind(std::path::MAIN_SEPARATOR)
             .map_or(0, |position| {
                 position + std::path::MAIN_SEPARATOR.len_utf8()
-            });
+            }) as u32;
         Self {
             name,
             path,
@@ -182,7 +186,7 @@ impl SearchItem {
     }
 
     fn search_name(&self) -> &str {
-        &self.search_path[self.search_name_start..]
+        &self.search_path[self.search_name_start as usize..]
     }
 }
 
@@ -483,7 +487,11 @@ impl QueryScorer<'_> {
                 }
                 let text = item.path_score(matcher)?;
                 let exact = if folders.is_some() {
-                    path_match::exact_bonus(&item.search_path, item.search_name_start, query)
+                    path_match::exact_bonus(
+                        &item.search_path,
+                        item.search_name_start as usize,
+                        query,
+                    )
                 } else {
                     0
                 };

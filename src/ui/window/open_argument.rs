@@ -45,7 +45,14 @@ fn present_window(
         false,
         false,
     );
-    classify(browser.clone(), file, location);
+    #[cfg(windows)]
+    if browser.browser().active_location().as_ref() == Some(&location) {
+        browser.browser().bump_navigation_generation();
+        clear_status(&browser);
+        return browser;
+    }
+    let probe = native_probe(&location);
+    classify_with_probe(browser.clone(), file, location, probe);
     browser
 }
 
@@ -56,6 +63,31 @@ pub(super) fn route_location(browser: BrowserView, location: Location) {
 enum Kind {
     Directory,
     File,
+}
+
+fn native_probe(location: &Location) -> Option<gio::JoinHandle<Option<Kind>>> {
+    #[cfg(windows)]
+    {
+        let path = location.native_path()?;
+        if !strata_win_shell::is_fixed_local_drive(path) {
+            return None;
+        }
+        let path = path.to_owned();
+        Some(gio::spawn_blocking(move || {
+            std::fs::metadata(path).ok().map(|metadata| {
+                if metadata.is_dir() {
+                    Kind::Directory
+                } else {
+                    Kind::File
+                }
+            })
+        }))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = location;
+        None
+    }
 }
 
 struct OpenRequest {
@@ -93,11 +125,29 @@ impl OpenRequest {
 }
 
 fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<OpenRequest> {
+    classify_with_probe(browser, file, location, None)
+}
+
+fn classify_with_probe(
+    browser: BrowserView,
+    file: gio::File,
+    location: Location,
+    probe: Option<gio::JoinHandle<Option<Kind>>>,
+) -> Rc<OpenRequest> {
     let generation = browser.browser().bump_navigation_generation();
     let parent = browser.overlay().root().and_downcast::<gtk::Window>();
     let request = OpenRequest::new(gtk::MountOperation::new(parent.as_ref()));
     let cleanup_request = request.clone();
     browser.set_navigation_cleanup(move || cleanup_request.abort());
+
+    #[cfg(windows)]
+    if crate::adapters::recycle_bin::is_root(&location) {
+        request.finish();
+        browser.finish_navigation_cleanup();
+        clear_status(&browser);
+        browser.navigate_location(location);
+        return request;
+    }
 
     let connecting = browser.downgrade();
     let connecting_request = request.clone();
@@ -114,7 +164,24 @@ fn classify(browser: BrowserView, file: gio::File, location: Location) -> Rc<Ope
     let retry_location = location.clone();
     let query_request = request.clone();
     glib::MainContext::default().spawn_local(async move {
-        let outcome = query_kind(&file, Some(&query_request.operation)).await;
+        #[cfg(windows)]
+        let query_file = if crate::adapters::recycle_bin::path(&location).is_some() {
+            crate::adapters::read_file_for_location(&location)
+        } else {
+            file.clone()
+        };
+        #[cfg(not(windows))]
+        let query_file = file.clone();
+        let preflight = if let Some(probe) = probe {
+            probe.await.ok().flatten()
+        } else {
+            None
+        };
+        let outcome = if let Some(kind) = preflight {
+            Ok(kind)
+        } else {
+            query_kind(&query_file, Some(&query_request.operation)).await
+        };
         let Some(browser) = weak.upgrade() else {
             query_request.abort();
             return;
@@ -158,8 +225,8 @@ async fn query_kind(
             .await
         {
             Ok(info) => {
-                return Ok(match info.file_type() {
-                    gio::FileType::Directory | gio::FileType::Mountable => Kind::Directory,
+                return Ok(match crate::services::gio_file_type(&info) {
+                    Some(gio::FileType::Directory | gio::FileType::Mountable) => Kind::Directory,
                     _ => Kind::File,
                 });
             }

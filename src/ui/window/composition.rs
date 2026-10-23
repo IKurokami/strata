@@ -18,6 +18,8 @@ mod settings;
 mod tabs;
 mod tenxer_splash;
 
+#[cfg(windows)]
+pub(super) use tabs::existing as existing_tab_window;
 pub(super) use tabs::{TabWindow, is_tab_shortcut, tab_index};
 
 pub(super) struct WindowContent {
@@ -217,7 +219,7 @@ fn add_guarded_window_action(
     actions: &gio::SimpleActionGroup,
     name: &str,
     browser: &BrowserView,
-    own_layer: Option<gtk::Widget>,
+    own_layer: impl Fn() -> Option<gtk::Widget> + 'static,
     run: impl Fn() + 'static,
 ) {
     let action = gio::SimpleAction::new(name, None);
@@ -227,9 +229,8 @@ fn add_guarded_window_action(
         let Some(window) = window.upgrade() else {
             return;
         };
-        if super::foreign_modal_visible(&window, own_layer.as_ref())
-            || browser.inline_edit_is_open()
-        {
+        let layer = own_layer();
+        if super::foreign_modal_visible(&window, layer.as_ref()) || browser.inline_edit_is_open() {
             return;
         }
         run();
@@ -244,20 +245,34 @@ fn install_browser_actions(
     preferences: &Rc<PreferenceManager>,
 ) {
     let terminal_view = browser.clone();
-    add_guarded_window_action(window, actions, "open-terminal", browser, None, move || {
-        terminal_view.open_terminal();
-    });
+    add_guarded_window_action(
+        window,
+        actions,
+        "open-terminal",
+        browser,
+        || None,
+        move || {
+            terminal_view.open_terminal();
+        },
+    );
     let refresh_view = browser.clone();
-    add_guarded_window_action(window, actions, "refresh", browser, None, move || {
-        refresh_view.refresh();
-    });
+    add_guarded_window_action(
+        window,
+        actions,
+        "refresh",
+        browser,
+        || None,
+        move || {
+            refresh_view.refresh();
+        },
+    );
     let toggle_preferences = preferences.clone();
     add_guarded_window_action(
         window,
         actions,
         "toggle-arrow-scope",
         browser,
-        None,
+        || None,
         move || {
             let next = !toggle_preferences.arrow_navigation_scoped();
             toggle_preferences.set_arrow_navigation_scoped(next);

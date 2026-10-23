@@ -604,8 +604,10 @@ mod key_event {
 
 #[test]
 fn key_handlers_yield_to_a_composition_in_the_focused_field() {
-    crate::test_support::gtk_test(
+    // Synthetic GDK events cannot drive the native Windows IME message filter.
+    crate::test_support::gtk_test_with_env(
         "ui::keys::tests::key_handlers_yield_to_a_composition_in_the_focused_field",
+        [("GTK_IM_MODULE", "simple")],
         || {
             use gtk::prelude::*;
             use std::{cell::Cell, rc::Rc};
@@ -651,20 +653,38 @@ fn key_handlers_yield_to_a_composition_in_the_focused_field() {
                 press(Key::Escape);
                 assert_eq!(
                     handled.get(),
-                    1,
-                    "a key the input method passes back reaches the handler"
+                    if cfg!(windows) { 0 } else { 1 },
+                    "native composition retains Escape; forwarded composition may return it"
                 );
                 assert!(other.grab_focus());
                 press(Key::a);
                 assert_eq!(
                     handled.get(),
-                    2,
+                    if cfg!(windows) { 1 } else { 2 },
                     "only the focused field's composition holds keys"
                 );
                 assert!(composing.grab_focus());
                 preedit("");
                 press(Key::a);
-                assert_eq!(handled.get(), 3, "a finished composition releases the keys");
+                assert_eq!(
+                    handled.get(),
+                    if cfg!(windows) { 2 } else { 3 },
+                    "a finished composition releases the keys"
+                );
+                #[cfg(windows)]
+                {
+                    preedit("tiếng Việt");
+                    super::release_native_text_focus(&column);
+                    assert!(gtk::prelude::GtkWindowExt::focus(&window).is_none());
+                    composing.set_visible(false);
+                    assert!(other.grab_focus());
+                    press(Key::a);
+                    assert_eq!(
+                        handled.get(),
+                        3,
+                        "a hidden composing field cannot retain input"
+                    );
+                }
                 window.destroy();
             }
         },
@@ -826,7 +846,11 @@ mod labels {
                     Key::t,
                     Modifiers::SUPER_MASK | Modifiers::SHIFT_MASK | CTRL | Modifiers::ALT_MASK,
                 )),
-                "Ctrl+Alt+Shift+Super+T",
+                if cfg!(windows) {
+                    "Ctrl+Alt+Shift+Win+T"
+                } else {
+                    "Ctrl+Alt+Shift+Super+T"
+                },
             ),
             (Keys::One(Binding::plain(Key::j)), "j"),
             (Keys::One(Binding::shift(Key::j)), "J"),

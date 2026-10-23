@@ -92,8 +92,9 @@ class QualityRunnerTests(unittest.TestCase):
         self.assertIn("needs: e2e-build", jobs["e2e-shard"])
         self.assertNotIn("always()", jobs["e2e-shard"])
         build = jobs["quality-build"]
-        condition = re.search(r"^    if: (.+)$", build, re.M).group(1)
-        self.assertNotIn("github.event_name != 'push'", condition)
+        condition = re.search(r"^    if: (.+)$", build, re.M)
+        if condition is not None:
+            self.assertNotIn("github.event_name != 'push'", condition.group(1))
         self.assertIn("STRATA_QUALITY_TASK: build", build)
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", build)
         packaging = (REPOSITORY / ".github/workflows/packaging.yml").read_text()
@@ -136,15 +137,26 @@ class QualityRunnerTests(unittest.TestCase):
                 tool = root / name
                 tool.write_text("#!/bin/sh\n" + content)
                 tool.chmod(0o755)
-            for published, diff, base, expected in ((1, 0, 0, "pull"), (0, 1, 0, "build"),
-                                                     (0, 0, 0, "failure"), (0, 1, 1, "failure"),
-                                                     (0, 2, 0, "failure")):
-                with self.subTest(published=published, diff=diff, base=base):
+            cases = (
+                (1, 0, 0, "lgse/strata", "", "pull"),
+                (0, 1, 0, "lgse/strata", "", "build"),
+                (0, 0, 0, "lgse/strata", "", "failure"),
+                (0, 1, 1, "lgse/strata", "", "failure"),
+                (0, 2, 0, "lgse/strata", "", "failure"),
+                (0, 0, 0, "lgse/strata", "1", "failure"),
+                (0, 0, 0, "example/fork", "", "failure"),
+                (0, 0, 1, "example/fork", "1", "build"),
+                (1, 0, 0, "example/fork", "1", "pull"),
+            )
+            for published, diff, base, repository, opt_in, expected in cases:
+                with self.subTest(published=published, diff=diff, base=base,
+                                  repository=repository, opt_in=opt_in):
                     log = root / "calls"
                     log.write_text("")
                     result = subprocess.run(["bash", "-eu", "-c", script], capture_output=True, text=True,
                         env={**os.environ, "PATH": f"{root}:{os.defpath}", "PUBLISHED": str(published),
                              "DIFF_STATUS": str(diff), "BASE_STATUS": str(base), "BASE_REF": "HEAD^",
+                             "GITHUB_REPOSITORY": repository, "STRATA_FORK_CI_CANDIDATE": opt_in,
                              "GITHUB_OUTPUT": str(root / "outputs"), "CALL_LOG": str(log)})
                     if expected == "failure":
                         self.assertNotEqual(result.returncode, 0)

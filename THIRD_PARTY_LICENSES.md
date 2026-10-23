@@ -2,6 +2,21 @@
 
 Strata includes or derives assets from the following projects.
 
+## Windows GTK runtime
+
+- Project: <https://www.gtk.org/>
+- Version: GTK 4.24.1, with MSYS2 font hinting and Strata's Windows IME patch
+- License: LGPL-2.1-or-later; `gtkimcontextime.c` retains its LGPL-2.0-or-later notice
+- Original IME authors: Takuro Ashie (2003), Kazuki IWAMOTO (2003–2004)
+- Source, checksums, changes and build instructions: [`packaging/windows/runtime/`](packaging/windows/runtime/README.md)
+
+Windows release bundles include corresponding source, patches, licenses and DLL
+identities under `share/strata/runtime/`. They also include GstPlay 1.28.8 with
+a version-specific worker-disposal patch derived from `packaging/media-runtime/`.
+GstPlay retains its LGPL-2.0-or-later notice and credits Sebastian Dröge
+(2014–2015), Brijesh Singh (2015), Stephan Hesse (2019–2020), and Philippe Normand
+(2020). Its source and build instructions are documented with the Windows runtime.
+
 ## MathJax
 
 - Projects: <https://github.com/mathjax/MathJax-src>, <https://github.com/mathjax/MathJax-fonts>

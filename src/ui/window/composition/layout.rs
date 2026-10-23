@@ -164,6 +164,7 @@ impl Header {
 }
 
 fn bind_maximize_icon(window: &gtk::ApplicationWindow, button: &gtk::Button) {
+    crate::ui::accessibility::set_label(button, &crate::i18n::tr("Maximize window"));
     let weak_button = button.downgrade();
     let update = move |window: &gtk::ApplicationWindow| {
         let Some(image) = weak_button
@@ -184,7 +185,9 @@ fn bind_maximize_icon(window: &gtk::ApplicationWindow, button: &gtk::Button) {
             crate::ui::accessibility::set_label(&button, &tooltip);
         }
     };
-    update(window);
+    if window.is_maximized() {
+        update(window);
+    }
     window.connect_maximized_notify(move |window| update(window));
 }
 

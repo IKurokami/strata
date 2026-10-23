@@ -223,7 +223,8 @@ fn root_is_writable_directory(root: &gio::File) -> bool {
         None::<&gio::Cancellable>,
     )
     .is_ok_and(|info| {
-        info.file_type() == gio::FileType::Directory && info.boolean("access::can-write")
+        crate::services::gio_file_type(&info) == Some(gio::FileType::Directory)
+            && info.boolean("access::can-write")
     })
 }
 

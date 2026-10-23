@@ -24,7 +24,7 @@ pub(super) use viewport::{near_viewport, request_metadata};
 
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 const MAX_CACHE_ENTRIES: usize = 256;
-const MAX_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CACHE_READERS: usize = 4;
 // Cache reads never wait for a decoder permit.
 thread_local! {

@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: MIT
 
+use gtk::{gdk, glib, prelude::*};
 use resvg::{tiny_skia, usvg};
 
 /// Only bundled interface SVGs belong here, never files from a browser location.
 pub(super) fn surface(source: &str, pixels: i32) -> Option<cairo::ImageSurface> {
+    let data = render_argb32(source, pixels)?;
+    cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, pixels, pixels, pixels * 4)
+        .ok()
+}
+
+pub(super) fn texture(source: &str, pixels: i32) -> Option<gdk::Texture> {
+    let data = render_argb32(source, pixels)?;
+    let bytes = glib::Bytes::from_owned(data);
+    let format = if cfg!(target_endian = "little") {
+        gdk::MemoryFormat::B8g8r8a8Premultiplied
+    } else {
+        gdk::MemoryFormat::A8r8g8b8Premultiplied
+    };
+    Some(gdk::MemoryTexture::new(pixels, pixels, format, &bytes, (pixels * 4) as usize).upcast())
+}
+
+fn render_argb32(source: &str, pixels: i32) -> Option<Vec<u8>> {
     if !(1..=768).contains(&pixels) || source.len() > 64 * 1024 {
         return None;
     }
@@ -27,8 +45,7 @@ pub(super) fn surface(source: &str, pixels: i32) -> Option<cairo::ImageSurface> 
         let argb = u32::from_be_bytes([pixel[3], pixel[0], pixel[1], pixel[2]]);
         pixel.copy_from_slice(&argb.to_ne_bytes());
     }
-    cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, pixels, pixels, pixels * 4)
-        .ok()
+    Some(data)
 }
 
 #[cfg(test)]

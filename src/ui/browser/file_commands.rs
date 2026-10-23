@@ -78,13 +78,17 @@ impl BrowserView {
     }
 
     pub fn create_new_folder_for_selection(&self) -> bool {
-        let entries = self.command_targets();
-        if entries.is_empty() {
+        if self.selected_search_results().is_some() {
             return false;
         }
         let Some((depth, _)) = self.new_entry_parent() else {
             return false;
         };
+        self.state.sync_mode_selection();
+        let entries = self.state.browser.filled_entries(depth);
+        if entries.is_empty() {
+            return false;
+        }
         self.state.new_folder_with_selection(depth, &entries)
     }
 
@@ -382,6 +386,23 @@ impl BrowserView {
                                 .eq(locations.iter())
                     })
             };
+            #[cfg(windows)]
+            if let Some(paths) = files
+                .iter()
+                .map(|file| file.path())
+                .collect::<Option<Vec<_>>>()
+            {
+                for path in paths {
+                    if !unchanged() {
+                        break;
+                    }
+                    let result = crate::ui::windows_open::launch(path, true).await;
+                    if let Some(state) = state.upgrade() {
+                        crate::ui::windows_open::report(&state.overlay, result);
+                    }
+                }
+                return;
+            }
             let Some(resolved) = crate::ui::open_with::resolve(&files, &unchanged).await else {
                 return;
             };

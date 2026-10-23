@@ -14,6 +14,9 @@ const FRAME_BYTES: usize = 4;
 const MAX_CHUNK_BYTES: usize = 6_400;
 const MAX_CHUNK_NS: u64 = 33_333_334;
 
+#[cfg(all(test, windows))]
+mod tests;
+
 pub(super) struct PcmOutput {
     pipeline: gst::Pipeline,
     source: AppSrc,
@@ -189,10 +192,16 @@ impl PcmOutput {
     }
 
     pub(super) fn position_us(&self) -> Option<u64> {
-        // Query the sink, not appsrc's queued-buffer position: this follows playback's clock.
-        self.sink
+        // Keep Linux device position queries: appsrc can run ahead of audible
+        // PCM. Windows' autoaudiosink bin needs the pipeline query instead.
+        #[cfg(windows)]
+        let position = self
+            .pipeline
             .query_position::<gst::ClockTime>()
-            .map(|time| time.useconds())
+            .or_else(|| self.sink.query_position::<gst::ClockTime>());
+        #[cfg(not(windows))]
+        let position = self.sink.query_position::<gst::ClockTime>();
+        position.map(|time| time.useconds())
     }
 
     pub(super) fn set_audio(&self, muted: bool, volume: f64) {
@@ -251,6 +260,22 @@ impl PcmOutput {
 
 impl Drop for PcmOutput {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            let pipeline = self.pipeline.clone();
+            // Windows audio-device shutdown can wait for its streaming thread.
+            // Keep the pipeline alive until that wait finishes outside GTK.
+            if std::thread::Builder::new()
+                .name("pcm-stop".into())
+                .spawn(move || {
+                    let _ = pipeline.set_state(gst::State::Null);
+                })
+                .is_err()
+            {
+                let _ = self.pipeline.set_state(gst::State::Null);
+            }
+        }
+        #[cfg(not(windows))]
         let _ = self.pipeline.set_state(gst::State::Null);
     }
 }

@@ -168,24 +168,6 @@ fn invalid_utf8_names_keep_their_native_bytes() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn missing_optional_attributes_use_safe_defaults() {
-    let info = gio::FileInfo::new();
-
-    assert!(!info_is_hidden(&info));
-    assert!(!info_is_symlink(&info));
-    assert_eq!(info_mode(&info), MetadataValue::Unavailable);
-
-    info.set_is_hidden(true);
-    info.set_is_symlink(true);
-
-    assert!(info_is_hidden(&info));
-    assert!(info_is_symlink(&info));
-
-    info.set_attribute_uint32(gio::FILE_ATTRIBUTE_UNIX_MODE, 0);
-    assert_eq!(info_mode(&info), MetadataValue::Known(0));
-}
-
-#[test]
 fn symlink_targets_and_broken_links_are_distinguished() -> Result<(), Box<dyn Error>> {
     use std::os::unix::fs::symlink;
 

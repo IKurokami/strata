@@ -151,6 +151,14 @@ fn unclassified_media_seek_slider_steps_seek_the_stream_immediately() {
                     ));
                 }
             }
+            drawer.show(entry("anim.gif"), None);
+            super::video::ready(&provider, 1, "image/gif");
+            let gif = drawer.state.media.borrow().clone().expect("gif stream");
+            assert!(
+                gif.is_playing() && gif.is_loop(),
+                "GIF previews autoplay and loop from the start even when media autoplay is off"
+            );
+
             drawer.close();
             crate::ui::media::use_test_streams(false);
             assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));

@@ -75,9 +75,9 @@ pub(crate) fn render(input: &Path, format: CoverFormat, edge: i32) -> Result<Vec
         return Err("Cover archive exceeds the input size limit".into());
     }
     let bytes = match format {
-        #[cfg(feature = "rar")]
+        #[cfg(all(feature = "rar", unix))]
         CoverFormat::Cbr => super::archive_rar::cover_image(input)?,
-        #[cfg(not(feature = "rar"))]
+        #[cfg(any(not(feature = "rar"), not(unix)))]
         CoverFormat::Cbr => return Err("RAR support is disabled in this build.".to_owned()),
         CoverFormat::Cbz | CoverFormat::Epub => {
             let mut archive =

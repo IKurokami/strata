@@ -182,11 +182,7 @@ mod imp {
         }
 
         fn pause(&self) {
-            self.obj().capture_position();
-            // Resuming waits for the sink again, like a fresh start.
-            self.audio_anchored.set(false);
-            self.clock.set(None);
-            self.audio_stuck_since.set(None);
+            let obj = self.obj();
             self.paused.set(Some(Instant::now()));
             let result = self
                 .audio
@@ -195,8 +191,25 @@ mod imp {
                 .map(PcmOutput::pause)
                 .transpose();
             if let Err(error) = result {
-                self.obj().fail(&error);
+                obj.fail(&error);
+                return;
             }
+            // Stop the sink before sampling its position. This makes the
+            // timestamp and timeline settle on one frame instead of taking a
+            // second, slightly later sample while the device pauses. A seek
+            // can still be settling during the first 200 ms; keep its target
+            // visible instead of replacing it with the old sink position.
+            let position = if let Some((pending, _)) = self.seek_pending.get() {
+                pending
+            } else {
+                obj.capture_position();
+                obj.imp().position.get()
+            };
+            obj.update(position as i64);
+            // Resuming waits for the sink again, like a fresh start.
+            self.audio_anchored.set(false);
+            self.clock.set(None);
+            self.audio_stuck_since.set(None);
         }
 
         fn seek(&self, timestamp: i64) {
@@ -304,7 +317,9 @@ impl DecodedMedia {
 
     pub fn new(source: SandboxedMedia) -> Self {
         let obj: Self = glib::Object::new();
-        let restore = resume_position(&source.path);
+        let restore = (!crate::services::is_gif_path(&source.path))
+            .then(|| resume_position(&source.path))
+            .flatten();
         obj.imp().source.replace(Some(source));
         if let Some(position) = restore {
             obj.imp().restore.set(Some(position));
@@ -442,7 +457,8 @@ impl DecodedMedia {
         if let Some(source) = imp.source.borrow().as_ref() {
             let position = imp.position.get();
             let duration = self.duration().max(0) as u64;
-            if imp.header.get().is_some_and(|header| header.width > 0)
+            if !crate::services::is_gif_path(&source.path)
+                && imp.header.get().is_some_and(|header| header.width > 0)
                 && position > RESTORE_MIN_US
                 && (duration == 0 || position < duration)
             {
@@ -583,6 +599,7 @@ impl DecodedMedia {
         }
         if let Some(header) = imp.header.get() {
             let position = (media::timestamp(header.start_tick) + relative)
+                .max(imp.position.get())
                 .min(imp.end.get().unwrap_or(header.duration_us));
             if position != imp.position.get() {
                 imp.last_progress.set(Some(Instant::now()));

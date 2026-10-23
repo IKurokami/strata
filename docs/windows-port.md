@@ -1,6 +1,10 @@
 # Native Windows port — staged engineering plan
 
-Status: **foundation only**, not a bootable Windows edition of Strata. Keep the Linux application, installation path, and release pipeline unchanged while platform code is extracted and integrated.
+Status: **active parity implementation**. The phase notes below preserve the
+historical port decisions; the PR #26 ledger and current Windows workflow are
+authoritative for implementation and acceptance status. The branch now builds
+the GTK application, stages a self-contained portable runtime, isolates native
+media workers with Job Objects, and supplies a first-paint GUI smoke harness.
 
 ## Repository audit
 

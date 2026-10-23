@@ -38,6 +38,50 @@ tag status-only content with its section's target (the managed-install row uses
 
 ## One initialization and update path
 
+On Windows, **Show application console** is off by default. It applies immediately
+from Settings or the tray menu, is saved across launches, and controls only a
+console allocated by Strata. A terminal used to launch Strata remains owned by
+its caller. The tray menu opens the retained window, toggles diagnostic output,
+or quits through the existing active-operation guards. Enable **Keep Strata
+running in the background** to keep the tray and window available after closing.
+
+On Windows, **Settings → General → Desktop integration → Replace File Explorer**
+is off by default. It changes only the current user's default filesystem-folder
+and drive verbs, and routes Win+E to Strata. The Windows desktop, taskbar and
+virtual folders retain their system behavior. A standalone helper starts at
+sign-in while this preference is enabled. The runtime binds the saved setting before Settings opens
+and applies changes once across all windows. Turning it off immediately restores
+the previous defaults, provided Strata still owns those registrations. Changes
+made subsequently by another file manager are preserved. Errors restore the toggle
+to its prior value and show the failure rather than claiming a successful change.
+The installer unregisters this installation before removing its files. A small
+standalone proxy under `%LOCALAPPDATA%\Strata\ShellIntegration` survives manual
+deletion of a portable folder. Its watcher checks the target every 500 ms and
+repairs the association if it disappears; the next folder open also repairs it
+if the watcher was not running. Turning the preference off or uninstalling
+stops shortcut handling and restores the prior sign-in entry. This does not
+replace Windows Open/Save dialogs.
+
+Windows browser windows save their normal position, size and maximized state in
+`window.toml` beside settings. Windows normalizes restored bounds after monitor
+changes. Minimized windows reopen normally, or maximized if that was their prior
+state. Ordinary Windows windows opened with an explicit target also save their
+tab session; only restoring the previous session is suppressed for that launch.
+The existing Linux explicit-target session policy is unchanged.
+
+On Windows, **Settings → General → Startup → Keep Strata running in the background**
+is off by default. When enabled, closing an idle browser keeps at most one window
+initialized for reopening. Its previews are cleared before hiding, so media does
+not continue playing. Active file operations retain the existing close guard;
+windows with open modal dialogs close normally rather than retaining the dialog.
+The saved preference applies before Settings opens and changes live across windows.
+Disabling it destroys an already hidden window while leaving visible windows open.
+**Quit Strata** in that settings row, or `Start-Strata.cmd --quit`, exits the primary
+application after checking its operation guards. This feature does not add login
+startup entries. Installations and isolated configurations have separate, current-user
+and Windows-session scoped named-pipe activation endpoints. If an endpoint cannot
+be established, closing windows follows the ordinary exit behavior.
+
 Use `PreferenceManager::bind_preference(anchor, read, apply)` for cached behavior and
 controls, and `ThemeManager::bind_theme_preference(anchor, read, apply)` for values
 derived from the theme catalog or live Omarchy availability. The binding applies the

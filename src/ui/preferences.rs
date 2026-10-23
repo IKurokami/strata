@@ -201,6 +201,12 @@ pub(in crate::ui) struct Preferences {
     default_directory: Option<PathBuf>,
     #[serde(default = "default_enabled")]
     restore_tabs: bool,
+    #[serde(default)]
+    keep_running_in_background: bool,
+    #[serde(default)]
+    show_console: bool,
+    #[serde(default)]
+    replace_file_explorer: bool,
     #[serde(default = "default_enabled")]
     remember_folder_views: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -309,6 +315,9 @@ impl Default for Preferences {
             release_channel: default_release_channel(),
             default_directory: None,
             restore_tabs: true,
+            keep_running_in_background: false,
+            show_console: false,
+            replace_file_explorer: false,
             remember_folder_views: true,
             folder_colors: HashMap::new(),
             custom_icons: HashMap::new(),
@@ -1044,6 +1053,39 @@ impl PreferenceManager {
 
     pub fn restore_tabs(&self) -> bool {
         self.preferences.borrow().restore_tabs
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn keep_running_in_background(&self) -> bool {
+        self.preferences.borrow().keep_running_in_background
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_keep_running_in_background(&self, enabled: bool) {
+        self.preferences.borrow_mut().keep_running_in_background = enabled;
+        self.save_preferences();
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn show_console(&self) -> bool {
+        self.preferences.borrow().show_console
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_show_console(&self, enabled: bool) {
+        self.preferences.borrow_mut().show_console = enabled;
+        self.save_preferences();
+    }
+
+    #[cfg(windows)]
+    pub fn replace_file_explorer(&self) -> bool {
+        self.preferences.borrow().replace_file_explorer
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_replace_file_explorer(&self, enabled: bool) {
+        self.preferences.borrow_mut().replace_file_explorer = enabled;
+        self.save_preferences();
     }
 
     pub fn set_restore_tabs(&self, enabled: bool) {

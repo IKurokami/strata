@@ -14,15 +14,16 @@ use gtk::{gio, glib, prelude::*};
 
 use crate::{
     adapters::{
-        gio_file_for_location,
         local_operations::{ArchiveListingStatus, decode_archive_listing},
+        read_file_for_location,
     },
     sandbox::{Cancellation, MediaPreviewBackend, ParseOperation, PdfRenderSize},
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
-        document_kind, has_plain_text_extension, is_non_executable_extensionless_dotfile,
-        layout_document, normalize_preview_text, parse_document,
+        document_kind, has_plain_text_extension, is_gif_path, is_image_path, is_media_path,
+        is_non_executable_extensionless_dotfile, layout_document, normalize_preview_text,
+        parse_document,
     },
 };
 
@@ -158,6 +159,7 @@ impl PreviewCache {
 fn preview_content_size(content: &PreviewContent) -> usize {
     match content {
         PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => png.len(),
+        PreviewContent::RawImage { pixels, .. } => pixels.len(),
         PreviewContent::Pdf {
             png, text_layer, ..
         } => {
@@ -276,13 +278,32 @@ impl LocalPreviewProvider {
                         truncated: false,
                     };
                     content_type = "text/plain".to_owned();
+                } else if is_gif_path(Path::new(&entry.native_name)) {
+                    // Keep GIF animation when Windows has no MIME database.
+                    // The media decoder bounds and loops the animation in the sandbox.
+                    content = PreviewContent::Media;
+                    content_type = "image/gif".to_owned();
+                } else if is_image_path(Path::new(&entry.native_name)) {
+                    // Windows GIO can report application/octet-stream for
+                    // valid images when no desktop MIME database is present.
+                    // Extension classification is only a fallback; the
+                    // bounded decoder still validates the actual bytes.
+                    content = PreviewContent::Image;
+                    content_type = "image/*".to_owned();
+                } else if is_media_path(Path::new(&entry.native_name)) {
+                    content = PreviewContent::Media;
+                    content_type = if crate::services::is_audio_path(Path::new(&entry.native_name)) {
+                        "audio/*"
+                    } else {
+                        "video/*"
+                    }.to_owned();
                 }
             }
 
             if !crate::services::is_model(&entry.native_name) && matches!(content, PreviewContent::Unsupported)
                 && (uncertain || entry.native_name.is_empty())
             {
-                let file = gio_file_for_location(&entry.location);
+                let file = read_file_for_location(&entry.location);
                 let info = match file
                     .query_info_future(
                         "standard::content-type,unix::mode",
@@ -495,7 +516,8 @@ impl LocalPreviewProvider {
                     size: request.media_size,
                     backend: media_preview_backend,
                     input_owner: None,
-                    audio_only: false,
+                    audio_only: content_type.starts_with("audio/")
+                        || crate::services::is_audio_path(Path::new(&entry.native_name)),
                 };
                 if let Some(staged) = staged {
                     media = media.retain_input(staged);
@@ -532,6 +554,7 @@ impl LocalPreviewProvider {
                 | PreviewContent::Document { .. }
                 | PreviewContent::Rendered { .. }
                 | PreviewContent::Rasterized { .. }
+                | PreviewContent::RawImage { .. }
                 | PreviewContent::SandboxedMedia { .. }
                 | PreviewContent::Archive { .. }
                 | PreviewContent::Unsupported => None,
@@ -658,6 +681,12 @@ impl LocalPreviewProvider {
                             text_layer: output.text_layer.map(std::sync::Arc::new),
                         }
                     }
+                    #[cfg(windows)]
+                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewImage)
+                        && output.raster_dimensions.is_some() => {
+                        let (width, height) = output.raster_dimensions.expect("validated image dimensions");
+                        PreviewContent::RawImage { width, height, pixels: output.data }
+                    }
                     Ok(Ok(output)) => {
                         if let Some(mtime) = modified.filter(|_| !matches!(operation, ParseOperation::PreviewCover(_))) {
                             thumbnail_to_store = Some((path.clone(), mtime, output.data.clone()));
@@ -707,7 +736,7 @@ impl LocalPreviewProvider {
                 content,
                 PreviewContent::Text { .. } | PreviewContent::Document { .. }
             ) {
-                let file = gio_file_for_location(&entry.location);
+                let file = read_file_for_location(&entry.location);
                 let native_path = entry.location.native_path().map(ToOwned::to_owned);
                 content =
                     match read_text(&file, native_path.as_deref(), request.text_byte_limit).await {

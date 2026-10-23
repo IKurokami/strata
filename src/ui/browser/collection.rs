@@ -513,8 +513,8 @@ pub(crate) fn filter_change_for(previous: &str, settled: &str) -> gtk::FilterCha
     // Wildcard and typo edits can add and remove matches in the same update.
     if previous.contains('*')
         || settled.contains('*')
-        || filter_query_allows_typos(previous)
-        || filter_query_allows_typos(settled)
+        || previous.split_whitespace().any(filter_query_allows_typos)
+        || settled.split_whitespace().any(filter_query_allows_typos)
     {
         gtk::FilterChange::Different
     } else if settled.starts_with(previous) && settled.len() > previous.len() {
@@ -575,11 +575,19 @@ pub(crate) fn apply_filter_query(
     model: &gtk::FilterListModel,
     filter: &gtk::CustomFilter,
     query: &RefCell<String>,
+    show_hidden: bool,
     settled: String,
 ) {
     let previous = query.borrow().clone();
     let change = filter_change_for(&previous, &settled);
+    let passthrough = show_hidden && settled.trim().is_empty();
     *query.borrow_mut() = settled;
+    if passthrough {
+        if model.filter().is_some() {
+            model.set_filter(None::<&gtk::CustomFilter>);
+        }
+        return;
+    }
     // The filter also hides dotfiles, even when the search query is empty.
     if model.filter().is_none() {
         model.set_filter(Some(filter));
@@ -607,13 +615,35 @@ fn rebuild_position_map(
     let n_source = source.n_items() as usize;
     let mut forward = Vec::new();
     let mut reverse = vec![NO_FILTERED_POSITION; n_source];
-    for (source_position, filtered_position) in reverse.iter_mut().enumerate() {
-        let Some(text) = source.value(source_position as u32) else {
-            continue;
-        };
-        if entry_matches(&text, show_hidden, query) {
-            *filtered_position = forward.len() as u32;
-            forward.push(source_position);
+    if query.trim().is_empty() {
+        for (source_position, filtered_position) in reverse.iter_mut().enumerate() {
+            let visible = if show_hidden {
+                source
+                    .is_hidden(source_position as u32)
+                    .map(|_| true)
+                    .or_else(|| source.value(source_position as u32).map(|_| true))
+                    .unwrap_or(false)
+            } else if let Some(hidden) = source.is_hidden(source_position as u32) {
+                !hidden
+            } else {
+                source
+                    .value(source_position as u32)
+                    .is_some_and(|text| !super::entry::model_is_hidden(&text))
+            };
+            if visible {
+                *filtered_position = forward.len() as u32;
+                forward.push(source_position);
+            }
+        }
+    } else {
+        for (source_position, filtered_position) in reverse.iter_mut().enumerate() {
+            let Some(text) = source.value(source_position as u32) else {
+                continue;
+            };
+            if entry_matches(&text, show_hidden, query) {
+                *filtered_position = forward.len() as u32;
+                forward.push(source_position);
+            }
         }
     }
     PositionMap {
@@ -827,3 +857,6 @@ pub(crate) fn cancel_source(source: &RefCell<Option<glib::SourceId>>) {
         source.remove();
     }
 }
+
+#[cfg(test)]
+mod tests;

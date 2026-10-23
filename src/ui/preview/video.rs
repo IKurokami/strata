@@ -145,7 +145,7 @@ impl VideoView {
         frame.add_overlay(&placeholder);
         let bubble_cell = gtk::Picture::new();
         bubble_cell.add_css_class("preview-video-bubble-cell");
-        bubble_cell.set_content_fit(gtk::ContentFit::Fill);
+        bubble_cell.set_content_fit(gtk::ContentFit::Contain);
         bubble_cell.set_can_shrink(false);
         let bubble_time = gtk::Label::new(None);
         bubble_time.add_css_class("preview-video-bubble-time");
@@ -632,14 +632,12 @@ impl VideoView {
         let Some(cell) = cell else {
             return;
         };
-        let aspect = self.media.borrow().as_ref().and_then(|media| {
-            media
-                .downcast_ref::<DecodedMedia>()
-                .and_then(|media| self.video_aspect(media))
-        });
         self.placeholder
             .set_poster_with_opacity(Some(cell), SEEK_COVER_OPACITY);
-        self.placeholder.set_aspect(aspect);
+        // Storyboard cells are square, padded textures. Let the placeholder use
+        // the texture's intrinsic aspect so seeking never stretches the padded
+        // frame into the video's aspect ratio.
+        self.placeholder.set_aspect(None);
         self.placeholder.reveal();
         self.picture.set_opacity(0.0);
         self.seek_covered.set(true);
@@ -658,7 +656,10 @@ impl VideoView {
             return;
         };
         let board = self.storyboard.borrow().clone();
-        let cell = board.as_ref().and_then(|board| board.nearest(time as u64));
+        let Some(cell) = board.as_ref().and_then(|board| board.nearest(time as u64)) else {
+            self.bubble.set_visible(false);
+            return;
+        };
         let (width, height) = board.map_or_else(
             || {
                 let aspect = self
@@ -681,7 +682,7 @@ impl VideoView {
             |board| (board.sheet.width as i32, board.sheet.height as i32),
         );
         self.bubble_cell.set_size_request(width, height);
-        self.bubble_cell.set_paintable(cell.as_ref());
+        self.bubble_cell.set_paintable(Some(&cell));
         self.bubble_time
             .set_text(&match self.chapter_title_at(time) {
                 Some(title) => format!("{} · {title}", clock(time)),

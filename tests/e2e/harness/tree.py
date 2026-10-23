@@ -149,6 +149,17 @@ class Node:
         except Exception:
             return None
 
+    def set_numeric_value(self, value: float) -> bool:
+        """Set an accessible Value (for example, a scroll bar adjustment)."""
+
+        try:
+            interface = Atspi.Accessible.get_value_iface(self._accessible)
+            if interface is None:
+                return False
+            return bool(Atspi.Value.set_current_value(interface, value))
+        except Exception:
+            return False
+
     @property
     def children(self) -> list["Node"]:
         try:

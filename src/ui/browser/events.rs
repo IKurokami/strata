@@ -388,7 +388,17 @@ impl ViewState {
                     column.show_hidden.set(*show_hidden);
                     column.search_session.set_show_hidden(*show_hidden);
                     touch_source_model(column);
-                    column.filter.changed(gtk::FilterChange::Different);
+                    if !column.recursive_search_active.get() {
+                        if *show_hidden && !column.map.has_query() {
+                            column.filtered_model.set_filter(None::<&gtk::CustomFilter>);
+                        } else if column.filtered_model.filter().is_none() {
+                            column.filtered_model.set_filter(Some(&column.filter));
+                        } else {
+                            column.filter.changed(gtk::FilterChange::Different);
+                        }
+                    } else {
+                        column.filter.changed(gtk::FilterChange::Different);
+                    }
                 }
                 self.mode_views.borrow().set_show_hidden(*show_hidden);
             }
@@ -1316,6 +1326,43 @@ impl ViewState {
             }
             self.mode_views.borrow().clear_filter(depth);
         }
+    }
+
+    #[cfg(windows)]
+    pub(super) fn reveal_external_locations(
+        self: &Rc<Self>,
+        directory: Location,
+        targets: Vec<Location>,
+        properties: bool,
+    ) {
+        let depth = self.browser.active_depth();
+        let selected = self.browser.selected_entries();
+        let unchanged = !properties
+            && !targets.is_empty()
+            && self.browser.active_location().as_ref() == Some(&directory)
+            && depth.is_some_and(|depth| {
+                self.browser
+                    .column_snapshot(depth)
+                    .is_some_and(|column| !column.loading && !column.reveal_pending)
+                    && self.browser.column_snapshot(depth + 1).is_none()
+            })
+            && selected.len() == targets.len()
+            && selected
+                .iter()
+                .all(|entry| targets.contains(&entry.location))
+            && self
+                .browser
+                .focused_item()
+                .is_some_and(|(_, _, entry)| targets.first() == Some(&entry.location));
+        if unchanged {
+            self.prepare_reveal(&directory);
+            self.browser.bump_navigation_generation();
+            self.browser.cancel_deferred_reveal();
+            self.reveal_focused_entry();
+            self.browser.focus_active();
+            return;
+        }
+        self.reveal_locations(directory, targets, properties);
     }
 
     pub(super) fn reveal_locations(

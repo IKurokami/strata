@@ -221,7 +221,14 @@ fn modifier_names(locale: &str, modifiers: Modifiers) -> Vec<String> {
         (Modifiers::CONTROL_MASK, "keys.name.ctrl"),
         (Modifiers::ALT_MASK, "keys.name.alt"),
         (Modifiers::SHIFT_MASK, "keys.name.shift"),
-        (Modifiers::SUPER_MASK, "keys.name.super"),
+        (
+            Modifiers::SUPER_MASK,
+            if cfg!(windows) {
+                "keys.name.windows"
+            } else {
+                "keys.name.super"
+            },
+        ),
     ]
     .into_iter()
     .filter(|(modifier, _)| modifiers.contains(*modifier))

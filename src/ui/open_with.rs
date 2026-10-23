@@ -179,7 +179,7 @@ pub(super) async fn resolve(
         let Ok(info) = info else {
             return Some(Err("Unable to read the selected file type"));
         };
-        if info.file_type() == gio::FileType::SymbolicLink {
+        if crate::services::gio_file_type(&info) == Some(gio::FileType::SymbolicLink) {
             return Some(Err(
                 "Broken symbolic links cannot be opened with an application",
             ));
@@ -419,11 +419,11 @@ fn launch_with_recent_registration(
                     glib::Priority::DEFAULT,
                 )
                 .await
-                .map(|info| info.file_type());
+                .map(|info| crate::services::gio_file_type(&info));
             // A successful launch remains worth recording when metadata is unavailable.
             if !matches!(
                 file_type,
-                Ok(gio::FileType::Directory | gio::FileType::Mountable)
+                Ok(Some(gio::FileType::Directory | gio::FileType::Mountable))
             ) {
                 register_recent(&file);
             }

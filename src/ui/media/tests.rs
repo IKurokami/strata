@@ -141,6 +141,20 @@ fn reopening_resumes_where_the_preview_closed() {
     media.imp().position.set(media::timestamp(600));
     media.close();
     assert_eq!(recall_media_position(Path::new("/song")), None);
+
+    let (gif, calls) = open_restoring("/loop.gif", media::timestamp(900));
+    drive_until(&gif, &calls, 1);
+    for _ in 0..20 {
+        gif.tick().expect("tick succeeds");
+    }
+    assert_eq!(
+        *calls.borrow(),
+        vec![0],
+        "GIFs start from the first frame instead of resuming mid-loop"
+    );
+    gif.imp().position.set(media::timestamp(600));
+    gif.close();
+    assert_eq!(recall_media_position(Path::new("/loop.gif")), None);
 }
 
 fn pcm(values: impl IntoIterator<Item = i16>) -> Vec<u8> {

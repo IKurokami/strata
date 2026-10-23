@@ -70,12 +70,39 @@ pub enum LocalOperation {
         source: PathBuf,
         destination: PathBuf,
     },
+    CopyPath {
+        source: PathBuf,
+        destination: PathBuf,
+    },
+    /// Copy `source` into `destination`, reusing directories that already
+    /// exist. A colliding file is never replaced; the merge stops with
+    /// `AlreadyExists`, leaving already-merged entries in place.
+    MergePath {
+        source: PathBuf,
+        destination: PathBuf,
+    },
+    /// No-clobber copy that tries `name (1).ext`, `name (2).ext`... when
+    /// the destination exists. The chosen path is returned in the completion.
+    CopyPathKeepBoth {
+        source: PathBuf,
+        destination: PathBuf,
+    },
+    /// Cross-volume move: no-clobber copy, byte-for-byte verification, and
+    /// only then deletion of the source. Any earlier failure leaves the source
+    /// untouched; the partial destination copy is removed when it was created
+    /// by this operation.
+    MoveVerified {
+        source: PathBuf,
+        destination: PathBuf,
+    },
 }
 
 #[derive(Debug)]
 pub struct OperationCompletion {
     pub id: u64,
     pub result: io::Result<()>,
+    /// Final path published by operations that choose their own name.
+    pub created: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +213,22 @@ fn operation_uses_unc(operation: &LocalOperation) -> bool {
             source,
             destination,
         } => remote(source) || remote(destination),
+        LocalOperation::CopyPath {
+            source,
+            destination,
+        }
+        | LocalOperation::MergePath {
+            source,
+            destination,
+        }
+        | LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        }
+        | LocalOperation::MoveVerified {
+            source,
+            destination,
+        } => remote(source) || remote(destination),
     }
 }
 
@@ -226,6 +269,22 @@ fn uncertain_drive_lane(operation: &LocalOperation) -> Option<u8> {
             source,
             destination,
         } => non_system(destination).or_else(|| non_system(source)),
+        LocalOperation::CopyPath {
+            source,
+            destination,
+        }
+        | LocalOperation::MergePath {
+            source,
+            destination,
+        }
+        | LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        }
+        | LocalOperation::MoveVerified {
+            source,
+            destination,
+        } => non_system(destination).or_else(|| non_system(source)),
     }
 }
 
@@ -243,6 +302,7 @@ fn complete_dispatch_error(
         .send(OperationCompletion {
             id,
             result: Err(error),
+            created: None,
         })
         .is_ok()
 }
@@ -318,7 +378,7 @@ fn spawn_operation_worker(
 ) -> io::Result<()> {
     thread::Builder::new().name(name.into()).spawn(move || {
         while let Ok((id, operation, cancelled)) = requests.recv() {
-            let result = if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+            let outcome = if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
                 Err(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "operation cancelled",
@@ -326,12 +386,20 @@ fn spawn_operation_worker(
             } else {
                 execute(operation, &cancelled)
             };
+            let (result, created) = match outcome {
+                Ok(created) => (Ok(()), created),
+                Err(error) => (Err(error), None),
+            };
             outstanding
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&id);
             if completions
-                .send(OperationCompletion { id, result })
+                .send(OperationCompletion {
+                    id,
+                    result,
+                    created,
+                })
                 .is_err()
             {
                 break;
@@ -360,14 +428,14 @@ fn validate_native_file_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
+fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<Option<PathBuf>> {
     #[cfg(test)]
     drive_tests::pause_if_simulated_offline(&operation);
     match operation {
         LocalOperation::CreateDirectory(path) => {
             validate_native_file_path(&path)?;
             start_irreversible_step(cancelled)?;
-            fs::create_dir(path)
+            fs::create_dir(path).map(|()| None)
         }
         LocalOperation::CopyFile {
             source,
@@ -375,7 +443,40 @@ fn execute(operation: LocalOperation, cancelled: &AtomicU8) -> io::Result<()> {
         } => {
             validate_native_file_path(&source)?;
             validate_native_file_path(&destination)?;
-            copy_no_clobber(source, destination, cancelled)
+            copy_no_clobber(source, destination, cancelled).map(|()| None)
+        }
+        LocalOperation::CopyPath {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            copy_path_no_clobber(source, destination, cancelled).map(|()| None)
+        }
+        LocalOperation::MergePath {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            start_irreversible_step(cancelled)?;
+            merge_path(&source, &destination, cancelled).map(|()| None)
+        }
+        LocalOperation::MoveVerified {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            move_verified(&source, &destination, cancelled).map(|()| None)
+        }
+        LocalOperation::CopyPathKeepBoth {
+            source,
+            destination,
+        } => {
+            validate_native_file_path(&source)?;
+            validate_native_file_path(&destination)?;
+            copy_path_keep_both(&source, &destination, cancelled).map(Some)
         }
     }
 }
@@ -406,6 +507,72 @@ pub(crate) fn open_regular_source(path: &Path) -> io::Result<File> {
 fn copy_no_clobber(source: PathBuf, destination: PathBuf, cancelled: &AtomicU8) -> io::Result<()> {
     let mut reader = open_regular_source(&source)?;
     stage_and_publish(&mut reader, &destination, cancelled)
+}
+
+fn copy_path_no_clobber(
+    source: PathBuf,
+    destination: PathBuf,
+    cancelled: &AtomicU8,
+) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(&source)?;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source reparse points are not copied",
+        ));
+    }
+    if metadata.is_file() {
+        return copy_no_clobber(source, destination, cancelled);
+    }
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source must be a regular file or directory",
+        ));
+    }
+    start_irreversible_step(cancelled)?;
+    copy_directory_no_clobber(&source, &destination, cancelled)
+}
+
+fn copy_directory_no_clobber(
+    source: &Path,
+    destination: &Path,
+    cancelled: &AtomicU8,
+) -> io::Result<()> {
+    if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+    }
+    // CREATE_NEW-equivalent directory creation is the no-clobber publication
+    // for the root. A partial tree is left intact on failure for truthful
+    // recovery; it is never mistaken for a completed copy.
+    fs::create_dir(destination)?;
+    for entry in fs::read_dir(source)? {
+        if cancelled.load(Ordering::Acquire) == OP_CANCELLED {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "copy cancelled"));
+        }
+        let entry = entry?;
+        let source_child = entry.path();
+        let destination_child = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_child)?;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source reparse points are not copied",
+            ));
+        }
+        if metadata.is_dir() {
+            copy_directory_no_clobber(&source_child, &destination_child, cancelled)?;
+        } else if metadata.is_file() {
+            let child_state = AtomicU8::new(OP_PENDING);
+            copy_no_clobber(source_child, destination_child, &child_state)?;
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source contains an unsupported filesystem entry",
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct StagingFile {
@@ -483,6 +650,10 @@ fn stage_and_publish(
     fs::hard_link(&staging.path, destination)
 }
 
+#[path = "windows_operations/merge_move.rs"]
+mod merge_move;
+use merge_move::{copy_path_keep_both, merge_path, move_verified};
+
 #[cfg(test)]
 #[path = "windows_operations/drive_tests.rs"]
 mod drive_tests;
@@ -548,6 +719,10 @@ mod tests {
         assert!(operation_uses_unc(&LocalOperation::CopyFile {
             source: PathBuf::from(r"C:\Users\Public\local.txt"),
             destination: PathBuf::from(r"\\server\share\remote.txt"),
+        }));
+        assert!(operation_uses_unc(&LocalOperation::CopyPath {
+            source: PathBuf::from(r"C:\Users\Public\local"),
+            destination: PathBuf::from(r"\\server\share\remote"),
         }));
     }
 
@@ -769,5 +944,28 @@ mod tests {
             .expect("queue");
         finished(&service, id).expect("copy");
         assert_eq!(fs::read(dest).expect("copy"), payload);
+    }
+
+    #[test]
+    fn copies_directories_and_empty_subdirectories_without_following_reparse_points() {
+        let dir = TempDir::new();
+        let source = dir.file("source");
+        let nested = source.join("nested");
+        fs::create_dir_all(&nested).expect("source tree");
+        fs::write(source.join("file.txt"), b"directory bytes").expect("source file");
+        let destination = dir.file("destination");
+        let service = LocalOperationService::new().expect("service");
+        let id = service
+            .submit(LocalOperation::CopyPath {
+                source,
+                destination: destination.clone(),
+            })
+            .expect("queue");
+        finished(&service, id).expect("directory copy");
+        assert_eq!(
+            fs::read(destination.join("file.txt")).expect("copied file"),
+            b"directory bytes"
+        );
+        assert!(destination.join("nested").is_dir());
     }
 }

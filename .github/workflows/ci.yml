@@ -23,7 +23,6 @@ jobs:
   quality-build:
     name: Quality build and lint
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     timeout-minutes: 20
     outputs:
       environment_image: ${{ steps.environment.outputs.environment_image }}
@@ -180,7 +179,7 @@ jobs:
     if: ${{ github.event_name != 'push' }}
     needs: quality-build
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -232,7 +231,7 @@ jobs:
   quality:
     name: Format, lint, and test
     needs: [quality-build, quality-shard]
-    if: ${{ always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -266,7 +265,7 @@ jobs:
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     env:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
-    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name != 'push' }}
     # Bound hung bootstrap jobs independently of informational timing reports.
     timeout-minutes: 10
     outputs:
@@ -460,6 +459,24 @@ jobs:
           fi
           zstd -dc target/e2e-runtime/runtime.tar.zst | docker load
 
+      - name: Allow nested user namespaces on the disposable CI VM
+        run: |
+          # Ubuntu's host AppArmor restriction applies even to unconfined containers.
+          if [[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Verify nested sandbox startup before GUI scenarios
+        run: |
+          chmod +x target/e2e-bundle/strata
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --mount "type=bind,source=$PWD/target/e2e-bundle/strata,target=/strata,readonly" \
+            strata-e2e:ci-runtime bwrap --unshare-all --die-with-parent --new-session --clearenv \
+            --ro-bind /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 \
+            --dir /app --ro-bind /strata /app/strata --proc /proc --dev /dev --tmpfs /tmp \
+            -- /usr/bin/sh -ec '/app/strata --version; unshare --user --map-root-user /usr/bin/true'
+
       - name: Run the assigned scenarios without rebuilding or installing
         env:
           STRATA_CONTAINER_ENGINE: docker
@@ -495,7 +512,7 @@ jobs:
   e2e:
     name: End-to-end GUI suite
     needs: [e2e-build, e2e-shard]
-    if: ${{ always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
@@ -541,7 +558,7 @@ jobs:
   release-scripts:
     name: Release workflow scripts
     runs-on: ubuntu-24.04
-    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name != 'push' }}
 
     steps:
       - name: Check out repository
@@ -553,7 +570,7 @@ jobs:
   repository-policy:
     name: Dependency and spelling policy
     runs-on: ${{ github.repository == 'lgse/strata' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: true
 
     steps:
       - name: Check out repository

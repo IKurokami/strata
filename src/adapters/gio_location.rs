@@ -11,6 +11,16 @@ pub(crate) fn gio_file_for_location(location: &Location) -> gio::File {
         .unwrap_or_else(|| gio::File::for_uri(location.uri_value().unwrap_or_default()))
 }
 
+/// Resolve a virtual bin item only for reads. Transfer/export callers must retain
+/// its virtual identity so filesystem moves cannot bypass Shell bookkeeping.
+pub(crate) fn read_file_for_location(location: &Location) -> gio::File {
+    #[cfg(windows)]
+    if let Some(path) = super::recycle_bin::path(location) {
+        return gio::File::for_path(path);
+    }
+    gio_file_for_location(location)
+}
+
 /// Builds a `Location` for a `gio::File`, preferring a native path only when
 /// the file is genuinely on a local filesystem. A mounted GVfs backend (SMB,
 /// SFTP, ...) can still return a `.path()` via its FUSE mirror even though the

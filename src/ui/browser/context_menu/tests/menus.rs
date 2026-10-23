@@ -6,7 +6,6 @@ use crate::services::{
     DirectoryEvent, DirectoryRequest, FileSource, LoadHandle, LocationValidationError,
 };
 use crate::ui::browser::{BrowserView, PeekBehavior};
-use std::time::{Duration, Instant};
 
 pub(super) struct MenuSource;
 
@@ -167,22 +166,6 @@ pub(super) fn descendants(widget: &gtk::Widget) -> Vec<gtk::Widget> {
     result
 }
 
-#[track_caller]
-pub(in crate::ui::browser::context_menu) fn wait_until(condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !condition() {
-        assert!(Instant::now() < deadline, "menu fixture did not settle");
-        let context = glib::MainContext::default();
-        for _ in 0..100 {
-            if !context.pending() {
-                break;
-            }
-            context.iteration(false);
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
-
 pub(super) fn label(widget: &gtk::Widget, text: &str) -> Option<gtk::Widget> {
     descendants(widget).into_iter().find(|widget| {
         widget.is_mapped()
@@ -330,8 +313,9 @@ fn context_hints_follow_the_active_map() {
 
 #[test]
 fn archive_extraction_actions_follow_build_support() {
-    crate::test_support::gtk_test(
+    crate::test_support::gtk_test_with_env(
         "ui::browser::context_menu::tests::menus::archive_extraction_actions_follow_build_support",
+        [("G_DEBUG", "fatal-criticals")],
         || {
             let fixture = tempfile::tempdir().expect("menu fixture");
             let view = BrowserView::new(Rc::new(MenuSource), PeekBehavior::default());

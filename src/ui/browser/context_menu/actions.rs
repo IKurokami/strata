@@ -9,7 +9,7 @@ use std::{
 
 use gtk::{gio, prelude::*};
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -42,6 +42,7 @@ pub(super) struct ActionMenuSection {
     monitor_handlers: RefCell<Vec<gtk::glib::SignalHandlerId>>,
     refresh_pending: Cell<bool>,
     selection: RefCell<Option<SelectionMenuContext>>,
+    pressed_inside: Rc<Cell<bool>>,
 }
 
 #[derive(Clone)]
@@ -70,6 +71,26 @@ impl Drop for ActionMenuSection {
         if self.popover.parent().is_some() {
             self.popover.unparent();
         }
+        detach_menu_model(&self.popover, self.header.as_ref());
+    }
+}
+
+fn detach_menu_model(popover: &gtk::PopoverMenu, header: Option<&gtk::Widget>) {
+    let Some(model) = popover.menu_model().and_downcast::<gio::Menu>() else {
+        return;
+    };
+    let items: Vec<_> = (0..model.n_items())
+        .map(|index| gio::MenuItem::from_model(&model, index))
+        .collect();
+    if let Some(header) = header {
+        popover.remove_child(header);
+    }
+    // Destroy trackers while their stack and action muxer are still attached.
+    // GTK otherwise removes action observers reentrantly during stack teardown.
+    model.remove_all();
+    popover.set_menu_model(gio::MenuModel::NONE);
+    for item in items {
+        model.append_item(&item);
     }
 }
 
@@ -86,6 +107,19 @@ impl ActionMenuSection {
         let popover =
             gtk::PopoverMenu::from_model_full(&gio::Menu::new(), gtk::PopoverMenuFlags::NESTED);
         popover.set_menu_model(gio::MenuModel::NONE);
+        let detached_header = header.map(gtk::prelude::ObjectExt::downgrade);
+        popover.connect_local("unrealize", true, move |values| {
+            let popover = values[0]
+                .get::<gtk::PopoverMenu>()
+                .expect("popover unrealize receiver");
+            // Remove action observers before GTK detaches the parent muxer.
+            // Run after GtkPopoverMenu resets its submenu during unrealize.
+            let header = detached_header
+                .as_ref()
+                .and_then(gtk::glib::WeakRef::upgrade);
+            detach_menu_model(&popover, header.as_ref());
+            None
+        });
         popover.set_has_arrow(false);
         popover.add_css_class("folder-context-popover");
         popover.add_css_class("actions-context-popover");
@@ -175,6 +209,24 @@ impl ActionMenuSection {
             handler.replace(Some(id));
             clock.request_phase(gtk::gdk::FrameClockPhase::AFTER_PAINT);
         });
+        // GtkModelButton activates on an unpaired release, and some compositors
+        // (niri) deliver the release of the click that opened the menu to the
+        // popup. A release before any press inside the menu can only be that one.
+        let pressed_inside = Rc::new(Cell::new(false));
+        let seen_press = pressed_inside.clone();
+        let release_guard = gtk::EventControllerLegacy::new();
+        release_guard.set_propagation_phase(gtk::PropagationPhase::Capture);
+        // Also cover the nested submenu popovers, which are separate natives.
+        release_guard.set_propagation_limit(gtk::PropagationLimit::None);
+        release_guard.connect_event(move |_, event| match event.event_type() {
+            gtk::gdk::EventType::ButtonPress => {
+                seen_press.set(true);
+                gtk::glib::Propagation::Proceed
+            }
+            gtk::gdk::EventType::ButtonRelease if !seen_press.get() => gtk::glib::Propagation::Stop,
+            _ => gtk::glib::Propagation::Proceed,
+        });
+        popover.add_controller(release_guard);
         refresh_presentation(&popover, &navigation);
         let transfer_sections = commands.transfer_sections.clone();
         let menu = Rc::new(Self {
@@ -196,6 +248,7 @@ impl ActionMenuSection {
             monitor_handlers: RefCell::new(Vec::new()),
             refresh_pending: Cell::new(false),
             selection: RefCell::new(None),
+            pressed_inside,
         });
         let monitor = &menu.monitor;
         if menu.transfer_sections.is_some() {
@@ -246,6 +299,7 @@ impl ActionMenuSection {
     }
 
     pub(super) fn show(&self, anchor: &gtk::Widget, x: f64, y: f64) {
+        self.pressed_inside.set(false);
         if self.popover.parent().is_none()
             && let Some(owner) = self.owner.upgrade()
         {

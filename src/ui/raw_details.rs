@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-use std::path::{Path, PathBuf};
+use std::{
+    cell::OnceCell,
+    path::{Path, PathBuf},
+};
 
 use gtk::{gio, glib, prelude::*};
 
@@ -83,38 +86,49 @@ fn rows(metadata: &RawMetadata) -> [(&'static str, String); 7] {
 
 pub(super) struct RawDetails {
     pub(super) section: gtk::Box,
-    values: [gtk::Label; 7],
+    values: OnceCell<[gtk::Label; 7]>,
 }
 
 impl RawDetails {
     pub(super) fn new() -> Self {
         let section = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let headings = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
-        let values = rows(&RawMetadata::default()).map(|(name, value)| {
-            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-            row.add_css_class("properties-row");
-            let heading = gtk::Label::new(Some(name));
-            heading.add_css_class("properties-row-label");
-            heading.set_xalign(0.0);
-            headings.add_widget(&heading);
-            let label = gtk::Label::new(Some(&value));
-            label.add_css_class("properties-row-value");
-            label.set_xalign(0.0);
-            label.set_hexpand(true);
-            label.set_selectable(true);
-            label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-            label.set_max_width_chars(32);
-            label.update_property(&[gtk::accessible::Property::Description(name)]);
-            row.append(&heading);
-            row.append(&label);
-            section.append(&row);
-            label
-        });
-        Self { section, values }
+        Self {
+            section,
+            values: OnceCell::new(),
+        }
+    }
+
+    fn values(&self) -> &[gtk::Label; 7] {
+        self.values.get_or_init(|| {
+            let headings = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
+            rows(&RawMetadata::default()).map(|(name, value)| {
+                let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                row.add_css_class("properties-row");
+                let heading = gtk::Label::new(Some(name));
+                heading.add_css_class("properties-row-label");
+                heading.set_xalign(0.0);
+                headings.add_widget(&heading);
+                let label = gtk::Label::new(Some(&value));
+                label.add_css_class("properties-row-value");
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+                label.set_selectable(true);
+                label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+                label.set_max_width_chars(32);
+                label.update_property(&[gtk::accessible::Property::Description(name)]);
+                row.append(&heading);
+                row.append(&label);
+                self.section.append(&row);
+                label
+            })
+        })
     }
 
     pub(super) fn reset(&self) {
-        for (label, (_, value)) in self.values.iter().zip(rows(&RawMetadata::default())) {
+        let Some(values) = self.values.get() else {
+            return;
+        };
+        for (label, (_, value)) in values.iter().zip(rows(&RawMetadata::default())) {
             label.set_text(&value);
         }
     }
@@ -122,9 +136,10 @@ impl RawDetails {
     pub(super) fn load(&self, path: Option<PathBuf>) -> MetadataLoad {
         let cancellation = Cancellation::default();
         let handle = MetadataLoad(cancellation.clone());
+        let values = self.values();
         self.reset();
         let Some(path) = path else { return handle };
-        let values = self.values.each_ref().map(|label| label.downgrade());
+        let values = values.each_ref().map(|label| label.downgrade());
         glib::MainContext::default().spawn_local(async move {
             let worker_cancellation = cancellation.clone();
             let result = gio::spawn_blocking(move || {

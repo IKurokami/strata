@@ -7,6 +7,7 @@ use std::{
 };
 
 fn main() {
+    embed_windows_icon();
     println!("cargo::rerun-if-changed=data/locales");
     write_translation_catalogs();
     glib_build_tools::compile_resources(&["data"], "data/strata.gresource.xml", "strata.gresource");
@@ -45,6 +46,32 @@ fn main() {
     println!("cargo::rustc-env=STRATA_BUILD_KIND={build_kind}");
 }
 
+fn embed_windows_icon() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    println!("cargo::rerun-if-changed=packaging/windows/strata.rc");
+    println!("cargo::rerun-if-changed=data/brand/strata.ico");
+    println!("cargo::rerun-if-env-changed=WINDRES");
+    let output = Path::new(&env::var_os("OUT_DIR").expect("OUT_DIR")).join("windows-icon.o");
+    let status = Command::new(env::var_os("WINDRES").unwrap_or_else(|| "windres".into()))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "--input",
+            "packaging/windows/strata.rc",
+            "--output-format",
+            "coff",
+        ])
+        .arg("--output")
+        .arg(&output)
+        .status()
+        .expect("run windres from the Windows GNU toolchain");
+    assert!(status.success(), "Windows icon resource compilation failed");
+    for binary in ["strata", "strata-shell"] {
+        println!("cargo::rustc-link-arg-bin={binary}={}", output.display());
+    }
+}
+
 /// Embeds the catalogs as static tables. rust-i18n's own `i18n!` loader emits one
 /// statement per message, and that unoptimized frame overflows 2 MiB thread stacks.
 fn write_translation_catalogs() {
@@ -54,8 +81,12 @@ fn write_translation_catalogs() {
         catalogs.contains_key("en"),
         "translation catalogs are missing from data/locales"
     );
+    let mut locales: Vec<_> = catalogs.into_iter().collect();
+    locales.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     let mut source = String::from("pub(crate) static CATALOGS: &[(&str, &[(&str, &str)])] = &[\n");
-    for (locale, messages) in &catalogs {
+    for (locale, messages) in locales {
+        let mut messages: Vec<_> = messages.into_iter().collect();
+        messages.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
         writeln!(source, "({locale:?}, &[").expect("format catalog");
         for (key, text) in messages {
             writeln!(source, "({key:?}, {text:?}),").expect("format catalog");

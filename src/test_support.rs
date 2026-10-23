@@ -128,6 +128,8 @@ pub(crate) fn gtk_test_with_env(
 ) {
     const CHILD: &str = "STRATA_ISOLATED_GTK_TEST";
     if std::env::var(CHILD).as_deref() == Ok(name) {
+        #[cfg(windows)]
+        crate::startup_windows::configure_runtime_environment();
         if let Err(error) = gtk::init() {
             assert!(
                 std::env::var_os("STRATA_REQUIRE_GTK_TESTS").is_none(),
@@ -137,6 +139,8 @@ pub(crate) fn gtk_test_with_env(
             return;
         }
         crate::assets::prepare().expect("bundled assets");
+        #[cfg(windows)]
+        crate::startup_windows::configure_font_map();
         crate::assets::register_icon_theme();
         run();
         return;

@@ -33,7 +33,10 @@ impl Forwarded {
             };
             presses.swap_remove(index).1.upgrade()
         };
-        if let Some(field) = field {
+        if let Some(field) = field
+            && field.is_mapped()
+            && field.root() == controller.widget().and_then(|widget| widget.root())
+        {
             controller.forward(&field);
         }
     }
@@ -45,6 +48,9 @@ pub(super) fn composing_field(controller: &gtk::EventControllerKey) -> Option<gt
             return None;
         }
         let focus = controller.widget()?.root()?.focus()?;
+        if !focus.is_mapped() {
+            return None;
+        }
         composing
             .iter()
             .any(|field| field.upgrade().as_ref() == Some(&focus))
@@ -99,6 +105,17 @@ fn follow_focus(window: &gtk::Window) {
                 composition_changed(view.upcast_ref(), preedit);
             });
         }
+        #[cfg(windows)]
+        focus.connect_unmap(|field| {
+            COMPOSING.with_borrow_mut(|composing| {
+                composing.retain(|other| other.upgrade().is_some_and(|other| &other != field));
+            });
+            if let Some(root) = field.root()
+                && root.focus().as_ref() == Some(field)
+            {
+                root.set_focus(None::<&gtk::Widget>);
+            }
+        });
         followed.push(focus.downgrade());
     });
 }

@@ -13,6 +13,27 @@ struct Target {
 }
 
 const TARGETS: &[Target] = &[
+    #[cfg(windows)]
+    Target {
+        id: "application-console",
+        page: "general",
+        title: "Show application console",
+        aliases: "windows cmd terminal console diagnostics logs tray",
+    },
+    #[cfg(windows)]
+    Target {
+        id: "replace-explorer",
+        page: "general",
+        title: "Replace File Explorer",
+        aliases: "windows default file manager folders drives shell desktop integration explorer replace restore uninstall",
+    },
+    #[cfg(windows)]
+    Target {
+        id: "background-startup",
+        page: "general",
+        title: "Keep Strata running in the background",
+        aliases: "startup launch warm resident keep alive quick reopen exit quit memory",
+    },
     Target {
         id: "language",
         page: "general",
@@ -205,12 +226,14 @@ const TARGETS: &[Target] = &[
         title: "Show close button",
         aliases: "window buttons header top bar titlebar controls hide",
     },
+    #[cfg(target_os = "linux")]
     Target {
         id: "desktop",
         page: "general",
         title: "Desktop integration",
         aliases: "configure portal file chooser open save dialog default file manager encrypted udiskie",
     },
+    #[cfg(target_os = "linux")]
     Target {
         id: "udiskie-unlock",
         page: "general",

@@ -33,7 +33,15 @@ def main() -> int:
             "GTK_A11Y": "none",
             "NO_AT_BRIDGE": "1",
         }
-        for name in ("STRATA_DELETE_BENCH_FILES", "STRATA_DELETE_BENCH_ROOT"):
+        for name in (
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_JOBS",
+            "CARGO_PROFILE_DEV_DEBUG",
+            "CARGO_INCREMENTAL",
+            "RUST_TEST_THREADS",
+            "STRATA_DELETE_BENCH_FILES",
+            "STRATA_DELETE_BENCH_ROOT",
+        ):
             if name in os.environ:
                 environment[name] = os.environ[name]
         child = subprocess.Popen(

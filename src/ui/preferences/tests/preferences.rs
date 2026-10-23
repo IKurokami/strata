@@ -305,6 +305,8 @@ fn unreadable_preferences_are_preserved_while_live_changes_still_apply() {
             let manager = PreferenceManager::load();
             let window = save_notice_window(&manager);
             assert_eq!(*manager.preferences.borrow(), non_default_preferences());
+            assert!(manager.keep_running_in_background());
+            assert!(manager.show_console());
             manager.set_folder_peeking(false);
             assert!(save_notices(&window).is_empty());
             assert!(
@@ -663,6 +665,7 @@ fn every_saved_preference_loads_before_any_settings_page_exists() {
             let themes = ThemeManager::shared();
             let manager = PreferenceManager::shared();
             assert_eq!(*manager.preferences.borrow(), non_default_preferences());
+            assert!(manager.keep_running_in_background());
             assert!(!themes.follows_omarchy());
             assert_eq!(themes.selected_id(), "nord");
             assert!(manager.folder_peeking());
@@ -1185,6 +1188,9 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_date_format(crate::util::DateFormat::Long),
                 |m| m.set_default_directory(None),
                 |m| m.set_restore_tabs(true),
+                |m| m.set_keep_running_in_background(false),
+                |m| m.set_show_console(false),
+                |m| m.set_replace_file_explorer(false),
                 |m| m.set_remember_folder_views(true),
                 |m| m.set_device_label("volume:fixture-kingston", "Photos / 📁"),
                 |m| m.set_device_label("volume:fixture-kingston", ""),

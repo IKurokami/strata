@@ -1,0 +1,167 @@
+--- a/gtk/gtkimcontextime.c
++++ b/gtk/gtkimcontextime.c
+@@ -42,6 +42,7 @@
+ 
+ #undef STRICT
+ #include <pango/pangowin32.h>
++#include <pango/pangocairo.h>
+ 
+ /* Determines what happens when focus is lost while preedit is in process. */
+ typedef enum {
+@@ -72,6 +73,7 @@
+    */
+   gboolean pretend_empty_preedit;
+   GtkWin32IMEFocusBehavior focus_behavior;
++  GdkWin32Display *filter_display;
+ };
+ 
+ 
+@@ -121,6 +123,21 @@
+                                                          "ime",
+                                                          0))
+ 
++/* The client widget can lose its surface before focus-out or disposal. */
++static void
++remove_message_filter (GtkIMContextIME *context_ime)
++{
++  GdkWin32Display *display = g_steal_pointer (&context_ime->priv->filter_display);
++
++  if (display)
++    {
++      gdk_win32_display_remove_filter (display,
++                                       gtk_im_context_ime_message_filter,
++                                       context_ime);
++      g_object_unref (display);
++    }
++}
++
+ static GdkSurface *
+ surface_from_widget (GtkIMContext *context)
+ {
+@@ -213,6 +230,9 @@
+                      GtkIMContextIME *context)
+ {
+   GdkFrameClock *frame_clock;
++
++  context->focus = FALSE;
++  remove_message_filter (context);
+ 
+   frame_clock = gtk_widget_get_frame_clock (context->client_widget);
+   g_clear_signal_handler (&context->after_layout_id, frame_clock);
+@@ -263,6 +283,7 @@
+ {
+   GtkIMContext *context = GTK_IM_CONTEXT (obj);
+ 
++  remove_message_filter (GTK_IM_CONTEXT_IME (context));
+   gtk_im_context_ime_set_client_widget (context, NULL);
+ 
+   G_OBJECT_CLASS (gtk_im_context_ime_parent_class)->dispose (obj);
+@@ -617,6 +638,7 @@
+ static void
+ gtk_im_context_ime_focus_in (GtkIMContext *context)
+ {
++  g_autoptr (GtkIMContext) keep_alive = g_object_ref (context);
+   GtkIMContextIME *context_ime = GTK_IM_CONTEXT_IME (context);
+   GdkSurface *toplevel;
+   HWND hwnd;
+@@ -642,8 +664,13 @@
+   if (!himc)
+     return;
+ 
+-  gdk_win32_display_add_filter (GDK_WIN32_DISPLAY (gdk_surface_get_display (toplevel)),
+-                                gtk_im_context_ime_message_filter, context_ime);
++  if (context_ime->priv->filter_display != GDK_WIN32_DISPLAY (gdk_surface_get_display (toplevel)))
++    {
++      remove_message_filter (context_ime);
++      context_ime->priv->filter_display = g_object_ref (GDK_WIN32_DISPLAY (gdk_surface_get_display (toplevel)));
++      gdk_win32_display_add_filter (context_ime->priv->filter_display,
++                                    gtk_im_context_ime_message_filter, context_ime);
++    }
+ 
+   /* restore preedit context */
+   context_ime->opened = ImmGetOpenStatus (himc);
+@@ -686,6 +713,7 @@
+ static void
+ gtk_im_context_ime_focus_out (GtkIMContext *context)
+ {
++  g_autoptr (GtkIMContext) keep_alive = g_object_ref (context);
+   GtkIMContextIME *context_ime = GTK_IM_CONTEXT_IME (context);
+   gboolean was_preediting;
+   GdkSurface *surface;
+@@ -693,7 +721,11 @@
+   surface = surface_from_widget (context);
+ 
+   if (!GDK_IS_SURFACE (surface))
+-    return;
++    {
++      context_ime->focus = FALSE;
++      remove_message_filter (context_ime);
++      return;
++    }
+ 
+   /* switch current context */
+   was_preediting = context_ime->preediting;
+@@ -737,12 +769,7 @@
+     }
+ 
+   /* remove event filter */
+-  if (GDK_IS_SURFACE (surface))
+-    {
+-      gdk_win32_display_remove_filter (GDK_WIN32_DISPLAY (gdk_surface_get_display (surface)),
+-                                       gtk_im_context_ime_message_filter,
+-                                       context_ime);
+-    }
++  remove_message_filter (context_ime);
+ 
+   if (was_preediting)
+     {
+@@ -819,6 +846,8 @@
+   const char *lang;
+   gunichar wc;
+   PangoContext *pango_context;
++  PangoFontMap *ime_font_map;
++  g_autoptr (PangoContext) ime_font_context = NULL;
+   PangoFont *font;
+   LOGFONTA *logfont;
+   PangoFontDescription *font_desc;
+@@ -845,6 +874,22 @@
+   pango_context = gtk_widget_get_pango_context (context_ime->client_widget);
+   if (!pango_context)
+     goto ERROR_OUT;
++
++  /* IMM32 requires LOGFONT from a Win32 font, even when the widget uses
++   * PangoCairo's Fontconfig backend. Keep widget font rendering unchanged. */
++  ime_font_map = g_object_get_data (G_OBJECT (gdk_surface_get_display (surface)),
++                                   "gtk-win32-ime-font-map");
++  if (!ime_font_map)
++    {
++      ime_font_map = pango_cairo_font_map_new_for_font_type (CAIRO_FONT_TYPE_WIN32);
++      if (!ime_font_map)
++        goto ERROR_OUT;
++      g_object_set_data_full (G_OBJECT (gdk_surface_get_display (surface)),
++                              "gtk-win32-ime-font-map", ime_font_map, g_object_unref);
++    }
++  ime_font_context = pango_font_map_create_context (ime_font_map);
++  pango_context_set_language (ime_font_context, pango_context_get_language (pango_context));
++  pango_context = ime_font_context;
+ 
+   /* Try to make sure we use a font that actually can show the
+    * language in question.
+@@ -933,7 +978,7 @@
+                                    int             *ret_valp,
+                                    gpointer         data)
+ {
+-  GtkIMContext *context;
++  g_autoptr (GtkIMContext) context = NULL;
+   GtkIMContextIME *context_ime;
+   HWND hwnd;
+   HIMC himc;
+@@ -942,7 +987,7 @@
+ 
+   g_return_val_if_fail (GTK_IS_IM_CONTEXT_IME (data), retval);
+ 
+-  context = GTK_IM_CONTEXT (data);
++  context = g_object_ref (GTK_IM_CONTEXT (data));
+   context_ime = GTK_IM_CONTEXT_IME (data);
+   if (!context_ime->focus)
+     return retval;

@@ -49,6 +49,9 @@ and session buses, then appends its arguments to the fixed
 ```
 
 These select test execution across targets, not compilation to one target.
+The runner preserves an explicitly selected `CARGO_TARGET_DIR`, build-job limit,
+development debug-info setting, incremental setting and test-thread limit, so
+container checks reuse their existing cache instead of rebuilding into `target/`.
 Targeted runs can still incur a full test build; Cargo's cache helps subsequent
 iterations. There is no automatic changed-code dependency-to-test mapping.
 
@@ -155,7 +158,10 @@ private `/proc`; the decoder's sandbox and the container's seccomp policy remain
 enabled. Docker's outer seccomp/AppArmor profiles and system-path masks must be
 disabled for the nested namespace and mount operations. This applies only to the
 disposable E2E container; Strata still launches its normal bubblewrap decoder
-sandbox. Neither engine uses privileged mode or mounts desktop sockets.
+sandbox. GitHub's disposable Ubuntu VM also allows unprivileged user namespaces
+through the host AppArmor policy before the nested sandbox probe. This setting
+is never applied to a developer's machine by the local runner. Neither engine
+uses privileged mode or mounts desktop sockets.
 Updating the image inputs is an intentional rendering
 environment change and requires reviewing the visual baselines.
 
@@ -167,6 +173,9 @@ For explicit host-toolkit debugging only, `./scripts/e2e-native.sh` accepts
 
 `./scripts/quality.sh` runs all three quality phases in the same verified build
 base. Use `./scripts/quality.sh fmt`, `clippy`, or `test` for an individual phase.
+Both unsharded Rust tests and quality shards use `GSK_RENDERER=cairo`, matching
+the native headless and E2E runners. Renderer-specific checks must explicitly
+select their renderer; default software GL on Xvfb can starve UI timers.
 No separate quality image is necessary: the published environment already has
 Rust 1.98.1, rustfmt, Clippy, native development libraries, and Xvfb. Quality now
 uses that pinned compiler rather than moving `stable`.
