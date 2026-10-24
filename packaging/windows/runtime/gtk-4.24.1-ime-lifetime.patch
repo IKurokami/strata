@@ -165,3 +165,20 @@
    context_ime = GTK_IM_CONTEXT_IME (data);
    if (!context_ime->focus)
      return retval;
+diff --git a/gdk/win32/gdkclipdrop-win32.c b/gdk/win32/gdkclipdrop-win32.c
+--- a/gdk/win32/gdkclipdrop-win32.c
++++ b/gdk/win32/gdkclipdrop-win32.c
+@@ -2660,7 +2660,12 @@ _gdk_win32_add_contentformat_to_pairs (GdkWin32Clipdrop *clip_drop,
+   else
+     offset = 0;
+ 
+-  fmt.w32format = RegisterClipboardFormatW (&contentformat_w[offset]);
++  /* CF_HDROP is predefined. Registering its name creates an unrelated format
++   * that native file drop targets do not recognize. */
++  if (offset != 0 && wcscmp (&contentformat_w[offset], L"CF_HDROP") == 0)
++    fmt.w32format = CF_HDROP;
++  else
++    fmt.w32format = RegisterClipboardFormatW (&contentformat_w[offset]);
+   GDK_NOTE (DND, g_print ("Registered clipboard format %S as 0x%x\n", &contentformat_w[offset], fmt.w32format));
+   g_free (contentformat_w);
+   fmt.contentformat = contentformat;

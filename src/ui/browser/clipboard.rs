@@ -25,6 +25,9 @@ const DRAG_PROXY_STACK_OFFSET: f64 = 5.0;
 
 const DRAG_PREVIEW_ICON_PX: f64 = 32.0;
 
+#[cfg(windows)]
+mod windows;
+
 struct DragPreviewLayout {
     canvas_w: f64,
     canvas_h: f64,
@@ -762,7 +765,19 @@ pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk
         "text/uri-list",
         &glib::Bytes::from_owned(uri_list.into_bytes()),
     );
-    let content = gtk::gdk::ContentProvider::new_union(&[file_list, uri_list]);
+    let providers = vec![file_list, uri_list];
+    #[cfg(windows)]
+    let providers = {
+        let mut providers = providers;
+        if let Some(data) = windows::file_drop_data(&files) {
+            providers.push(gtk::gdk::ContentProvider::for_bytes(
+                windows::FILE_DROP_MIME,
+                &glib::Bytes::from_owned(data),
+            ));
+        }
+        providers
+    };
+    let content = gtk::gdk::ContentProvider::new_union(&providers);
     let locations = entries.iter().map(|entry| entry.location.clone()).collect();
     ACTIVE_DRAG.with(|cell| {
         *cell.borrow_mut() = Some(ActiveDrag {

@@ -1,5 +1,29 @@
 # Windows GTK and playback runtime
 
+The GTK patch also maps the explicit outgoing MIME type
+`application/x.windows.CF_HDROP` to the predefined Windows `CF_HDROP` value.
+GTK 4.24.1 otherwise registers the string `CF_HDROP` as a new format, which
+native file drop targets do not recognize. Strata supplies a `DROPFILES` header
+and a double-NUL-terminated UTF-16 path list alongside its GTK FileList and URI
+providers. List, icon, column, search and preview drags share this provider.
+Mixed non-native selections retain the GTK/URI formats without exporting a
+partial native file selection. The GTK and GstPlay lifetime fixes below remain
+required and are preserved; no dependency baseline or source hash changed.
+
+`file-drop.c` checks this mapping through the native OLE `IDataObject` consumer
+and `DragQueryFileW`, including multiple Unicode and UNC paths. It creates a
+private window station and desktop with their own clipboard and stops if that
+isolation is unavailable; it never replaces the user's clipboard. Some Windows
+accounts cannot create a fresh station (errors 5/183); this is a blocked probe,
+not a passing or silently skipped native interoperability check. Compile with
+`gcc -Wall -Wextra -Werror file-drop.c -o file-drop.exe $(pkgconf --cflags --libs gtk4) -lole32 -lshell32 -luser32`.
+Place the executable beside the candidate GTK DLL and verify the printed loaded
+path. The candidate must pass normally. An otherwise identical runtime without
+the file-format hunk must pass `--expect-unsupported`, demonstrating that it
+offers a registered name instead of the predefined format. This is a native
+data-format contract check, not proof of a physical mouse drag into every app;
+test those interactions on the installed artifact before promotion.
+
 GTK 4.24.1 registers a Win32 display message filter with a borrowed
 `GtkIMContextIME` pointer. Losing the client surface before focus-out, disposing
 the context, or repeated focus-in can leave the filter referencing freed memory.
