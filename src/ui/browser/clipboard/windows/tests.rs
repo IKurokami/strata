@@ -18,25 +18,27 @@ fn shell_paths(data: &[u8]) -> Vec<Vec<u16>> {
     unsafe extern "system" {
         fn DragQueryFileW(drop: *mut c_void, index: u32, name: *mut u16, capacity: u32) -> u32;
     }
-    // SAFETY: GMEM_FIXED yields a directly addressable HGLOBAL. The allocation
-    // contains the entire payload and outlives every synchronous Shell call.
-    unsafe {
-        let memory = GlobalAlloc(0, data.len());
-        assert!(!memory.is_null());
-        std::ptr::copy_nonoverlapping(data.as_ptr(), memory.cast::<u8>(), data.len());
-        let count = DragQueryFileW(memory, u32::MAX, std::ptr::null_mut(), 0);
-        let paths = (0..count)
-            .map(|index| {
-                let length = DragQueryFileW(memory, index, std::ptr::null_mut(), 0);
-                let mut name = vec![0; length as usize + 1];
-                let copied = DragQueryFileW(memory, index, name.as_mut_ptr(), length + 1);
-                name.truncate(copied as usize);
-                name
-            })
-            .collect();
-        assert!(GlobalFree(memory).is_null());
-        paths
-    }
+    // SAFETY: GMEM_FIXED yields a directly addressable HGLOBAL of the requested size.
+    let memory = unsafe { GlobalAlloc(0, data.len()) };
+    assert!(!memory.is_null());
+    // SAFETY: The non-overlapping allocation holds the complete payload.
+    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), memory.cast::<u8>(), data.len()) };
+    // SAFETY: The initialized HGLOBAL remains live for every synchronous Shell call.
+    let count = unsafe { DragQueryFileW(memory, u32::MAX, std::ptr::null_mut(), 0) };
+    let paths = (0..count)
+        .map(|index| {
+            // SAFETY: The index belongs to the live payload; null output queries its length.
+            let length = unsafe { DragQueryFileW(memory, index, std::ptr::null_mut(), 0) };
+            let mut name = vec![0; length as usize + 1];
+            // SAFETY: The output buffer includes space for the reported path and NUL.
+            let copied = unsafe { DragQueryFileW(memory, index, name.as_mut_ptr(), length + 1) };
+            name.truncate(copied as usize);
+            name
+        })
+        .collect();
+    // SAFETY: All Shell calls have returned; this allocation is owned only here.
+    assert!(unsafe { GlobalFree(memory) }.is_null());
+    paths
 }
 
 #[test]
