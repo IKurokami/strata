@@ -36,6 +36,14 @@ use crate::{
 pub(crate) const PASSWORD_REQUIRED: &str = "A password is required to extract this archive.";
 pub(crate) const MAYBE_BAD_PASSWORD: &str = "The password may be incorrect.";
 const ARCHIVE_CANCELLED: &str = "Operation cancelled";
+#[cfg(feature = "rar")]
+#[path = "archive/rar.rs"]
+mod rar;
+
+#[cfg(test)]
+#[path = "archive/folder_tests.rs"]
+mod folder_tests;
+
 const COPY_BUF_SIZE: usize = 1024 * 1024; // 1 MiB
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -329,6 +337,7 @@ pub(crate) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let format = ArchiveFormat::from_extension(&request.entry.display_name);
         let password = request.password.clone();
         let display_name = request.entry.display_name.clone();
+        let into_folder = request.into_folder;
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
 
@@ -342,43 +351,58 @@ pub(crate) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let work_progress = progress.clone();
         let work_total = total.clone();
 
-        let result = gio::spawn_blocking(move || match format {
-            Some(ArchiveFormat::Zip) => extract_zip(
-                &archive_path,
-                &dest_dir,
-                password.as_deref(),
-                &work_progress,
-                &work_total,
-                &work_cancelled,
-            ),
-            Some(ArchiveFormat::Tar) => extract_tar(
-                &archive_path,
-                &dest_dir,
-                false,
-                &work_progress,
-                &work_total,
-                &work_cancelled,
-            ),
-            Some(ArchiveFormat::TarGz) => extract_tar(
-                &archive_path,
-                &dest_dir,
-                true,
-                &work_progress,
-                &work_total,
-                &work_cancelled,
-            ),
-            Some(ArchiveFormat::SevenZ) => extract_sevenz(
-                &archive_path,
-                &dest_dir,
-                password.as_deref(),
-                &work_progress,
-                &work_total,
-                &work_cancelled,
-            ),
-            _ => Err(ArchiveError::Failed(
-                rust_i18n::t!("Unsupported archive format: %{name}", name = display_name)
-                    .into_owned(),
-            )),
+        let result = gio::spawn_blocking(move || {
+            let decode = |dest_dir: &Path| match format {
+                Some(ArchiveFormat::Zip) => extract_zip(
+                    &archive_path,
+                    dest_dir,
+                    password.as_deref(),
+                    &work_progress,
+                    &work_total,
+                    &work_cancelled,
+                ),
+                Some(ArchiveFormat::Tar) => extract_tar(
+                    &archive_path,
+                    dest_dir,
+                    false,
+                    &work_progress,
+                    &work_total,
+                    &work_cancelled,
+                ),
+                Some(ArchiveFormat::TarGz) => extract_tar(
+                    &archive_path,
+                    dest_dir,
+                    true,
+                    &work_progress,
+                    &work_total,
+                    &work_cancelled,
+                ),
+                Some(ArchiveFormat::SevenZ) => extract_sevenz(
+                    &archive_path,
+                    dest_dir,
+                    password.as_deref(),
+                    &work_progress,
+                    &work_total,
+                    &work_cancelled,
+                ),
+                #[cfg(feature = "rar")]
+                Some(ArchiveFormat::Rar) => rar::extract_rar(
+                    &archive_path,
+                    dest_dir,
+                    password.as_deref(),
+                    &work_progress,
+                    &work_cancelled,
+                ),
+                _ => Err(ArchiveError::Failed(
+                    rust_i18n::t!("Unsupported archive format: %{name}", name = display_name)
+                        .into_owned(),
+                )),
+            };
+            if into_folder {
+                extract_named_folder(&dest_dir, &display_name, &work_cancelled, decode)
+            } else {
+                decode(&dest_dir)
+            }
         })
         .await;
 
@@ -435,6 +459,51 @@ pub(crate) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
     LoadHandle::new(move || {
         cancelled.store(true, Ordering::Relaxed);
     })
+}
+
+fn extract_named_folder(
+    destination: &Path,
+    archive_name: &str,
+    cancelled: &AtomicBool,
+    decode: impl FnOnce(&Path) -> Result<Option<String>, ArchiveError>,
+) -> Result<Option<String>, ArchiveError> {
+    let format = ArchiveFormat::from_extension(archive_name).ok_or_else(|| {
+        ArchiveError::Failed(
+            rust_i18n::t!("Unsupported archive format: %{name}", name = archive_name).into_owned(),
+        )
+    })?;
+    let extension = if archive_name.to_ascii_lowercase().ends_with(".tgz") {
+        4
+    } else {
+        format.extension().len() + 1
+    };
+    let stem = &archive_name[..archive_name.len() - extension];
+    let stem = if stem.is_empty() { archive_name } else { stem };
+    validate_basename(stem).map_err(|message| ArchiveError::Failed(crate::i18n::tr(message)))?;
+    for suffix in 0_u64.. {
+        check_cancelled(cancelled)?;
+        let name = if suffix == 0 {
+            stem.to_owned()
+        } else {
+            format!("{stem} ({suffix})")
+        };
+        let folder = destination.join(&name);
+        match std::fs::create_dir(&folder) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(ArchiveError::Failed(crate::services::io_error_message(
+                    &error,
+                )));
+            }
+            Ok(()) => {}
+        }
+        let result = decode(&folder);
+        if result.is_err() {
+            let _ = std::fs::remove_dir(&folder);
+        }
+        return result.map(|_| Some(name));
+    }
+    unreachable!("unbounded folder suffixes")
 }
 
 fn extract_zip(

@@ -22,8 +22,8 @@ use crate::{
 #[cfg(target_os = "linux")]
 mod appimage;
 pub(crate) mod archive_cover;
-#[cfg(all(feature = "rar", unix))]
-mod archive_rar;
+#[cfg(feature = "rar")]
+pub(crate) mod archive_rar;
 mod document_media;
 mod image_conversion;
 #[cfg(unix)]
@@ -34,12 +34,35 @@ mod raw_metadata;
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
-    #[cfg(any(not(feature = "rar"), not(unix)))]
+    #[cfg(not(feature = "rar"))]
     if arguments
         .first()
         .is_some_and(|operation| operation == "extract-rar")
     {
         return Err("RAR support is disabled in this build.".to_owned());
+    }
+    #[cfg(all(feature = "rar", windows))]
+    if let [operation, input] = arguments
+        && operation == "extract-rar"
+    {
+        let mut secret = Vec::new();
+        io::stdin()
+            .take((crate::adapters::MAX_ARCHIVE_PASSWORD_BYTES * 6 + 8) as u64)
+            .read_to_end(&mut secret)
+            .map_err(|error| error.to_string())?;
+        let password: Option<String> = serde_json::from_slice(&secret)
+            .map_err(|_| "Invalid preview helper secret".to_owned())?;
+        if password
+            .as_ref()
+            .is_some_and(|value| value.len() > crate::adapters::MAX_ARCHIVE_PASSWORD_BYTES)
+        {
+            return Err("Archive password is too long.".to_owned());
+        }
+        return archive_rar::run(
+            Path::new(input),
+            password.as_deref(),
+            &mut io::stdout().lock(),
+        );
     }
     // Streams to its own stdout pipe instead of a bound `/output` file, so it
     // does not fit the fixed [operation, input, output, value, media_backend]

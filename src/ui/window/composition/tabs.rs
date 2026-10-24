@@ -183,6 +183,7 @@ impl TabWindow {
                 let Some(state) = weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
+                state.persist_session();
                 if !state.preferences.keep_running_in_background()
                     || crate::ui::window::visible_modal_layer(window).is_some()
                 {
@@ -194,7 +195,6 @@ impl TabWindow {
                     tab.content.footer.shortcuts.dismiss_prompt();
                     tab.content.browser.browser().close_peek();
                 }
-                state.persist_session();
                 if crate::ui::windows_runtime::retain(window, state.active_browser()) {
                     glib::Propagation::Stop
                 } else {
@@ -204,6 +204,8 @@ impl TabWindow {
         }
         let retained = state.clone();
         window.connect_unrealize(move |window| {
+            #[cfg(windows)]
+            retained.persist_session();
             PreferenceManager::shared().release_bindings_within(window);
             for tab in retained.tabs.take() {
                 tab.content.dispose();

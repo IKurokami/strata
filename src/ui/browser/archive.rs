@@ -463,14 +463,37 @@ impl ViewState {
         self.extract_entry_to(entry, parent);
     }
 
+    pub(super) fn extract_entry_into_folder(self: &Rc<Self>, entry: FileEntry) {
+        let Some(parent) = entry.location.parent() else {
+            return;
+        };
+        self.extract_entry_with_mode(entry, parent, true);
+    }
+
     pub(super) fn extract_entry_to(self: &Rc<Self>, entry: FileEntry, destination: Location) {
+        self.extract_entry_with_mode(entry, destination, false);
+    }
+
+    fn extract_entry_with_mode(
+        self: &Rc<Self>,
+        entry: FileEntry,
+        destination: Location,
+        into_folder: bool,
+    ) {
         self.extract_destination.replace(Some(destination.clone()));
         let format = ArchiveFormat::from_extension(&entry.display_name);
         if format.map(|f| f.supports_password()).unwrap_or(false) {
-            self.pending_extract_retry
-                .replace(Some((entry.clone(), destination.clone())));
+            self.pending_extract_retry.replace(Some((
+                entry.clone(),
+                destination.clone(),
+                into_folder,
+            )));
         }
-        self.browser.extract(entry, destination, false, None);
+        if into_folder {
+            self.browser.extract_into_folder(entry, destination, None);
+        } else {
+            self.browser.extract(entry, destination, false, None);
+        }
     }
 
     /// Opens the "Extract to" folder picker for `entry`.
@@ -521,6 +544,7 @@ impl ViewState {
         entry: FileEntry,
         destination: Location,
         invalid_password: bool,
+        into_folder: bool,
         navigate_after_extract: Option<Location>,
     ) {
         let password_entry = form_password_entry();
@@ -566,15 +590,21 @@ impl ViewState {
             }
             let format = ArchiveFormat::from_extension(&entry.display_name);
             if format.map(|f| f.supports_password()).unwrap_or(false) {
-                extract_state
-                    .pending_extract_retry
-                    .replace(Some((entry.clone(), destination.clone())));
+                extract_state.pending_extract_retry.replace(Some((
+                    entry.clone(),
+                    destination.clone(),
+                    into_folder,
+                )));
             }
             extract_state
                 .pending_navigate
                 .replace(navigate_after_extract.clone());
             dismiss_for_confirm();
-            browser.extract(entry.clone(), destination.clone(), false, Some(pw));
+            if into_folder {
+                browser.extract_into_folder(entry.clone(), destination.clone(), Some(pw));
+            } else {
+                browser.extract(entry.clone(), destination.clone(), false, Some(pw));
+            }
         });
         submit_on_enter(&body, &confirm);
         password_entry.grab_focus();

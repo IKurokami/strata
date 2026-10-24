@@ -75,17 +75,17 @@ try {
         # contained Job Object; build that executable before compiling the test
         # harness so a stale or missing target/debug/strata.exe cannot mask the
         # helper operation under test.
-        & $cargo build --locked --no-default-features --bins
+        & $cargo build --locked --no-default-features --features rar --bins
         if ($LASTEXITCODE -ne 0) { throw "Windows application helper build failed." }
         Stage-PrivateRuntime (Join-Path $repository 'target/debug')
         & $cargo test --manifest-path crates/strata-native-io/Cargo.toml --locked --all-targets
         if ($LASTEXITCODE -ne 0) { throw "Native I/O tests failed." }
         & $cargo test --manifest-path crates/strata-win-shell/Cargo.toml --locked --all-targets
         if ($LASTEXITCODE -ne 0) { throw "Windows shell integration tests failed." }
-        & $cargo test --locked --no-default-features --bin strata --no-run
+        & $cargo test --locked --no-default-features --features rar --bin strata --no-run
         if ($LASTEXITCODE -ne 0) { throw "Windows application test compilation failed." }
         Stage-PrivateRuntime (Join-Path $repository 'target/debug/deps')
-        $inventory = @(& $cargo test --locked --no-default-features --bin strata -- --list)
+        $inventory = @(& $cargo test --locked --no-default-features --features rar --bin strata -- --list)
         if ($LASTEXITCODE -ne 0) { throw "Windows test inventory failed." }
         $cases = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot "regression-tests.txt") | Where-Object { $_.Trim() -and -not $_.StartsWith("#") })
         if ($cases.Count -eq 0) { throw "Windows regression inventory is empty." }
@@ -93,11 +93,11 @@ try {
             if (-not ($inventory | Where-Object { $_ -like "*${case}: test" })) {
                 throw "Required Windows regression is missing: $case"
             }
-            & $cargo test --locked --no-default-features --bin strata $case -- --test-threads=1
+            & $cargo test --locked --no-default-features --features rar --bin strata $case -- --test-threads=1
             if ($LASTEXITCODE -ne 0) { throw "Windows regression failed: $case" }
         }
     } else {
-        & $cargo build --locked --no-default-features --bins
+        & $cargo build --locked --no-default-features --features rar --bins
         if ($LASTEXITCODE -ne 0) { throw "Windows application build failed." }
         if (Test-Path -LiteralPath (Join-Path $GtkRuntime 'runtime.json')) {
             Stage-PrivateRuntime (Join-Path $repository 'target/debug')

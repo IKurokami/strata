@@ -115,6 +115,13 @@ portable directory, including its private runtime, into that archive. The archiv
 may contain the bundle directly or one enclosing directory; updates replace the
 bundle root, including `bin/`, rather than copying another `bin/` into it.
 
+After an update is staged, **Restart now** exits through the Windows application
+shutdown path, including its active-operation guards and retained tray windows.
+The existing update handoff waits for that process to exit, replaces the bundle
+and relaunches it. A second restart waiter must not race that handoff. Builds
+through `1.0.1-rc.2` need an explicit **Quit Strata** once to apply this button fix;
+closing a window can leave the process running in the tray.
+
 Publish `strata-update-manifest.json` and
 `strata-update-manifest.signatures.json` beside the ZIP. The manifest must identify
 `IKurokami/strata`, the exact tag, and the `x86_64-pc-windows-gnu` artifact.
@@ -133,6 +140,25 @@ separately by the fork owner.
 Unsigned releases and releases without a trusted Windows signature cannot be
 installed in the app. Keep the private key outside the checkout and release
 archives. See [signed updates](signed-updates.md) for the signature format.
+
+## Archive extraction
+
+The archive context menu offers **Extract to archive folder**, which always puts
+the contents inside a folder named after the archive. Compound suffixes such as
+`.tar.gz` are removed. Existing files and folders are preserved by choosing a
+numbered sibling, for example `photos (1)`.
+
+Windows builds include the `rar` feature. RAR extraction supports encrypted
+contents and encrypted headers through the bundled UnRAR decoder; no external
+WinRAR or 7-Zip installation is required. Missing and incorrect passwords reopen
+the existing password prompt, preserving the selected extraction mode. RAR
+creation is not supported. A missing volume is reported instead of opening an
+interactive console prompt.
+
+On Windows the decoder runs in a hidden Strata helper process. Passwords are sent
+over its stdin pipe, never on the command line. The parent validates member paths
+and streams files to disk; cancellation or stalled output terminates the helper.
+Process separation contains decoder crashes but is not an AppContainer sandbox.
 
 ## Video seeking
 
@@ -182,7 +208,7 @@ deferred navigation. Hidden RAW metadata rows are created only when needed.
 Build both Windows binaries before packaging:
 
 ```powershell
-cargo build --release --locked --no-default-features --bins
+cargo build --release --locked --no-default-features --features rar --bins
 ```
 
 `strata-shell.exe` is a standalone

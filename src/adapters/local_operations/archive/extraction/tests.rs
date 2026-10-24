@@ -19,6 +19,56 @@ use crate::{
 
 const ARCHIVE: &str = "archive.zip";
 
+#[test]
+fn explicit_archive_folder_wraps_single_and_multiple_roots_without_overwriting() {
+    for names in [&["inner/file.txt"][..], &["one.txt", "two.txt"][..]] {
+        let root =
+            tempfile::tempdir().expect("create, extract, or read the archive-folder fixture");
+        fs::create_dir(root.path().join("archive"))
+            .expect("create, extract, or read the archive-folder fixture");
+        fs::write(root.path().join("archive/keep"), b"existing")
+            .expect("create, extract, or read the archive-folder fixture");
+        let progress = AtomicUsize::new(0);
+        let cancelled = AtomicBool::new(false);
+        let mut session = ExtractionSession::open(
+            root.path(),
+            super::ExtractionName {
+                name: ARCHIVE,
+                into_folder: true,
+            },
+            &progress,
+            &cancelled,
+        )
+        .expect("create, extract, or read the archive-folder fixture");
+        for name in names {
+            let mut body = io::Cursor::new(b"contents");
+            session
+                .extract_member(
+                    name,
+                    MemberContent::File(&mut body, Some(8)),
+                    MemberMetadata::NONE,
+                )
+                .expect("create, extract, or read the archive-folder fixture");
+        }
+        let outcome = session
+            .finish(Ok(()), Vec::new)
+            .expect("create, extract, or read the archive-folder fixture");
+        assert!(matches!(outcome, ArchiveOutcome::Completed(Some(name)) if name == "archive (1)"));
+        assert_eq!(
+            fs::read(root.path().join("archive/keep"))
+                .expect("create, extract, or read the archive-folder fixture"),
+            b"existing"
+        );
+        for name in names {
+            assert_eq!(
+                fs::read(root.path().join("archive (1)").join(name))
+                    .expect("create, extract, or read the archive-folder fixture"),
+                b"contents"
+            );
+        }
+    }
+}
+
 struct TestReader<F>(F);
 
 impl<F: FnMut(&mut [u8]) -> io::Result<usize>> Read for TestReader<F> {

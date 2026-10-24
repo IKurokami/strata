@@ -66,3 +66,9 @@ ui::settings::search::tests::global_search_routes_every_target_to_its_page
 ui::browser::context_menu::actions::tests::send_to_updates_an_open_menu_and_reopens_without_navigation
 adapters::local_files::metadata_tests::missing_optional_attributes_use_safe_defaults
 adapters::directory_summary::metadata_tests::missing_sizes_keep_known_bytes_and_report_partial_measurement
+adapters::local_operations::archive::folder_tests::named_extraction_preserves_existing_folders_and_archive_contents
+adapters::local_operations::archive::folder_tests::failed_named_extraction_cleans_only_its_empty_folder
+adapters::local_operations::archive::rar::tests::encrypted_rar_content_and_headers_require_the_correct_password
+adapters::local_operations::archive::rar::tests::rar_stream_rejects_escaping_paths_and_removes_failed_members
+ui::browser::archive::tests::archive_folder_action_wraps_a_single_file_and_keeps_existing_folders
+ui::browser::archive::tests::archive_folder_password_retries_keep_the_requested_destination_mode

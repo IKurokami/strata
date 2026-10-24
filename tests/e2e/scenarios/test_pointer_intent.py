@@ -76,7 +76,9 @@ def _scroll_back_to(strata, name):
         entry = next((entry for entry in strata.entries() if entry.name == name), None)
         if entry is not None and strata.on_screen(entry):
             return entry
-        strata.pointer.scroll(strata.pane().screen_bounds().center, clicks=10, down=False)
+        # Select-all focuses the last of 180 files; batch the wheel events so
+        # accessibility snapshots do not consume the setup's entire deadline.
+        strata.pointer.scroll(strata.pane().screen_bounds().center, clicks=40, down=False)
         return None
 
     strata.settle(strata.wait(on_screen, f"{name} to scroll back into view"))

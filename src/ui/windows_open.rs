@@ -62,6 +62,24 @@ fn helper_result(output: Output, fallback: &str) -> io::Result<()> {
     ))
 }
 
+pub(super) fn choose(paths: Vec<PathBuf>, parent: &impl IsA<gtk::Widget>) {
+    let parent = parent.as_ref().downgrade();
+    glib::spawn_future_local(async move {
+        for path in paths {
+            if parent
+                .upgrade()
+                .is_none_or(|parent| parent.root().is_none())
+            {
+                break;
+            }
+            let result = launch(path, true).await;
+            if let Some(parent) = parent.upgrade() {
+                report(&parent, result);
+            }
+        }
+    });
+}
+
 pub(super) fn open(path: PathBuf, parent: &impl IsA<gtk::Widget>) {
     let parent = parent.as_ref().downgrade();
     glib::spawn_future_local(async move {
