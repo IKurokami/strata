@@ -115,6 +115,13 @@ portable directory, including its private runtime, into that archive. The archiv
 may contain the bundle directly or one enclosing directory; updates replace the
 bundle root, including `bin/`, rather than copying another `bin/` into it.
 
+After an update is staged, **Restart now** exits through the Windows application
+shutdown path, including its active-operation guards and retained tray windows.
+The existing update handoff waits for that process to exit, replaces the bundle
+and relaunches it. A second restart waiter must not race that handoff. Builds
+through `1.0.1-rc.2` need an explicit **Quit Strata** once to apply this button fix;
+closing a window can leave the process running in the tray.
+
 Publish `strata-update-manifest.json` and
 `strata-update-manifest.signatures.json` beside the ZIP. The manifest must identify
 `IKurokami/strata`, the exact tag, and the `x86_64-pc-windows-gnu` artifact.
