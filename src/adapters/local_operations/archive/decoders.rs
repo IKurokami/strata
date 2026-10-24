@@ -26,7 +26,8 @@ use super::{
     ArchiveError, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED, archive_failed, archive_io_failed,
     archive_read_failed, check_archive_cancelled, copy_with_big_buf,
     extraction::{
-        ArchiveOutcome, ExtractionSession, MAX_SYMLINK_TARGET_BYTES, MemberContent, MemberMetadata,
+        ArchiveOutcome, ExtractionName, ExtractionSession, MAX_SYMLINK_TARGET_BYTES, MemberContent,
+        MemberMetadata,
     },
 };
 
@@ -336,13 +337,13 @@ fn verify_gzip_trailer<R: BufRead>(
     members.verify_padding(cancelled)
 }
 
-pub(super) fn extract_zip_from_archive(
+pub(super) fn extract_zip_from_archive<'a>(
     archive: &mut zip::ZipArchive<std::fs::File>,
-    dest_dir: &Path,
-    archive_name: &str,
+    dest_dir: &'a Path,
+    archive_name: impl Into<ExtractionName<'a>>,
     password: Option<&str>,
-    progress: &Arc<AtomicUsize>,
-    cancelled: &AtomicBool,
+    progress: &'a Arc<AtomicUsize>,
+    cancelled: &'a AtomicBool,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
     let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
     if let Some(claimed) = archive.decompressed_size() {
@@ -407,13 +408,13 @@ impl Read for TarInput {
 }
 
 /// TAR cancellation reports at most the current member, never scans unread ones.
-pub(super) fn extract_tar(
+pub(super) fn extract_tar<'a>(
     archive_path: &Path,
-    dest_dir: &Path,
-    archive_name: &str,
+    dest_dir: &'a Path,
+    archive_name: impl Into<ExtractionName<'a>>,
     gzip: bool,
-    progress: &Arc<AtomicUsize>,
-    cancelled: &AtomicBool,
+    progress: &'a Arc<AtomicUsize>,
+    cancelled: &'a AtomicBool,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
     let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
     session.record_hard_link_targets();
@@ -521,13 +522,13 @@ fn encrypted_7z_members(archive: &sevenz_rust2::Archive) -> Vec<bool> {
         .collect()
 }
 
-pub(super) fn extract_7z_from_reader(
+pub(super) fn extract_7z_from_reader<'a>(
     reader: impl Read + Seek,
-    dest_dir: &Path,
-    archive_name: &str,
+    dest_dir: &'a Path,
+    archive_name: impl Into<ExtractionName<'a>>,
     password: sevenz_rust2::Password,
-    progress: &Arc<AtomicUsize>,
-    cancelled: &AtomicBool,
+    progress: &'a Arc<AtomicUsize>,
+    cancelled: &'a AtomicBool,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
     let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
     let password_supplied = !password.is_empty();

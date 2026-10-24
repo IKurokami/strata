@@ -998,6 +998,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Extract here",
         ContextHint::None,
     );
+    let extract_folder = item_context_option(
+        crate::assets::icons::FOLDER_ARCHIVE,
+        "Extract to archive folder",
+        ContextHint::None,
+    );
     let extract_to = item_context_option(
         crate::assets::icons::FOLDER_ARCHIVE,
         "Extract to…",
@@ -1019,6 +1024,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&remove_from_recent);
     single_open.append(&print);
     single_open.append(&extract);
+    single_open.append(&extract_folder);
     single_open.append(&extract_to);
     content.append(&single_open);
     single.append(&cut);
@@ -1573,8 +1579,15 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             state.show_compress_dialog(entries);
         });
     }
-    connect_context_extract(&extract, &popover, state, &target, false);
-    connect_context_extract(&extract_to, &popover, state, &target, true);
+    connect_context_extract(&extract, &popover, state, &target, ExtractTarget::Here);
+    connect_context_extract(
+        &extract_folder,
+        &popover,
+        state,
+        &target,
+        ExtractTarget::ArchiveFolder,
+    );
+    connect_context_extract(&extract_to, &popover, state, &target, ExtractTarget::Choose);
     let weak = Rc::downgrade(state);
     let properties_target = target.clone();
     let properties_popover = popover.downgrade();
@@ -1780,6 +1793,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let can_extract = ArchiveFormat::for_entry(&entry).is_some();
             extract.set_visible(can_extract);
             extract_to.set_visible(can_extract);
+            extract_folder.set_visible(can_extract);
             customize.set_visible(
                 !in_trash && entries.len() == 1 && entry.location.native_path().is_some(),
             );
@@ -2035,12 +2049,19 @@ fn connect_selection_action(
     });
 }
 
+#[derive(Clone, Copy)]
+enum ExtractTarget {
+    Here,
+    ArchiveFolder,
+    Choose,
+}
+
 fn connect_context_extract(
     button: &gtk::Button,
     popover: &gtk::Popover,
     state: &Rc<ViewState>,
     target: &Rc<RefCell<Option<ContextTarget>>>,
-    pick_destination: bool,
+    extract_target: ExtractTarget,
 ) {
     let weak = Rc::downgrade(state);
     let target = target.clone();
@@ -2053,10 +2074,10 @@ fn connect_context_extract(
             let Some((_, entry)) = target.borrow().clone() else {
                 return;
             };
-            if pick_destination {
-                state.show_extract_to_dialog(entry);
-            } else {
-                state.extract_entry(entry);
+            match extract_target {
+                ExtractTarget::Choose => state.show_extract_to_dialog(entry),
+                ExtractTarget::Here => state.extract_entry(entry),
+                ExtractTarget::ArchiveFolder => state.extract_entry_into_folder(entry),
             }
         }
     });

@@ -254,7 +254,7 @@ pub(super) struct ViewState {
     pending_select: RefCell<Vec<String>>,
     pending_properties: RefCell<Option<Location>>,
     pending_location_selection: RefCell<Option<(Location, Vec<Location>)>>,
-    pending_extract_retry: RefCell<Option<(FileEntry, Location)>>,
+    pending_extract_retry: RefCell<Option<(FileEntry, Location, bool)>>,
     extract_destination: RefCell<Option<Location>>,
     pending_archive_destination: RefCell<Option<Location>>,
     /// The entries a just-dispatched, non-permanent delete requested,

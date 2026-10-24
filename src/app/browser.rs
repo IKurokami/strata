@@ -3310,6 +3310,26 @@ impl Browser {
         created_destination: bool,
         password: Option<String>,
     ) {
+        self.extract_archive(entry, destination, created_destination, false, password);
+    }
+
+    pub fn extract_into_folder(
+        self: &Rc<Self>,
+        entry: FileEntry,
+        destination: Location,
+        password: Option<String>,
+    ) {
+        self.extract_archive(entry, destination, false, true, password);
+    }
+
+    fn extract_archive(
+        self: &Rc<Self>,
+        entry: FileEntry,
+        destination: Location,
+        created_destination: bool,
+        into_folder: bool,
+        password: Option<String>,
+    ) {
         let Some(provider) = self.operation_provider.borrow().clone() else {
             self.emit(BrowserEvent::OperationFailed {
                 message: crate::i18n::tr("File operations are unavailable"),
@@ -3323,6 +3343,7 @@ impl Browser {
         self.archive_operation.set(true);
         let load = provider.extract(
             ExtractRequest {
+                into_folder,
                 id: request_id,
                 entry,
                 destination,

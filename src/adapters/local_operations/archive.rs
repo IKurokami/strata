@@ -251,6 +251,7 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let format = ArchiveFormat::from_extension(&request.entry.display_name);
         let password = request.password.clone();
         let display_name = request.entry.display_name.clone();
+        let into_folder = request.into_folder;
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
         emit(OperationEvent::ArchiveStarted {
@@ -270,7 +271,10 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
                 extract_zip_from_archive(
                     &mut archive,
                     &dest_dir,
-                    &display_name,
+                    extraction::ExtractionName {
+                        name: &display_name,
+                        into_folder,
+                    },
                     password.as_deref(),
                     &work_progress,
                     &work_cancelled,
@@ -286,7 +290,10 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
                 extract_7z_from_reader(
                     file,
                     &dest_dir,
-                    &display_name,
+                    extraction::ExtractionName {
+                        name: &display_name,
+                        into_folder,
+                    },
                     pw,
                     &work_progress,
                     &work_cancelled,
@@ -295,7 +302,10 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
             Some(ArchiveFormat::TarGz) => extract_tar(
                 &archive_path,
                 &dest_dir,
-                &display_name,
+                extraction::ExtractionName {
+                    name: &display_name,
+                    into_folder,
+                },
                 true,
                 &work_progress,
                 &work_cancelled,
@@ -303,7 +313,10 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
             Some(ArchiveFormat::Tar) => extract_tar(
                 &archive_path,
                 &dest_dir,
-                &display_name,
+                extraction::ExtractionName {
+                    name: &display_name,
+                    into_folder,
+                },
                 false,
                 &work_progress,
                 &work_cancelled,
@@ -316,7 +329,10 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
             Some(ArchiveFormat::Rar) => extract_rar(
                 &archive_path,
                 &dest_dir,
-                &display_name,
+                extraction::ExtractionName {
+                    name: &display_name,
+                    into_folder,
+                },
                 password.as_deref(),
                 &work_progress,
                 &work_cancelled,

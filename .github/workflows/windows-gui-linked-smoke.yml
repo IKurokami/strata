@@ -90,7 +90,7 @@ jobs:
           CARGO_BUILD_JOBS: '2'
         run: |
           set -euo pipefail
-          cargo build --locked --no-default-features --bins
+          cargo build --locked --no-default-features --features rar --bins
           test -s target/debug/strata.exe
           test -s target/debug/strata-shell.exe
           echo 'The Windows PE executable exists and linked successfully.'
@@ -163,7 +163,7 @@ jobs:
           CARGO_BUILD_JOBS: '2'
         run: |
           set -euo pipefail
-          cargo test --locked --no-default-features --bin strata --no-run
+          cargo test --locked --no-default-features --features rar --bin strata --no-run
           cp target/windows-gtk-runtime/libgtk-4-1.dll target/debug/deps/
           cp target/windows-gtk-runtime/libgstplay-1.0-0.dll target/debug/deps/
 
@@ -174,7 +174,7 @@ jobs:
           CARGO_BUILD_JOBS: '2'
         run: |
           set -euo pipefail
-          cargo test --locked --no-default-features --bin strata -- --list > target/windows-test-inventory.txt
+          cargo test --locked --no-default-features --features rar --bin strata -- --list > target/windows-test-inventory.txt
           # Each case must really exist. A 0-tests result is not a pass.
           test -s scripts/windows/regression-tests.txt
           while IFS= read -r name; do
@@ -183,7 +183,7 @@ jobs:
               echo "Windows-only regression test missing: ${name}" >&2
               exit 1
             fi
-            cargo test --locked --no-default-features --bin strata "${name}" -- --test-threads=1
+            cargo test --locked --no-default-features --features rar --bin strata "${name}" -- --test-threads=1
           done < scripts/windows/regression-tests.txt
 
       - name: Package self-contained Windows portable release and test without MSYS2 PATH

@@ -134,6 +134,25 @@ Unsigned releases and releases without a trusted Windows signature cannot be
 installed in the app. Keep the private key outside the checkout and release
 archives. See [signed updates](signed-updates.md) for the signature format.
 
+## Archive extraction
+
+The archive context menu offers **Extract to archive folder**, which always puts
+the contents inside a folder named after the archive. Compound suffixes such as
+`.tar.gz` are removed. Existing files and folders are preserved by choosing a
+numbered sibling, for example `photos (1)`.
+
+Windows builds include the `rar` feature. RAR extraction supports encrypted
+contents and encrypted headers through the bundled UnRAR decoder; no external
+WinRAR or 7-Zip installation is required. Missing and incorrect passwords reopen
+the existing password prompt, preserving the selected extraction mode. RAR
+creation is not supported. A missing volume is reported instead of opening an
+interactive console prompt.
+
+On Windows the decoder runs in a hidden Strata helper process. Passwords are sent
+over its stdin pipe, never on the command line. The parent validates member paths
+and streams files to disk; cancellation or stalled output terminates the helper.
+Process separation contains decoder crashes but is not an AppContainer sandbox.
+
 ## Video seeking
 
 Windows video seeks reuse successful file probes while the file's metadata
@@ -182,7 +201,7 @@ deferred navigation. Hidden RAW metadata rows are created only when needed.
 Build both Windows binaries before packaging:
 
 ```powershell
-cargo build --release --locked --no-default-features --bins
+cargo build --release --locked --no-default-features --features rar --bins
 ```
 
 `strata-shell.exe` is a standalone
