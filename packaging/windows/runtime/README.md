@@ -10,6 +10,29 @@ Mixed non-native selections retain the GTK/URI formats without exporting a
 partial native file selection. The GTK and GstPlay lifetime fixes below remain
 required and are preserved; no dependency baseline or source hash changed.
 
+The same patch must classify `CF_HDROP` as HGLOBAL-backed data. GTK 4.24.1 and
+upstream main inspected on 2026-10-24 omit it from
+`_gdk_win32_format_uses_hdata`. Mapping the format without this classification
+routes a DROPFILES payload through the single-handle stream and writes through
+a null pointer. Two local crash dumps and the actual private stream reproduce
+the access violation. Adding `CF_HDROP` to the HGLOBAL cases preserves ownership:
+the stream allocates movable global memory, writes the complete payload and
+hands the handle to the OLE consumer, which releases the returned STGMEDIUM.
+The IME, font backend and GstPlay patches remain required and unchanged.
+
+`scripts/windows/test-file-drop-stream.py RUNTIME_DIRECTORY` tests the exact
+loaded DLL without initializing GTK, opening a window or touching the clipboard.
+It resolves private entry points from the pinned build's retained COFF symbols;
+missing symbols fail the probe. Both synchronous and asynchronous chunked writes
+must produce an HGLOBAL that `DragQueryFileW` reads as the complete Unicode and
+UNC file selection. `--expect-unsupported` checks the faulty baseline's
+classification without deliberately crashing it. Running the normal probe on
+the previous mapping-only runtime reproduces exit code `-1073741819`.
+The runtime lifecycle runner includes this probe. This verifies serialization
+and native ownership, not a physical drag into a particular third-party app.
+Use `test-gtk-runtime.ps1 -ExpectFileDropUnsupported` only for the mapping-only
+baseline; candidate and release checks must use the normal, required stream test.
+
 `file-drop.c` checks this mapping through the native OLE `IDataObject` consumer
 and `DragQueryFileW`, including multiple Unicode and UNC paths. It creates a
 private window station and desktop with their own clipboard and stops if that

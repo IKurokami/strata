@@ -168,6 +168,14 @@
 diff --git a/gdk/win32/gdkclipdrop-win32.c b/gdk/win32/gdkclipdrop-win32.c
 --- a/gdk/win32/gdkclipdrop-win32.c
 +++ b/gdk/win32/gdkclipdrop-win32.c
+@@ -433,6 +433,7 @@ _gdk_win32_format_uses_hdata (UINT w32format)
+     case CF_DIB:
+     case CF_DIBV5:
+     case CF_DIF:
++    case CF_HDROP:
+     case CF_DSPBITMAP:
+     case CF_DSPENHMETAFILE:
+     case CF_DSPMETAFILEPICT:
 @@ -2660,7 +2660,12 @@ _gdk_win32_add_contentformat_to_pairs (GdkWin32Clipdrop *clip_drop,
    else
      offset = 0;

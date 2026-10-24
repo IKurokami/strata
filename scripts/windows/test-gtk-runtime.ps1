@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory = $true)][string]$GtkDll,
     [Parameter(Mandatory = $true)][string]$Output,
     [string]$GstPlayDll,
+    [switch]$ExpectFileDropUnsupported,
     [string]$UcrtRoot = 'C:/msys64/ucrt64'
 )
 $ErrorActionPreference = 'Stop'
@@ -26,6 +27,11 @@ try {
     Copy-Item -LiteralPath $GtkDll -Destination $dll
     if (-not $GstPlayDll) { $GstPlayDll = Join-Path (Split-Path -Parent $GtkDll) 'libgstplay-1.0-0.dll' }
     Copy-Item -LiteralPath $GstPlayDll -Destination (Join-Path $Output 'libgstplay-1.0-0.dll')
+    $streamProbe = Join-Path $PSScriptRoot 'test-file-drop-stream.py'
+    $streamArguments = @($Output)
+    if ($ExpectFileDropUnsupported) { $streamArguments += '--expect-unsupported' }
+    & (Join-Path $UcrtRoot 'bin/python.exe') $streamProbe @streamArguments
+    if ($LASTEXITCODE -ne 0) { throw 'Native file-drop stream regression failed.' }
     foreach ($mode in @('dispose', 'detach', 'unrealize', 'repeat-focus', 'reentrant', 'native-font', 'fontconfig')) {
         $stdout = Join-Path $Output "$mode.stdout.log"
         $stderr = Join-Path $Output "$mode.stderr.log"
