@@ -11,8 +11,9 @@ use windows::{
         },
         UI::{
             Shell::{
-                BHID_SFUIObject, CMF_EXPLORE, CMF_NORMAL, CMINVOKECOMMANDINFO, GCS_VERBW,
-                IContextMenu, IContextMenu2, IContextMenu3, SHCreateShellItemArrayFromIDLists,
+                BHID_SFUIObject, CMF_EXPLORE, CMF_NORMAL, CMF_SYNCCASCADEMENU, CMINVOKECOMMANDINFO,
+                CMINVOKECOMMANDINFOEX, GCS_VERBW, IContextMenu, IContextMenu2, IContextMenu3,
+                SEE_MASK_NOASYNC, SEE_MASK_UNICODE, SHCreateShellItemArrayFromIDLists,
                 SHParseDisplayName,
             },
             WindowsAndMessaging::*,
@@ -142,6 +143,7 @@ pub fn allow_foreground(process_id: u32) {
 pub struct Entry {
     pub label: String,
     pub command: Option<u32>,
+    pub verb: String,
     pub enabled: bool,
     pub checked: bool,
     pub separator: bool,
@@ -213,7 +215,7 @@ impl Session {
                     0,
                     FIRST_COMMAND,
                     LAST_COMMAND,
-                    CMF_NORMAL | CMF_EXPLORE,
+                    CMF_NORMAL | CMF_EXPLORE | CMF_SYNCCASCADEMENU,
                 )
                 .ok()
                 .map_err(io::Error::other)?;
@@ -301,9 +303,8 @@ impl Session {
             let mut label = String::from_utf16_lossy(
                 &label[..label.iter().position(|&c| c == 0).unwrap_or(label.len())],
             );
-            if label.is_empty()
-                && let Some(command) = command
-            {
+            let mut canonical = String::new();
+            if let Some(command) = command {
                 let mut verb = [0u16; 512];
                 // SAFETY: GCS_VERBW expects a UTF-16 buffer despite the PSTR ABI.
                 if unsafe {
@@ -317,10 +318,13 @@ impl Session {
                 }
                 .is_ok()
                 {
-                    label = String::from_utf16_lossy(
+                    canonical = String::from_utf16_lossy(
                         &verb[..verb.iter().position(|&c| c == 0).unwrap_or(verb.len())],
                     );
                 }
+            }
+            if label.is_empty() {
+                label.clone_from(&canonical);
             }
             let children = if submenu {
                 self.read_menu(info.hSubMenu, position, depth + 1, remaining)?
@@ -330,6 +334,7 @@ impl Session {
             entries.push(Entry {
                 label,
                 command,
+                verb: canonical,
                 enabled: (info.fState & (MFS_DISABLED | MFS_GRAYED)).0 == 0,
                 checked: info.fState.contains(MFS_CHECKED),
                 separator,
@@ -364,15 +369,7 @@ impl Session {
         } else {
             String::new()
         };
-        let invoke = CMINVOKECOMMANDINFO {
-            cbSize: std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
-            hwnd: self.owner.0,
-            lpVerb: PCSTR((command - FIRST_COMMAND) as usize as *const u8),
-            nShow: SW_SHOWNORMAL.0,
-            ..Default::default()
-        };
-        // SAFETY: The original queried context and owner window remain live.
-        unsafe { self.context.InvokeCommand(&invoke) }.map_err(io::Error::other)?;
+        invoke_command(&self.context, self.owner.0, command)?;
         if verb.eq_ignore_ascii_case("copy") || verb.eq_ignore_ascii_case("cut") {
             // SAFETY: Persist the explicitly selected clipboard operation before
             // this source process exits, while its OLE apartment is still live.
@@ -392,6 +389,27 @@ impl Session {
             }
         }
     }
+}
+
+fn invoke_command(context: &IContextMenu, owner: HWND, command: u32) -> io::Result<()> {
+    let invoke = CMINVOKECOMMANDINFOEX {
+        cbSize: std::mem::size_of::<CMINVOKECOMMANDINFOEX>() as u32,
+        // The helper owns the apartment: launching asynchronously can leave
+        // a handler without its COM objects as soon as InvokeCommand returns.
+        fMask: SEE_MASK_UNICODE | SEE_MASK_NOASYNC,
+        hwnd: owner,
+        lpVerb: PCSTR((command - FIRST_COMMAND) as usize as *const u8),
+        lpVerbW: PCWSTR((command - FIRST_COMMAND) as usize as *const u16),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // SAFETY: The extended structure includes the documented base prefix and
+    // remains live with the original context and owner throughout invocation.
+    unsafe {
+        context
+            .InvokeCommand((&invoke as *const CMINVOKECOMMANDINFOEX).cast::<CMINVOKECOMMANDINFO>())
+    }
+    .map_err(io::Error::other)
 }
 
 #[cfg(test)]

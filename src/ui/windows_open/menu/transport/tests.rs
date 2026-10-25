@@ -113,6 +113,25 @@ fn invocation_uses_the_retained_session_and_survives_menu_closure() {
 }
 
 #[test]
+fn failed_invocation_keeps_the_native_error_for_diagnostics() {
+    let (mut session, snapshot) = Session::start_command(
+        vec![PathBuf::from(r"C:\fixture.txt")],
+        fixture("fail"),
+        Duration::from_secs(5),
+    )
+    .expect("start failure fixture");
+    await_result(snapshot).expect("receive commands");
+    let completion = session.invoke(17).expect("invoke fixture");
+    let error = await_result(completion).expect_err("native command failed");
+    assert!(
+        error
+            .to_string()
+            .contains("fixture application not found (0x80070483)"),
+        "{error}"
+    );
+}
+
+#[test]
 fn fixture_helper() {
     let Ok(mode) = std::env::var("STRATA_SHELL_MENU_FIXTURE") else {
         return;
@@ -132,6 +151,10 @@ fn fixture_helper() {
     io::stdout().flush().expect("Shell menu fixture");
     let mut command = String::new();
     input.read_line(&mut command).expect("Shell menu fixture");
+    if mode == "fail" {
+        eprintln!("fixture application not found (0x80070483)");
+        std::process::exit(7);
+    }
     std::thread::sleep(Duration::from_millis(100));
     std::fs::write(path, format!("{}:{}", command.trim(), std::process::id()))
         .expect("Shell menu fixture");

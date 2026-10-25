@@ -1025,13 +1025,40 @@ pub(super) fn unyank() {
 pub(super) fn clipboard_may_paste() -> bool {
     gtk::gdk::Display::default().is_some_and(|display| {
         let formats = display.clipboard().formats();
-        formats.contains_type(gtk::gdk::FileList::static_type())
+        clipboard_has_files(&formats)
             || formats.contains_type(gtk::gdk::Texture::static_type())
             || formats
                 .mime_types()
                 .iter()
                 .any(|mime| mime == "text/uri-list" || mime.starts_with("image/"))
     })
+}
+
+pub(in crate::ui) fn clipboard_has_files(formats: &gtk::gdk::ContentFormats) -> bool {
+    #[cfg(windows)]
+    if formats.contain_mime_type(windows::FILE_DROP_MIME) {
+        return true;
+    }
+    formats.contains_type(gtk::gdk::FileList::static_type())
+        || formats.contain_mime_type("text/uri-list")
+}
+
+pub(in crate::ui) async fn read_clipboard_files(
+    clipboard: &gtk::gdk::Clipboard,
+) -> Option<Vec<gio::File>> {
+    #[cfg(windows)]
+    {
+        windows::read_files(clipboard).await
+    }
+    #[cfg(not(windows))]
+    {
+        clipboard
+            .read_value_future(gtk::gdk::FileList::static_type(), glib::Priority::DEFAULT)
+            .await
+            .ok()
+            .and_then(|value| value.get::<gtk::gdk::FileList>().ok())
+            .map(|files| files.files().to_vec())
+    }
 }
 
 fn retain_shared_untransferred(transferred: &[Location]) {
@@ -1043,16 +1070,17 @@ fn is_cut_match(sources: &[Location]) -> bool {
     same_locations(sources, &shared_cut_locations())
 }
 
-fn set_files_clipboard(entries: &[FileEntry]) -> bool {
+fn set_files_clipboard(entries: &[FileEntry], cut: bool) -> bool {
     set_location_files_clipboard(
         &entries
             .iter()
             .map(|entry| entry.location.clone())
             .collect::<Vec<_>>(),
+        cut,
     )
 }
 
-fn set_location_files_clipboard(locations: &[Location]) -> bool {
+fn set_location_files_clipboard(locations: &[Location], _cut: bool) -> bool {
     let files = locations
         .iter()
         .map(gio_file_for_location)
@@ -1061,9 +1089,12 @@ fn set_location_files_clipboard(locations: &[Location]) -> bool {
         return false;
     }
     gtk::gdk::Display::default().is_some_and(|display| {
+        #[cfg(not(windows))]
         let provider = gtk::gdk::ContentProvider::for_value(
             &gtk::gdk::FileList::from_array(&files).to_value(),
         );
+        #[cfg(windows)]
+        let provider = windows::file_provider(&files, _cut);
         // Owned before claiming, so the ownership watcher sees this claim as ours.
         let previous = OWNED_FILE_PROVIDER.with(|owned| owned.replace(Some(provider.clone())));
         if display.clipboard().set_content(Some(&provider)).is_err() {
@@ -1072,6 +1103,26 @@ fn set_location_files_clipboard(locations: &[Location]) -> bool {
         }
         true
     })
+}
+
+#[cfg(windows)]
+pub(in crate::ui) fn copy_native_files(paths: &[std::path::PathBuf], cut: bool) -> bool {
+    let locations = paths.iter().map(Location::local).collect::<Vec<_>>();
+    if paths.iter().any(|path| !path.is_absolute())
+        || (cut
+            && locations
+                .iter()
+                .any(|location| !can_remove_location(location)))
+        || !set_location_files_clipboard(&locations, cut)
+    {
+        return false;
+    }
+    if cut {
+        set_shared_marks(&[], &locations);
+    } else {
+        set_shared_marks(&locations, &[]);
+    }
+    true
 }
 
 /// Location equality that also accepts GIO-level equivalence (URI
@@ -1116,7 +1167,7 @@ fn retain_untransferred(cut: &mut Vec<Location>, transferred: &[Location]) {
 
 impl ViewState {
     pub(super) fn copy_entries(&self, entries: &[FileEntry]) {
-        if set_files_clipboard(entries) {
+        if set_files_clipboard(entries, false) {
             let locations: Vec<Location> =
                 entries.iter().map(|entry| entry.location.clone()).collect();
             set_shared_marks(&locations, &[]);
@@ -1130,7 +1181,7 @@ impl ViewState {
         {
             return false;
         }
-        if set_files_clipboard(entries) {
+        if set_files_clipboard(entries, true) {
             let locations: Vec<Location> =
                 entries.iter().map(|entry| entry.location.clone()).collect();
             set_shared_marks(&[], &locations);
@@ -1174,7 +1225,7 @@ impl ViewState {
                 OWNED_FILE_PROVIDER.with(|owned| owned.replace(None));
             }
         } else {
-            let _set = set_location_files_clipboard(&remaining);
+            let _set = set_location_files_clipboard(&remaining, true);
         }
     }
 
@@ -1226,15 +1277,12 @@ impl ViewState {
         let clipboard = display.clipboard();
         let weak = Rc::downgrade(self);
         glib::MainContext::default().spawn_local(async move {
-            let result = clipboard
-                .read_value_future(gtk::gdk::FileList::static_type(), glib::Priority::DEFAULT)
-                .await;
-            let files = match result {
-                Ok(value) => match value.get::<gtk::gdk::FileList>() {
-                    Ok(files) => files.files(),
-                    Err(_) => return nothing(),
-                },
-                Err(_) => match clipboard.read_texture_future().await {
+            #[cfg(windows)]
+            let clipboard_read = windows::ClipboardRead::new(&clipboard);
+            let files = read_clipboard_files(&clipboard).await;
+            let files = match files {
+                Some(files) => files,
+                None => match clipboard.read_texture_future().await {
                     Ok(Some(texture)) => {
                         if let Some(state) = weak.upgrade() {
                             state.paste_image_from_texture(&destination, &texture);
@@ -1253,6 +1301,12 @@ impl ViewState {
             }
             if let Some(state) = weak.upgrade() {
                 let move_sources = is_cut_match(&sources);
+                #[cfg(windows)]
+                let move_sources = move_sources || windows::prefers_move(&clipboard).await;
+                #[cfg(windows)]
+                if clipboard_read.changed() {
+                    return nothing();
+                }
                 state.paste_transfer(destination, sources, move_sources, focus);
             }
         });

@@ -73,6 +73,66 @@ fn native_payload_rejects_empty_and_mixed_remote_selections() {
 }
 
 #[test]
+fn clipboard_provider_exports_native_files_and_copy_cut_intent_without_a_display() {
+    let context = glib::MainContext::new();
+    context
+        .with_thread_default(|| {
+            let files = [
+                gio::File::for_path(r"C:\Strata fixture\ảnh.txt"),
+                gio::File::for_path(r"\\server\share\folder"),
+            ];
+            for cut in [false, true] {
+                let provider = file_provider(&files, cut);
+                let value = provider
+                    .value(gtk::gdk::FileList::static_type())
+                    .expect("internal file list");
+                assert_eq!(
+                    value
+                        .get::<gtk::gdk::FileList>()
+                        .expect("file list")
+                        .files(),
+                    files
+                );
+                let output = gio::MemoryOutputStream::new_resizable();
+                context
+                    .block_on(provider.write_mime_type_future(
+                        FILE_DROP_MIME,
+                        &output,
+                        glib::Priority::DEFAULT,
+                    ))
+                    .expect("native file list");
+                output
+                    .close(None::<&gio::Cancellable>)
+                    .expect("close output");
+                assert_eq!(shell_paths(output.steal_as_bytes().as_ref()).len(), 2);
+                let output = gio::MemoryOutputStream::new_resizable();
+                context
+                    .block_on(provider.write_mime_type_future(
+                        DROP_EFFECT_MIME,
+                        &output,
+                        glib::Priority::DEFAULT,
+                    ))
+                    .expect("preferred effect");
+                output
+                    .close(None::<&gio::Cancellable>)
+                    .expect("close effect");
+                let input = gio::MemoryInputStream::from_bytes(&output.steal_as_bytes());
+                assert_eq!(context.block_on(read_move_effect(&input)), cut);
+            }
+            for data in [
+                vec![],
+                vec![2],
+                1u32.to_le_bytes().to_vec(),
+                4u32.to_le_bytes().to_vec(),
+            ] {
+                let input = gio::MemoryInputStream::from_bytes(&glib::Bytes::from_owned(data));
+                assert!(!context.block_on(read_move_effect(&input)));
+            }
+        })
+        .expect("private main context");
+}
+
+#[test]
 fn drag_provider_preserves_gtk_files_and_supplies_shell_payload() {
     crate::test_support::gtk_test(
         "ui::browser::clipboard::windows::tests::drag_provider_preserves_gtk_files_and_supplies_shell_payload",
@@ -120,4 +180,30 @@ fn drag_provider_preserves_gtk_files_and_supplies_shell_payload() {
             super::super::clear_active_drag();
         },
     );
+}
+
+#[test]
+fn native_clipboard_input_preserves_unicode_and_rejects_partial_selections() {
+    let files = [
+        gio::File::for_path(r"C:\Strata fixture\ảnh.txt"),
+        gio::File::for_path(r"\\server\share\folder"),
+    ];
+    let data = file_drop_data(&files).expect("native clipboard data");
+    let restored = files_from_drop_data(&data).expect("read all files");
+    assert_eq!(restored.len(), files.len());
+    for (restored, original) in restored.iter().zip(&files) {
+        assert!(
+            restored.equal(original),
+            "clipboard file identity must survive serialization"
+        );
+    }
+    for length in [0, 19, 21, data.len() - 2, data.len() - 1] {
+        assert!(files_from_drop_data(&data[..length]).is_none());
+    }
+    let mut malformed = data.clone();
+    malformed[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(files_from_drop_data(&malformed).is_none());
+    let mut malformed = data;
+    malformed[20..22].copy_from_slice(&0u16.to_le_bytes());
+    assert!(files_from_drop_data(&malformed).is_none());
 }

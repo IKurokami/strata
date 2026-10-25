@@ -64,8 +64,19 @@ with Strata's menu controls and theme. Commands are loaded only when that submen
 opens. Nested menus, separators, enabled state and checkmarks come from the Shell.
 The hidden `strata-shell.exe` helper retains the original command table until
 invocation, services dynamic submenu callbacks and cancels discarded sessions.
+Submenus populate synchronously, and command invocation supplies both ANSI and
+Unicode command offsets with `SEE_MASK_NOASYNC` so standard handlers finish
+before the helper exits. Copy and Cut from this menu share Strata's live file
+clipboard provider instead of depending on the helper's clipboard lifetime.
 There is no separate native menu popup. This integrates classic Shell handlers;
 it does not reproduce the redesigned Windows 11 menu or arbitrary owner drawing.
+File Copy/Cut exports native `CF_HDROP` and `Preferred DropEffect` alongside the
+GTK file list. Explorer and other native file consumers receive filesystem
+paths and Copy/Move intent. Paste accepts Unicode `CF_HDROP` from native
+applications, validates the complete selection and reads their preferred
+effect. A clipboard change while reading cancels that paste. Explicit Copy
+Path/Copy URI actions continue to provide text. Native file formats require the
+packaged GTK runtime's existing CF_HDROP mapping and HGLOBAL fixes.
 Strata's own context menus also use native popup placement and may extend beyond
 the application window, with scrolling when the monitor cannot fit the menu.
 Enable **Keep Strata running in the background** to reopen from the tray after

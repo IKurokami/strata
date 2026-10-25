@@ -105,8 +105,25 @@ fn run(
     command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::piped());
     let mut child = ChildGuard(command.spawn()?);
+    let errors = child
+        .0
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("Missing Shell error output"))?;
+    let (error_sender, error_receiver) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("strata-shell-errors".into())
+        .spawn(move || {
+            let mut errors = errors;
+            let mut detail = Vec::new();
+            let _ = Read::by_ref(&mut errors)
+                .take(16 * 1024)
+                .read_to_end(&mut detail);
+            let _ = error_sender.send(String::from_utf8_lossy(&detail).trim().to_owned());
+            let _ = io::copy(&mut errors, &mut io::sink());
+        })?;
     pid.store(child.0.id(), Ordering::Release);
     let mut input = child
         .0
@@ -180,7 +197,14 @@ fn run(
             return if status.success() {
                 Ok(())
             } else {
-                Err(io::Error::other("Shell command failed"))
+                let detail = error_receiver
+                    .recv_timeout(Duration::from_millis(50))
+                    .unwrap_or_default();
+                Err(io::Error::other(if detail.is_empty() {
+                    "Shell command failed".to_owned()
+                } else {
+                    detail
+                }))
             };
         }
         if (!received || input.is_none()) && !invoked && Instant::now() >= deadline {

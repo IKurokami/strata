@@ -11,7 +11,7 @@ const MAX_FRAME: u64 = 4 * 1024 * 1024;
 
 fn export(entry: &strata_win_shell::context_menu::Entry) -> serde_json::Value {
     serde_json::json!({
-        "label": entry.label, "command": entry.command, "enabled": entry.enabled,
+        "label": entry.label, "command": entry.command, "verb": entry.verb, "enabled": entry.enabled,
         "checked": entry.checked, "separator": entry.separator, "submenu": entry.submenu,
         "children": entry.children.iter().map(export).collect::<Vec<_>>()
     })

@@ -36,6 +36,9 @@ pub(in crate::ui) type PlaybackHandoff = Rc<dyn Fn(&Location) -> Option<Duration
 mod archive;
 pub(super) mod camera_scroll;
 mod clipboard;
+#[cfg(windows)]
+pub(in crate::ui) use clipboard::copy_native_files;
+pub(in crate::ui) use clipboard::{clipboard_has_files, read_clipboard_files};
 mod collection;
 mod columns;
 pub(super) mod context_menu;

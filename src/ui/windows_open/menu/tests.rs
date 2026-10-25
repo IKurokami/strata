@@ -4,12 +4,35 @@ fn leaf(label: &str, command: u32, enabled: bool, checked: bool) -> Node {
     Node {
         label: label.into(),
         command: Some(command),
+        verb: String::new(),
         enabled,
         checked,
         separator: false,
         submenu: false,
         children: Vec::new(),
     }
+}
+
+#[test]
+fn native_clipboard_commands_use_verbs_and_respect_disabled_ancestors() {
+    let mut copy = leaf("External translated label", 10, true, false);
+    copy.verb = "Copy".into();
+    let mut cut = leaf("Another label", 11, true, false);
+    cut.verb = "cut".into();
+    let mut unrelated = leaf("Copy", 12, true, false);
+    unrelated.verb = "open".into();
+    let mut disabled = leaf("Disabled", 13, false, false);
+    disabled.command = None;
+    disabled.submenu = true;
+    let mut hidden = leaf("Cut", 14, true, false);
+    hidden.verb = "cut".into();
+    disabled.children.push(hidden);
+    let mut commands = std::collections::HashMap::new();
+    clipboard_commands(&[copy, cut, unrelated, disabled], true, &mut commands);
+    assert_eq!(
+        commands,
+        std::collections::HashMap::from([(10, false), (11, true)])
+    );
 }
 
 #[test]
@@ -24,6 +47,7 @@ fn exported_commands_preserve_nesting_state_and_dispatch_exact_ids() {
     let separator = Node {
         label: String::new(),
         command: None,
+        verb: String::new(),
         enabled: false,
         checked: false,
         separator: true,
@@ -33,6 +57,7 @@ fn exported_commands_preserve_nesting_state_and_dispatch_exact_ids() {
     let disabled = Node {
         label: "Disabled parent".into(),
         command: None,
+        verb: String::new(),
         enabled: false,
         checked: false,
         separator: false,

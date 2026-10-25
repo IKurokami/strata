@@ -12,6 +12,8 @@ mod transport;
 struct Node {
     label: String,
     command: Option<u32>,
+    #[serde(default)]
+    verb: String,
     enabled: bool,
     checked: bool,
     separator: bool,
@@ -29,6 +31,7 @@ fn validate(nodes: &[Node]) -> io::Result<()> {
                 .checked_sub(1)
                 .ok_or_else(|| io::Error::other("Shell menu item limit exceeded"))?;
             if node.label.len() > 32768
+                || node.verb.len() > 2048
                 || node.command.is_some_and(|id| !(1..=0x7fff).contains(&id))
                 || (node.separator && (node.command.is_some() || node.submenu))
                 || (node.submenu && node.command.is_some())
@@ -56,6 +59,25 @@ fn label_parts(raw: &str) -> (String, &str) {
         }
     }
     (text.replace('_', "__"), shortcut)
+}
+
+fn clipboard_commands(
+    nodes: &[Node],
+    enabled: bool,
+    result: &mut std::collections::HashMap<u32, bool>,
+) {
+    for node in nodes {
+        let enabled = enabled && node.enabled;
+        if enabled && let Some(command) = node.command {
+            if node.verb.eq_ignore_ascii_case("copy") {
+                result.insert(command, false);
+            }
+            if node.verb.eq_ignore_ascii_case("cut") {
+                result.insert(command, true);
+            }
+        }
+        clipboard_commands(&node.children, enabled, result);
+    }
 }
 
 fn append_nodes(
@@ -129,6 +151,7 @@ pub(in crate::ui) struct Controller {
     open: gio::SimpleAction,
     generation: Cell<u64>,
     paths: RefCell<Vec<PathBuf>>,
+    clipboard_commands: RefCell<std::collections::HashMap<u32, bool>>,
     session: RefCell<Option<transport::Session>>,
     started: Cell<bool>,
     popover: glib::WeakRef<gtk::PopoverMenu>,
@@ -156,6 +179,7 @@ impl Controller {
             open,
             generation: Cell::new(0),
             paths: RefCell::new(Vec::new()),
+            clipboard_commands: RefCell::new(std::collections::HashMap::new()),
             session: RefCell::new(None),
             started: Cell::new(false),
             popover: popover.downgrade(),
@@ -198,6 +222,7 @@ impl Controller {
     fn reset(&self) {
         self.generation.set(self.generation.get().wrapping_add(1));
         self.session.take();
+        self.clipboard_commands.borrow_mut().clear();
         self.started.set(false);
         self.model.remove_all();
         for name in self.group.list_actions() {
@@ -264,6 +289,7 @@ impl Controller {
         }
         match result {
             Ok(nodes) => {
+                clipboard_commands(&nodes, true, &mut self.clipboard_commands.borrow_mut());
                 self.model.remove_all();
                 let weak = Rc::downgrade(self);
                 let invoke: Rc<dyn Fn(u32)> = Rc::new(move |command| {
@@ -305,6 +331,24 @@ impl Controller {
     }
 
     fn invoke(&self, command: u32) {
+        let clipboard_command = self.clipboard_commands.borrow().get(&command).copied();
+        if let Some(cut) = clipboard_command {
+            // Use the same live GTK provider as Strata's own Copy/Cut actions;
+            // no clipboard data may depend on the short-lived Shell helper.
+            let copied = crate::ui::browser::copy_native_files(&self.paths.borrow(), cut);
+            if let Some(popover) = self.popover.upgrade() {
+                popover.popdown();
+            }
+            self.session.take();
+            if !copied && let Some(owner) = self.owner.upgrade() {
+                crate::ui::modal::show_error_dialog(
+                    &owner,
+                    &crate::i18n::tr("Unable to complete operation"),
+                    &crate::i18n::tr("Unable to run Windows command"),
+                );
+            }
+            return;
+        }
         let completion = self
             .session
             .borrow_mut()
@@ -324,7 +368,7 @@ impl Controller {
             if let Some(owner) = owner.upgrade()
                 && let Err(error) = result
             {
-                tracing::warn!(kind = ?error.kind(), "Windows Shell command failed");
+                tracing::warn!(%error, kind = ?error.kind(), "Windows Shell command failed");
                 crate::ui::modal::show_error_dialog(
                     &owner,
                     &crate::i18n::tr("Unable to complete operation"),
