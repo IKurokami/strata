@@ -35,7 +35,7 @@ const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
 pub(super) const SUBMENU_ROW_CLASS: &str = "item-context-submenu";
 pub(super) const SUBMENU_ENTRIES_CLASS: &str = "item-context-submenu-entries";
 
-fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
+fn submenu_row<const N: usize>(header: &gtk::Button, entries: [&gtk::Button; N]) -> gtk::Box {
     let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
     wrapper.add_css_class(SUBMENU_ROW_CLASS);
     wrapper.append(header);
@@ -48,39 +48,16 @@ fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
     wrapper
 }
 
-fn context_menu_placement(anchor_height: i32, click_y: f64) -> (gtk::PositionType, i32) {
-    let click_y = click_y.round() as i32;
-    let above = click_y.clamp(0, anchor_height);
-    let below = anchor_height.saturating_sub(above);
-    let position = if below >= above {
-        gtk::PositionType::Bottom
-    } else {
-        gtk::PositionType::Top
-    };
-
-    (
-        position,
-        anchor_height
-            .saturating_sub(CONTEXT_MENU_EDGE_MARGIN * 2)
-            .max(1),
-    )
-}
-
-// GTK popovers do not shift their anchor to use space across the click point.
-fn shifted_anchor_y(
-    position: gtk::PositionType,
-    anchor_height: i32,
-    click_y: i32,
-    content_height: i32,
-) -> i32 {
-    let near_edge = CONTEXT_MENU_EDGE_MARGIN;
-    let far_edge = anchor_height.saturating_sub(CONTEXT_MENU_EDGE_MARGIN);
-    match position {
-        gtk::PositionType::Bottom => {
-            click_y.min(far_edge.saturating_sub(content_height).max(near_edge))
-        }
-        _ => click_y.max(near_edge.saturating_add(content_height).min(far_edge)),
-    }
+fn context_menu_max_height(anchor: &gtk::Widget) -> i32 {
+    let display = anchor.display();
+    anchor
+        .native()
+        .and_then(|native| native.surface())
+        .and_then(|surface| display.monitor_at_surface(&surface))
+        .map(|monitor| monitor.geometry().height())
+        .unwrap_or(600)
+        .saturating_sub(CONTEXT_MENU_EDGE_MARGIN * 2)
+        .max(1)
 }
 
 pub(in crate::ui) fn context_menu_popover(
@@ -272,51 +249,23 @@ fn show_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f
     }
     position_model_context_popover(popover, anchor, x, y);
     popover.popup();
-    let (popover, anchor) = (popover.downgrade(), anchor.downgrade());
-    // GTK inserts native section separators in an idle; measure their final height then.
-    glib::idle_add_local_once(move || {
-        if let (Some(popover), Some(anchor)) = (popover.upgrade(), anchor.upgrade())
-            && popover.is_visible()
-        {
-            position_model_context_popover(&popover, &anchor, x, y);
-        }
-    });
 }
 
 fn position_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f64, y: f64) {
-    let (Some(parent), Some(window)) = (
-        popover.parent(),
-        anchor.root().and_downcast::<gtk::Window>(),
-    ) else {
+    let Some(parent) = popover.parent() else {
         return;
     };
-    let Some(click) = anchor.compute_point(&window, &gtk::graphene::Point::new(x as f32, y as f32))
+    let Some(point) = anchor.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
     else {
         return;
     };
-    let (position, available) = context_menu_placement(window.height(), f64::from(click.y()));
-    popover.set_position(position);
+    // GDK places the native popup against monitor bounds, including flipping and
+    // sliding. Changing its anchor after mapping causes a visible second move.
+    popover.set_position(gtk::PositionType::Bottom);
     if let Some(scroll) = popover.child().and_downcast::<gtk::ScrolledWindow>() {
-        scroll.set_max_content_height(available);
+        scroll.set_max_content_height(context_menu_max_height(anchor));
         scroll.set_propagate_natural_height(true);
     }
-    let height = popover
-        .child()
-        .map_or(1, |child| child.measure(gtk::Orientation::Vertical, -1).1)
-        .saturating_add(CONTEXT_MENU_EDGE_MARGIN);
-    let y = shifted_anchor_y(position, window.height(), click.y().round() as i32, height);
-    let width = popover
-        .child()
-        .map_or(1, |child| child.measure(gtk::Orientation::Horizontal, -1).1);
-    let inset = (width / 2 + CONTEXT_MENU_EDGE_MARGIN)
-        .min(window.width() / 2)
-        .max(0);
-    let x = click
-        .x()
-        .clamp(inset as f32, (window.width() - inset).max(inset) as f32);
-    let Some(point) = window.compute_point(&parent, &gtk::graphene::Point::new(x, y as f32)) else {
-        return;
-    };
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
         point.x().round() as i32,
         point.y().round() as i32,
@@ -341,16 +290,11 @@ fn present_context_popover(
     let point = anchor
         .compute_point(&overlay, &gtk::graphene::Point::new(x as f32, y as f32))
         .unwrap_or(gtk::graphene::Point::new(x as f32, y as f32));
-    let (position, max_content_height) =
-        context_menu_placement(overlay.height(), f64::from(point.y()));
-    popover.set_position(position);
-    scroll.set_max_content_height(max_content_height);
-    let click_y = point.y().round() as i32;
-    let (_, content_height, _, _) = scroll.measure(gtk::Orientation::Vertical, -1);
-    let anchor_y = shifted_anchor_y(position, overlay.height(), click_y, content_height.max(1));
+    popover.set_position(gtk::PositionType::Bottom);
+    scroll.set_max_content_height(context_menu_max_height(anchor));
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
         point.x().round() as i32,
-        anchor_y,
+        point.y().round() as i32,
         1,
         1,
     )));
@@ -872,6 +816,15 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "New Window",
         ContextHint::OpenInNewWindow,
     );
+    #[cfg(windows)]
+    let shell_menu = item_context_option(
+        crate::assets::icons::APP_WINDOW,
+        "Windows context menu…",
+        ContextHint::None,
+    );
+    #[cfg(windows)]
+    let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window, &shell_menu]);
+    #[cfg(not(windows))]
     let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window]);
     open_in_window.set_visible(!cfg!(windows));
     let open_with = item_context_option(
@@ -1073,6 +1026,22 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "New Window",
         ContextHint::OpenInNewWindow,
     );
+    #[cfg(windows)]
+    let shell_menu_multiple = item_context_option(
+        crate::assets::icons::APP_WINDOW,
+        "Windows context menu…",
+        ContextHint::None,
+    );
+    #[cfg(windows)]
+    let open_in_multiple_submenu = submenu_row(
+        &open_in_multiple,
+        [
+            &open_in_tab_multiple,
+            &open_in_window_multiple,
+            &shell_menu_multiple,
+        ],
+    );
+    #[cfg(not(windows))]
     let open_in_multiple_submenu = submenu_row(
         &open_in_multiple,
         [&open_in_tab_multiple, &open_in_window_multiple],
@@ -1233,6 +1202,17 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         (&open_in_window_multiple, "win.open-window-at"),
     ] {
         connect_open_in(button, &popover, state, &target, action);
+    }
+    #[cfg(windows)]
+    for button in [&shell_menu, &shell_menu_multiple] {
+        connect_selection_action(button, &popover, state, &target, |state, entries| {
+            let paths = entries
+                .iter()
+                .filter_map(|entry| entry.location.native_path())
+                .map(std::path::Path::to_path_buf)
+                .collect();
+            crate::ui::windows_open::context_menu(paths, &state.overlay);
+        });
     }
     let open_file_location_target = target.clone();
     let open_file_location_state = Rc::downgrade(state);
@@ -1755,9 +1735,21 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             compress_multiple.set_visible(can_compress);
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
-            open_in_submenu.set_visible(entry.is_directory());
+            let directories = entries.iter().any(|entry| entry.is_directory());
+            #[cfg(windows)]
+            let shell_available = can_compress && !in_trash;
+            #[cfg(not(windows))]
+            let shell_available = false;
+            open_in_tab.set_visible(entry.is_directory());
+            open_in_tab_multiple.set_visible(directories);
+            #[cfg(windows)]
+            {
+                shell_menu.set_visible(shell_available);
+                shell_menu_multiple.set_visible(shell_available);
+            }
+            open_in_submenu.set_visible(entry.is_directory() || shell_available);
             open_in_multiple_submenu
-                .set_visible(entries.len() > 1 && entries.iter().any(|entry| entry.is_directory()));
+                .set_visible(entries.len() > 1 && (directories || shell_available));
             open_terminal.set_visible(entry.is_directory() && can_open_terminal(&entry.location));
             #[cfg(windows)]
             open_explorer.set_visible(

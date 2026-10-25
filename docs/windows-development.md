@@ -58,6 +58,14 @@ An allocated console shows the latest 256 KiB of application logs, including
 startup diagnostics, then streams new logs. Launcher output redirection remains
 active independently of this view.
 The tray icon provides Open Strata, the same console toggle and Quit Strata.
+For local files and folders, **Open in… → Windows context menu…** opens the
+classic Windows Shell menu for the current selection, including installed
+third-party extensions. Windows supplies the command labels, dynamic submenus,
+keyboard handling and screen-edge scrolling. This is the classic Shell menu,
+not the redesigned Windows 11 menu. Shell extensions run in `strata-shell.exe`
+instead of the GTK process; dismissing the menu does not execute a command.
+Strata's own context menus also use native popup placement and may extend beyond
+the application window, with scrolling when the monitor cannot fit the menu.
 Enable **Keep Strata running in the background** to reopen from the tray after
 closing the window; Quit retains the active-operation guards.
 External opens share one browser window per user, logon session and configuration,

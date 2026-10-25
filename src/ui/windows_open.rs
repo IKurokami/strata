@@ -9,13 +9,15 @@ use std::{
 use gtk::{gio, glib, prelude::*};
 
 pub(super) async fn launch(path: PathBuf, choose: bool) -> io::Result<()> {
+    run_helper(vec![path], if choose { "--choose" } else { "--launch" }).await
+}
+
+async fn run_helper(paths: Vec<PathBuf>, mode: &'static str) -> io::Result<()> {
     let fallback = crate::i18n::tr("Unable to open file");
     gio::spawn_blocking(move || {
         let executable = std::env::current_exe()?;
         let mut command = Command::new(executable.with_file_name("strata-shell.exe"));
-        command
-            .arg(if choose { "--choose" } else { "--launch" })
-            .arg(path);
+        command.arg(mode).args(paths);
         // The target application must not inherit Strata's private GTK runtime.
         for name in [
             "GSETTINGS_SCHEMA_DIR",
@@ -44,10 +46,29 @@ pub(super) async fn launch(path: PathBuf, choose: bool) -> io::Result<()> {
                 command.env("PATH", path);
             }
         }
-        helper_result(command.output()?, &fallback)
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let child = command.spawn()?;
+        strata_win_shell::context_menu::allow_foreground(child.id());
+        helper_result(child.wait_with_output()?, &fallback)
     })
     .await
     .unwrap_or_else(|_| Err(io::Error::other(crate::i18n::tr("Unable to open file"))))
+}
+
+pub(super) fn context_menu(paths: Vec<PathBuf>, parent: &impl IsA<gtk::Widget>) {
+    if paths.is_empty() {
+        return;
+    }
+    let parent = parent.as_ref().downgrade();
+    glib::spawn_future_local(async move {
+        let result = run_helper(paths, "--context-menu").await;
+        if let Some(parent) = parent.upgrade() {
+            report(&parent, result);
+        }
+    });
 }
 
 fn helper_result(output: Output, fallback: &str) -> io::Result<()> {

@@ -37,6 +37,10 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+        [mode, paths @ ..] if mode == "--context-menu" => {
+            let paths: Vec<_> = paths.iter().map(std::path::PathBuf::from).collect();
+            strata_win_shell::context_menu::show(&paths)
+        }
         [mode] if mode == "--watch" => strata_win_shell::file_manager::watch(),
         [mode, flag, target] if mode == "--unregister" && flag == "--target" => {
             strata_win_shell::file_manager::disable(std::path::Path::new(target))

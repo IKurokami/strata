@@ -8,6 +8,7 @@
 #![cfg(windows)]
 
 pub mod activation;
+pub mod context_menu;
 pub mod desktop;
 pub mod file_manager;
 pub mod job;
