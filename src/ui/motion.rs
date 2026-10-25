@@ -1,16 +1,216 @@
 // SPDX-License-Identifier: MIT
 
-use std::cell::Cell;
+use gtk::{glib, prelude::*};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
+
+pub(super) const CONTENT: Duration = Duration::from_millis(220);
+pub(super) const PANEL: Duration = Duration::from_millis(320);
+pub(super) const MODAL: Duration = Duration::from_millis(260);
+pub(super) const FEEDBACK: Duration = Duration::from_millis(280);
+
+type ActiveMotion = (glib::WeakRef<gtk::Widget>, &'static str, Rc<Cell<bool>>);
 
 thread_local! {
     static REDUCE_MOTION: Cell<bool> = const { Cell::new(false) };
+    static ACTIVE: RefCell<Vec<ActiveMotion>> = const { RefCell::new(Vec::new()) };
+    static REDUCED_CSS: RefCell<Option<(gtk::gdk::Display, gtk::CssProvider)>> = const { RefCell::new(None) };
+}
+
+#[derive(Default)]
+pub(super) struct FrameProgress {
+    previous: Option<i64>,
+    elapsed: Duration,
+}
+
+impl FrameProgress {
+    pub(super) fn elapsed(&mut self, time: i64) -> Duration {
+        if let Some(previous) = self.previous {
+            // A blocked UI must not consume the entire animation before its
+            // first paint, or jump to the endpoint after one delayed frame.
+            self.elapsed +=
+                Duration::from_micros(time.saturating_sub(previous).clamp(0, 48_000) as u64);
+        }
+        self.previous = Some(time);
+        self.elapsed
+    }
+}
+
+pub(super) fn cancel(widget: &impl IsA<gtk::Widget>, channel: &'static str) {
+    ACTIVE.with_borrow_mut(|active| {
+        active.retain(|(owner, key, running)| {
+            let Some(owner) = owner.upgrade() else {
+                return false;
+            };
+            if owner == *widget.as_ref() && *key == channel {
+                running.set(false);
+            }
+            running.get()
+        });
+    });
+}
+
+pub(super) fn animate(
+    widget: &impl IsA<gtk::Widget>,
+    channel: Option<&'static str>,
+    duration: Duration,
+    frame: impl Fn(&gtk::Widget, Duration) + 'static,
+    on_done: impl FnOnce() + 'static,
+) {
+    let widget = widget.as_ref();
+    if let Some(channel) = channel {
+        cancel(widget, channel);
+    }
+    let running = Rc::new(Cell::new(true));
+    if let Some(channel) = channel {
+        ACTIVE
+            .with_borrow_mut(|active| active.push((widget.downgrade(), channel, running.clone())));
+    }
+    if !animations_enabled() || duration.is_zero() {
+        frame(widget, duration);
+        // Leave input dispatch before teardown, without waiting for the UI to
+        // become idle: indexing or rendering must not starve modal completion.
+        glib::timeout_add_local_once(Duration::ZERO, move || {
+            if running.replace(false) {
+                on_done();
+            }
+        });
+        return;
+    }
+    let done = Rc::new(RefCell::new(Some(on_done)));
+    let tick_id = Rc::new(RefCell::new(None));
+    let frame = Rc::new(frame);
+    let tick_frame = frame.clone();
+    let tick_running = running.clone();
+    let tick_done = done.clone();
+    let tick_handle = tick_id.clone();
+    let progress = RefCell::new(FrameProgress::default());
+    let id = widget.add_tick_callback(move |widget, clock| {
+        if !tick_running.get() {
+            tick_handle.take();
+            return glib::ControlFlow::Break;
+        }
+        let elapsed = if animations_enabled() {
+            progress
+                .borrow_mut()
+                .elapsed(clock.frame_time())
+                .min(duration)
+        } else {
+            duration
+        };
+        tick_frame(widget, elapsed);
+        if elapsed < duration && tick_running.get() {
+            return glib::ControlFlow::Continue;
+        }
+        tick_handle.take();
+        if tick_running.replace(false)
+            && let Some(done) = tick_done.take()
+        {
+            done();
+        }
+        glib::ControlFlow::Break
+    });
+    tick_id.replace(Some(id));
+    let weak = widget.downgrade();
+    // Unmapped widgets do not tick. Cleanup and confirmed file operations must
+    // still complete, while cancelled generations must never fire old callbacks.
+    glib::timeout_add_local(Duration::from_millis(100), move || {
+        if running.get() && weak.upgrade().is_some_and(|widget| widget.is_mapped()) {
+            return glib::ControlFlow::Continue;
+        }
+        if let Some(id) = tick_id.take() {
+            id.remove();
+        }
+        if running.replace(false) {
+            if let Some(widget) = weak.upgrade() {
+                frame(&widget, duration);
+            }
+            if let Some(done) = done.take() {
+                done();
+            }
+        } else {
+            done.take();
+        }
+        glib::ControlFlow::Break
+    });
+}
+
+pub(super) fn class_once(widget: &impl IsA<gtk::Widget>, class: &'static str, duration: Duration) {
+    let widget = widget.as_ref();
+    if !animations_enabled() {
+        cancel(widget, class);
+        widget.remove_css_class(class);
+        return;
+    }
+    if widget.has_css_class(class) {
+        return;
+    }
+    widget.add_css_class(class);
+    let weak = widget.downgrade();
+    animate(
+        widget,
+        Some(class),
+        duration,
+        |_, _| {},
+        move || {
+            if let Some(widget) = weak.upgrade() {
+                widget.remove_css_class(class);
+            }
+        },
+    );
+}
+
+pub(super) fn smooth(progress: f64) -> f64 {
+    cubic_bezier(progress, (0.22, 0.0), (0.35, 1.0))
 }
 
 pub(super) fn set_reduce_motion(reduced: bool) {
     REDUCE_MOTION.set(reduced);
+    sync_reduced_css();
+}
+
+fn sync_reduced_css() {
+    REDUCED_CSS.with_borrow_mut(|installed| {
+        if !REDUCE_MOTION.get() {
+            if let Some((display, provider)) = installed.take() {
+                gtk::style_context_remove_provider_for_display(&display, &provider);
+            }
+        } else if installed.is_none()
+            && let Some(display) = gtk::gdk::Display::default()
+        {
+            let provider = gtk::CssProvider::new();
+            provider.load_from_string("* { transition: none; animation: none; }");
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+            *installed = Some((display, provider));
+        }
+    });
+}
+
+pub(super) fn bind_stack(stack: &gtk::Stack, preferences: &super::preferences::PreferenceManager) {
+    preferences.bind_preference(
+        stack,
+        |preferences| preferences.reduce_motion(),
+        |widget, reduced| {
+            if let Some(stack) = widget.downcast_ref::<gtk::Stack>() {
+                stack.set_transition_duration(if reduced {
+                    0
+                } else {
+                    CONTENT.as_millis() as u32
+                });
+            }
+        },
+    );
 }
 
 pub(super) fn animations_enabled() -> bool {
+    sync_reduced_css();
     !REDUCE_MOTION.get()
         && gtk::Settings::default()
             .map(|settings| settings.is_gtk_enable_animations())
@@ -29,6 +229,9 @@ pub(super) fn emphasized_acceleration(progress: f64) -> f64 {
 
 fn cubic_bezier(progress: f64, first: (f64, f64), second: (f64, f64)) -> f64 {
     let progress = progress.clamp(0.0, 1.0);
+    if progress == 0.0 || progress == 1.0 {
+        return progress;
+    }
     let mut lower = 0.0;
     let mut upper = 1.0;
     for _ in 0..16 {

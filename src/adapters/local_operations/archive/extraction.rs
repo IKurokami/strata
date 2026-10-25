@@ -79,7 +79,23 @@ struct Staging {
     directory: ExtractionDestination,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ExtractionName<'a> {
+    pub(super) name: &'a str,
+    pub(super) into_folder: bool,
+}
+
+impl<'a> From<&'a str> for ExtractionName<'a> {
+    fn from(name: &'a str) -> Self {
+        Self {
+            name,
+            into_folder: false,
+        }
+    }
+}
+
 pub(super) struct ExtractionSession<'a> {
+    into_folder: bool,
     destination: &'a Path,
     archive_name: &'a str,
     directory: ExtractionDestination,
@@ -104,20 +120,23 @@ pub(super) struct ExtractionSession<'a> {
 impl<'a> ExtractionSession<'a> {
     pub(super) fn open(
         destination: &'a Path,
-        archive_name: &'a str,
+        archive_name: impl Into<ExtractionName<'a>>,
         progress: &'a AtomicUsize,
         cancelled: &'a AtomicBool,
     ) -> Result<Self, ArchiveError> {
+        let archive_name = archive_name.into();
         let directory = ExtractionDestination::open(destination)?;
         let available_bytes = directory.available_bytes()?;
-        Ok(Self::from_open(
+        let mut session = Self::from_open(
             destination,
-            archive_name,
+            archive_name.name,
             directory,
             progress,
             cancelled,
             available_bytes,
-        ))
+        );
+        session.into_folder = archive_name.into_folder;
+        Ok(session)
     }
 
     fn from_open(
@@ -129,6 +148,7 @@ impl<'a> ExtractionSession<'a> {
         available_bytes: Option<u64>,
     ) -> Self {
         Self {
+            into_folder: false,
             destination,
             archive_name,
             directory,
@@ -395,7 +415,7 @@ impl<'a> ExtractionSession<'a> {
                         remove_empty(directory, &staging)?;
                         return Ok(ArchiveOutcome::Completed(None));
                     }
-                    [root] => {
+                    [root] if !self.into_folder => {
                         let leaf = directory
                             .publish_single_root(&staging.directory, root)
                             .map_err(|error| staging_kept(&error, &staging))?;

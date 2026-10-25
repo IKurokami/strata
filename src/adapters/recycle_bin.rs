@@ -93,10 +93,14 @@ pub(crate) fn error(reason: impl std::fmt::Display) -> glib::Error {
 }
 
 pub(crate) fn operation_error_message(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::Interrupted {
+        tracing::debug!(%error, "native Recycle Bin operation stopped");
+        return crate::i18n::tr("Operation cancelled");
+    }
+    tracing::warn!(%error, "native Recycle Bin operation failed");
     if error.raw_os_error().is_some() || crate::services::io_error_reason(error).is_some() {
         crate::services::io_error_message(error)
     } else {
-        tracing::warn!(%error, "native Recycle Bin operation failed");
         crate::i18n::tr("An unexpected system error occurred")
     }
 }

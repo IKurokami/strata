@@ -210,11 +210,13 @@ thread_local! {
 }
 
 pub(super) fn present_window(window: &impl IsA<gtk::Window>) {
-    window.present();
-    if let Some(window) = window.as_ref().downcast_ref::<gtk::ApplicationWindow>()
-        && let Some(handle) = super::windows_window_state::handle(window)
-    {
-        strata_win_shell::window::foreground(handle);
+    if let Some(window) = window.as_ref().downcast_ref::<gtk::ApplicationWindow>() {
+        super::windows_window_state::present(window);
+        if let Some(handle) = super::windows_window_state::handle(window) {
+            strata_win_shell::window::foreground(handle);
+        }
+    } else {
+        window.present();
     }
 }
 
@@ -313,6 +315,9 @@ pub(super) fn quit(application: &gtk::Application) {
         return;
     }
     for window in application.windows() {
+        if let Some(window) = window.downcast_ref::<gtk::ApplicationWindow>() {
+            super::windows_window_state::save(window);
+        }
         // Explicit exit bypasses close_request's Win32 IME teardown ordering.
         gtk::prelude::RootExt::set_focus(&window, None::<&gtk::Widget>);
         window.destroy();

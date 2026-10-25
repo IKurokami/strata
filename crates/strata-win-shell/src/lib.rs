@@ -8,10 +8,12 @@
 #![cfg(windows)]
 
 pub mod activation;
+pub mod context_menu;
 pub mod desktop;
 pub mod file_manager;
 pub mod job;
 pub mod launch;
+mod operation_result;
 mod recycle_bin;
 pub mod shell_window;
 pub mod volume;
@@ -60,7 +62,7 @@ pub fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
 
 use windows::{
     Win32::{
-        Foundation::{E_ABORT, E_FAIL, HWND},
+        Foundation::{E_FAIL, HWND},
         System::Com::{
             CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
             CoUninitialize,
@@ -262,7 +264,10 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
     fn StartOperations(&self) -> windows::core::Result<()> {
         Ok(())
     }
-    fn FinishOperations(&self, _result: HRESULT) -> windows::core::Result<()> {
+    fn FinishOperations(&self, result: HRESULT) -> windows::core::Result<()> {
+        if result.is_err() {
+            self.outcomes.borrow_mut().failure.get_or_insert(result);
+        }
         Ok(())
     }
     fn PreRenameItem(
@@ -424,26 +429,8 @@ fn perform(operation: &IFileOperation, outcomes: &Rc<RefCell<Outcomes>>) -> io::
     // SAFETY: `operation` is live; this blocks this private STA thread only.
     let performed = unsafe { operation.PerformOperations() };
     // SAFETY: as above.
-    let aborted = unsafe { operation.GetAnyOperationsAborted() }
-        .map(|flag| flag.as_bool())
-        .unwrap_or(false);
-    let failure = outcomes.borrow().failure;
-    if let Err(error) = performed {
-        return Err(io_error("shell operation failed", &error));
-    }
-    if aborted {
-        return Err(io::Error::new(
-            io::ErrorKind::Interrupted,
-            windows::core::Error::from(E_ABORT).message(),
-        ));
-    }
-    match failure {
-        Some(code) => Err(io_error(
-            "shell operation failed",
-            &windows::core::Error::from(code),
-        )),
-        None => Ok(()),
-    }
+    let aborted = unsafe { operation.GetAnyOperationsAborted() }.map(|flag| flag.as_bool());
+    operation_result::resolve(performed, aborted, outcomes.borrow().failure)
 }
 
 /// Classifies the drive root without probing the target path.

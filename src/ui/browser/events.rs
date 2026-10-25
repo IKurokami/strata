@@ -908,7 +908,7 @@ impl ViewState {
                         return;
                     };
                     state.clear_delete_animation();
-                    if let Some((entry, destination)) = retry
+                    if let Some((entry, destination, into_folder)) = retry
                         && let Some(invalid_password) = extract_password_retry(password_failure)
                     {
                         let navigate_after_extract = state.pending_navigate.take();
@@ -916,6 +916,7 @@ impl ViewState {
                             entry,
                             destination,
                             invalid_password,
+                            into_folder,
                             navigate_after_extract,
                         );
                     } else {

@@ -48,39 +48,16 @@ fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
     wrapper
 }
 
-fn context_menu_placement(anchor_height: i32, click_y: f64) -> (gtk::PositionType, i32) {
-    let click_y = click_y.round() as i32;
-    let above = click_y.clamp(0, anchor_height);
-    let below = anchor_height.saturating_sub(above);
-    let position = if below >= above {
-        gtk::PositionType::Bottom
-    } else {
-        gtk::PositionType::Top
-    };
-
-    (
-        position,
-        anchor_height
-            .saturating_sub(CONTEXT_MENU_EDGE_MARGIN * 2)
-            .max(1),
-    )
-}
-
-// GTK popovers do not shift their anchor to use space across the click point.
-fn shifted_anchor_y(
-    position: gtk::PositionType,
-    anchor_height: i32,
-    click_y: i32,
-    content_height: i32,
-) -> i32 {
-    let near_edge = CONTEXT_MENU_EDGE_MARGIN;
-    let far_edge = anchor_height.saturating_sub(CONTEXT_MENU_EDGE_MARGIN);
-    match position {
-        gtk::PositionType::Bottom => {
-            click_y.min(far_edge.saturating_sub(content_height).max(near_edge))
-        }
-        _ => click_y.max(near_edge.saturating_add(content_height).min(far_edge)),
-    }
+fn context_menu_max_height(anchor: &gtk::Widget) -> i32 {
+    let display = anchor.display();
+    anchor
+        .native()
+        .and_then(|native| native.surface())
+        .and_then(|surface| display.monitor_at_surface(&surface))
+        .map(|monitor| monitor.geometry().height())
+        .unwrap_or(600)
+        .saturating_sub(CONTEXT_MENU_EDGE_MARGIN * 2)
+        .max(1)
 }
 
 pub(in crate::ui) fn context_menu_popover(
@@ -272,51 +249,23 @@ fn show_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f
     }
     position_model_context_popover(popover, anchor, x, y);
     popover.popup();
-    let (popover, anchor) = (popover.downgrade(), anchor.downgrade());
-    // GTK inserts native section separators in an idle; measure their final height then.
-    glib::idle_add_local_once(move || {
-        if let (Some(popover), Some(anchor)) = (popover.upgrade(), anchor.upgrade())
-            && popover.is_visible()
-        {
-            position_model_context_popover(&popover, &anchor, x, y);
-        }
-    });
 }
 
 fn position_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f64, y: f64) {
-    let (Some(parent), Some(window)) = (
-        popover.parent(),
-        anchor.root().and_downcast::<gtk::Window>(),
-    ) else {
+    let Some(parent) = popover.parent() else {
         return;
     };
-    let Some(click) = anchor.compute_point(&window, &gtk::graphene::Point::new(x as f32, y as f32))
+    let Some(point) = anchor.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
     else {
         return;
     };
-    let (position, available) = context_menu_placement(window.height(), f64::from(click.y()));
-    popover.set_position(position);
+    // GDK places the native popup against monitor bounds, including flipping and
+    // sliding. Changing its anchor after mapping causes a visible second move.
+    popover.set_position(gtk::PositionType::Bottom);
     if let Some(scroll) = popover.child().and_downcast::<gtk::ScrolledWindow>() {
-        scroll.set_max_content_height(available);
+        scroll.set_max_content_height(context_menu_max_height(anchor));
         scroll.set_propagate_natural_height(true);
     }
-    let height = popover
-        .child()
-        .map_or(1, |child| child.measure(gtk::Orientation::Vertical, -1).1)
-        .saturating_add(CONTEXT_MENU_EDGE_MARGIN);
-    let y = shifted_anchor_y(position, window.height(), click.y().round() as i32, height);
-    let width = popover
-        .child()
-        .map_or(1, |child| child.measure(gtk::Orientation::Horizontal, -1).1);
-    let inset = (width / 2 + CONTEXT_MENU_EDGE_MARGIN)
-        .min(window.width() / 2)
-        .max(0);
-    let x = click
-        .x()
-        .clamp(inset as f32, (window.width() - inset).max(inset) as f32);
-    let Some(point) = window.compute_point(&parent, &gtk::graphene::Point::new(x, y as f32)) else {
-        return;
-    };
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
         point.x().round() as i32,
         point.y().round() as i32,
@@ -341,16 +290,11 @@ fn present_context_popover(
     let point = anchor
         .compute_point(&overlay, &gtk::graphene::Point::new(x as f32, y as f32))
         .unwrap_or(gtk::graphene::Point::new(x as f32, y as f32));
-    let (position, max_content_height) =
-        context_menu_placement(overlay.height(), f64::from(point.y()));
-    popover.set_position(position);
-    scroll.set_max_content_height(max_content_height);
-    let click_y = point.y().round() as i32;
-    let (_, content_height, _, _) = scroll.measure(gtk::Orientation::Vertical, -1);
-    let anchor_y = shifted_anchor_y(position, overlay.height(), click_y, content_height.max(1));
+    popover.set_position(gtk::PositionType::Bottom);
+    scroll.set_max_content_height(context_menu_max_height(anchor));
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
         point.x().round() as i32,
-        anchor_y,
+        point.y().round() as i32,
         1,
         1,
     )));
@@ -630,11 +574,7 @@ pub(in crate::ui) fn install_folder_context_menu(
     let parent_for_trigger = parent.downgrade();
     let location_for_trigger = location.clone();
     let open_at: Rc<dyn Fn(f64, f64)> = Rc::new(move |x: f64, y: f64| {
-        paste.set_sensitive(gtk::gdk::Display::default().is_some_and(|display| {
-            let formats = display.clipboard().formats();
-            formats.contains_type(gtk::gdk::FileList::static_type())
-                || formats.contain_mime_type("image/png")
-        }));
+        paste.set_sensitive(super::clipboard::clipboard_may_paste());
         select_all.set_sensitive(has_entries());
         open_terminal.set_sensitive(can_open_terminal(&location_for_trigger));
         let hidden_files_shown = browser_for_trigger.preferences().show_hidden;
@@ -872,6 +812,8 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "New Window",
         ContextHint::OpenInNewWindow,
     );
+    #[cfg(windows)]
+    open_in.add_css_class("windows-shell-submenu");
     let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window]);
     open_in_window.set_visible(!cfg!(windows));
     let open_with = item_context_option(
@@ -998,6 +940,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Extract here",
         ContextHint::None,
     );
+    let extract_folder = item_context_option(
+        crate::assets::icons::FOLDER_ARCHIVE,
+        "Extract to archive folder",
+        ContextHint::None,
+    );
     let extract_to = item_context_option(
         crate::assets::icons::FOLDER_ARCHIVE,
         "Extract to…",
@@ -1019,6 +966,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&remove_from_recent);
     single_open.append(&print);
     single_open.append(&extract);
+    single_open.append(&extract_folder);
     single_open.append(&extract_to);
     content.append(&single_open);
     single.append(&cut);
@@ -1067,6 +1015,8 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "New Window",
         ContextHint::OpenInNewWindow,
     );
+    #[cfg(windows)]
+    open_in_multiple.add_css_class("windows-shell-submenu");
     let open_in_multiple_submenu = submenu_row(
         &open_in_multiple,
         [&open_in_tab_multiple, &open_in_window_multiple],
@@ -1300,6 +1250,18 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         if !selection.entries_match_target(&context_entries(&state, &open_multiple_target)) {
             return;
         }
+        #[cfg(windows)]
+        if let Some(paths) = selection
+            .files
+            .iter()
+            .map(|file| file.path())
+            .collect::<Option<Vec<_>>>()
+        {
+            for path in paths {
+                crate::ui::windows_open::open(path, &state.overlay);
+            }
+            return;
+        }
         let Some(app) = selection.default else {
             return;
         };
@@ -1332,6 +1294,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             return;
         };
         if selection.entries_match_target(&context_entries(&state, &open_with_target)) {
+            #[cfg(windows)]
+            if selection.show_native(&state.overlay) {
+                return;
+            }
             let browser = Rc::downgrade(&state.browser);
             crate::ui::open_with::show(
                 &state.overlay,
@@ -1363,6 +1329,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             return;
         };
         if selection.entries_match_target(&context_entries(&state, &open_with_multiple_target)) {
+            #[cfg(windows)]
+            if selection.show_native(&state.overlay) {
+                return;
+            }
             let browser = Rc::downgrade(&state.browser);
             crate::ui::open_with::show(
                 &state.overlay,
@@ -1553,8 +1523,15 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             state.show_compress_dialog(entries);
         });
     }
-    connect_context_extract(&extract, &popover, state, &target, false);
-    connect_context_extract(&extract_to, &popover, state, &target, true);
+    connect_context_extract(&extract, &popover, state, &target, ExtractTarget::Here);
+    connect_context_extract(
+        &extract_folder,
+        &popover,
+        state,
+        &target,
+        ExtractTarget::ArchiveFolder,
+    );
+    connect_context_extract(&extract_to, &popover, state, &target, ExtractTarget::Choose);
     let weak = Rc::downgrade(state);
     let properties_target = target.clone();
     let properties_popover = popover.downgrade();
@@ -1722,9 +1699,16 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             compress_multiple.set_visible(can_compress);
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
-            open_in_submenu.set_visible(entry.is_directory());
+            let directories = entries.iter().any(|entry| entry.is_directory());
+            #[cfg(windows)]
+            let shell_available = can_compress && !in_trash;
+            #[cfg(not(windows))]
+            let shell_available = false;
+            open_in_tab.set_visible(entry.is_directory());
+            open_in_tab_multiple.set_visible(directories);
+            open_in_submenu.set_visible(entry.is_directory() || shell_available);
             open_in_multiple_submenu
-                .set_visible(entries.len() > 1 && entries.iter().any(|entry| entry.is_directory()));
+                .set_visible(entries.len() > 1 && (directories || shell_available));
             open_terminal.set_visible(entry.is_directory() && can_open_terminal(&entry.location));
             #[cfg(windows)]
             open_explorer.set_visible(
@@ -1760,6 +1744,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let can_extract = ArchiveFormat::for_entry(&entry).is_some();
             extract.set_visible(can_extract);
             extract_to.set_visible(can_extract);
+            extract_folder.set_visible(can_extract);
             customize.set_visible(
                 !in_trash && entries.len() == 1 && entry.location.native_path().is_some(),
             );
@@ -2015,12 +2000,19 @@ fn connect_selection_action(
     });
 }
 
+#[derive(Clone, Copy)]
+enum ExtractTarget {
+    Here,
+    ArchiveFolder,
+    Choose,
+}
+
 fn connect_context_extract(
     button: &gtk::Button,
     popover: &gtk::Popover,
     state: &Rc<ViewState>,
     target: &Rc<RefCell<Option<ContextTarget>>>,
-    pick_destination: bool,
+    extract_target: ExtractTarget,
 ) {
     let weak = Rc::downgrade(state);
     let target = target.clone();
@@ -2033,10 +2025,10 @@ fn connect_context_extract(
             let Some((_, entry)) = target.borrow().clone() else {
                 return;
             };
-            if pick_destination {
-                state.show_extract_to_dialog(entry);
-            } else {
-                state.extract_entry(entry);
+            match extract_target {
+                ExtractTarget::Choose => state.show_extract_to_dialog(entry),
+                ExtractTarget::Here => state.extract_entry(entry),
+                ExtractTarget::ArchiveFolder => state.extract_entry_into_folder(entry),
             }
         }
     });
@@ -2203,6 +2195,20 @@ struct OpenWithSelection {
 }
 
 impl OpenWithSelection {
+    #[cfg(windows)]
+    fn show_native(&self, parent: &impl IsA<gtk::Widget>) -> bool {
+        let Some(paths) = self
+            .files
+            .iter()
+            .map(|file| file.path())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        crate::ui::windows_open::choose(paths, parent);
+        true
+    }
+
     fn entries_match_target(&self, entries: &[FileEntry]) -> bool {
         self.locations.len() == entries.len()
             && self
@@ -2242,6 +2248,25 @@ fn prepare_open_with(
         .iter()
         .map(|entry| gio_file_for_location(&entry.location))
         .collect::<Vec<_>>();
+    #[cfg(windows)]
+    if files.iter().all(|file| file.path().is_some()) {
+        // Windows resolves associations inside the isolated shell helper. GIO's
+        // application enumeration must not load shell handlers into GTK.
+        result.replace(Some(OpenWithSelection {
+            locations,
+            files,
+            content_types: Vec::new(),
+            recommended_apps: Vec::new(),
+            other_apps: Vec::new(),
+            default: None,
+        }));
+        open_button.set_visible(true);
+        for button in [single_button, multiple_button] {
+            button.set_sensitive(true);
+            set_open_with_explanation(button, None);
+        }
+        return;
+    }
     let single_button = single_button.clone();
     let multiple_button = multiple_button.clone();
     let open_button = open_button.clone();

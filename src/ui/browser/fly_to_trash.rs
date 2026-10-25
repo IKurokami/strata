@@ -491,12 +491,7 @@ fn release_trash(button: &gtk::Button) {
 }
 
 fn animate_trash_class(button: &gtk::Button, class: &'static str) {
-    button.remove_css_class(class);
-    button.add_css_class(class);
-    let button = button.clone();
-    glib::timeout_add_local_once(BOUNCE, move || {
-        button.remove_css_class(class);
-    });
+    crate::ui::motion::class_once(button, class, BOUNCE);
 }
 
 fn centered_position(center: (f64, f64)) -> (f64, f64) {

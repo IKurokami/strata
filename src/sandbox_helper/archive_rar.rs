@@ -2,12 +2,16 @@
 
 #![allow(
     unsafe_code,
-    reason = "UnRAR's safe wrapper cannot stream member output; keep FFI confined to this sandboxed child"
+    reason = "UnRAR's safe wrapper cannot stream member output; keep FFI confined to the decoder child"
 )]
 
-//! UnRAR FFI used by the sandboxed extraction helper.
+//! UnRAR FFI used by the extraction helper process.
 
-use std::{ffi::CString, io::Write, os::unix::ffi::OsStrExt, path::Path, ptr};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+use std::{ffi::CString, io::Write, path::Path, ptr};
 
 use unrar_sys as native;
 
@@ -16,7 +20,7 @@ use crate::{
     rar_extraction::{self as wire, Failure, FailureKind},
 };
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
 // UnRAR 7.01 defines these in dll.hpp, but unrar_sys 0.5.8 omits them.
@@ -92,11 +96,7 @@ extern "C" fn callback(
                     return Err("Invalid RAR password buffer".into());
                 }
                 if message == native::UCM_NEEDPASSWORDW {
-                    let chars: Vec<native::WCHAR> = password
-                        .chars()
-                        .map(|ch| ch as native::WCHAR)
-                        .chain([0])
-                        .collect();
+                    let chars = wide_password(password);
                     if chars.len() > p2 as usize {
                         return Err(password_too_long());
                     }
@@ -187,7 +187,7 @@ fn unrar_decode_error(error: unrar::error::UnrarError, decrypting: bool) -> Fail
     }
 }
 
-pub(super) fn run(
+pub(crate) fn run(
     archive_path: &Path,
     password: Option<&str>,
     writer: &mut impl Write,
@@ -202,20 +202,64 @@ pub(super) fn run(
     }
 }
 
+#[cfg(windows)]
+fn wide_password(password: &str) -> Vec<native::WCHAR> {
+    password.encode_utf16().chain([0]).collect()
+}
+
+#[cfg(unix)]
+fn wide_password(password: &str) -> Vec<native::WCHAR> {
+    password
+        .chars()
+        .map(|ch| ch as native::WCHAR)
+        .chain([0])
+        .collect()
+}
+
+#[cfg(windows)]
+fn member_name(header: &native::HeaderDataEx) -> String {
+    let end = header
+        .filename_w
+        .iter()
+        .position(|ch| *ch == 0)
+        .unwrap_or(header.filename_w.len());
+    String::from_utf16_lossy(&header.filename_w[..end])
+}
+
+#[cfg(unix)]
+fn member_name(header: &native::HeaderDataEx) -> String {
+    header
+        .filename_w
+        .iter()
+        .take_while(|ch| **ch != 0)
+        .map(|ch| char::from_u32(*ch as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
+}
+
 fn extract(
     archive_path: &Path,
     password: Option<&str>,
     writer: &mut impl Write,
 ) -> Result<(), Failure> {
+    #[cfg(unix)]
     let path =
         CString::new(archive_path.as_os_str().as_bytes()).map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    let path: Vec<u16> = archive_path.as_os_str().encode_wide().chain([0]).collect();
     if password.is_some_and(|value| value.contains('\0')) {
         return Err("RAR password contains a NUL character".into());
     }
     let mut handle = ptr::null();
     let mut headers_encrypted = false;
     let opened = call(password, None, |user| {
+        #[cfg(unix)]
         let mut data = native::OpenArchiveDataEx::new(path.as_ptr(), native::RAR_OM_EXTRACT);
+        #[cfg(windows)]
+        let mut data = {
+            let mut data = native::OpenArchiveDataEx::new(ptr::null(), native::RAR_OM_EXTRACT);
+            data.archive_name_w = path.as_ptr();
+            data
+        };
         data.callback = Some(callback);
         data.user_data = user;
         // SAFETY: The path and callback state outlive this call; data is exclusively writable.
@@ -259,12 +303,7 @@ fn extract(
             return Ok(());
         }
         decode_result(code, decrypting_headers)?;
-        let name: String = header
-            .filename_w
-            .iter()
-            .take_while(|ch| **ch != 0)
-            .map(|ch| char::from_u32(*ch as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
-            .collect();
+        let name = member_name(&header);
         let directory = header.flags & native::RHDF_DIRECTORY != 0;
         let decrypting = password.is_some() && header.flags & native::RHDF_ENCRYPTED != 0;
         let size = u64::from(header.unp_size) | (u64::from(header.unp_size_high) << 32);
@@ -348,6 +387,7 @@ fn member_metadata(header: &native::HeaderDataEx) -> wire::WireMetadata {
     }
 }
 
+#[cfg(unix)]
 pub(super) fn cover_image(path: &Path) -> Result<Vec<u8>, String> {
     use crate::sandbox_helper::archive_cover::{
         MAX_ENTRIES, MAX_IMAGE_BYTES, compare_names, image_name,
@@ -462,6 +502,7 @@ pub(super) fn cover_image(path: &Path) -> Result<Vec<u8>, String> {
     Err("Comic cover is missing".into())
 }
 
+#[cfg(unix)]
 fn read_cover_header(archive: &Archive, header: &mut native::HeaderDataEx) -> Result<i32, String> {
     Ok(call(None, None, |user| {
         // SAFETY: The handle, header and callback state remain live for this call.

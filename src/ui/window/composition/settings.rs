@@ -118,7 +118,15 @@ impl SettingsLauncher {
         while let Some(widget) = child {
             child = widget.next_sibling();
             if widget.is_visible() && widget.has_css_class("app-modal-layer") {
-                return;
+                let reopening = widget.has_css_class("dismissing")
+                    && self
+                        .layer
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|layer| layer.upcast_ref::<gtk::Widget>() == &widget);
+                if !reopening {
+                    return;
+                }
             }
         }
         self.shortcuts.cancel_chord();

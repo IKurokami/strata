@@ -201,17 +201,32 @@ fn explicit_windows_target_is_saved_for_the_next_plain_launch() {
                     .tabs,
                 vec![Location::local(&last)]
             );
+            // A close checkpoint must preserve the live location even if the
+            // earlier navigation snapshot is no longer on disk.
+            super::super::tabs_session::remove();
             browser
                 .widget()
                 .root()
                 .and_downcast::<gtk::Window>()
                 .expect("window")
                 .close();
+            assert_eq!(
+                super::super::tabs_session::load_restorable()
+                    .expect("session saved at close")
+                    .tabs,
+                vec![Location::local(&last)]
+            );
             let restored = present_target(&application, None, Vec::new(), false, true, true);
             wait_for_navigation(&restored, &Location::local(&last));
-            for window in application.windows() {
-                window.destroy();
-            }
+            super::super::tabs_session::remove();
+            quit(&application);
+            assert!(application.windows().is_empty());
+            assert_eq!(
+                super::super::tabs_session::load_restorable()
+                    .expect("session saved at explicit exit")
+                    .tabs,
+                vec![Location::local(&last)]
+            );
         },
     );
 }

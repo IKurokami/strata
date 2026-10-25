@@ -58,7 +58,7 @@ const SOURCE_INSERT_CHUNK_LINES: usize = 64;
 pub(crate) const FOCUS_PREVIEW_DELAY: Duration = Duration::from_millis(75);
 const PREVIEW_SPINNER_DELAY: Duration = Duration::from_millis(120);
 const PRINT_TEXT_BYTE_LIMIT: usize = 16 * 1024 * 1024;
-const TRANSITION: Duration = Duration::from_millis(260);
+const TRANSITION: Duration = crate::ui::motion::PANEL;
 const PDF_PAGE_GAP: i32 = 6;
 const HANDOFF_MARGIN_US: u64 = 1_000_000;
 const PDF_MIN_ZOOM: f64 = 1.0;
@@ -1929,6 +1929,7 @@ impl PreviewState {
             .hexpand(true)
             .vexpand(true)
             .build();
+        crate::ui::motion::bind_stack(&stack, &crate::ui::preferences::PreferenceManager::shared());
         self.document_preview.replace(Some(DocumentPreview {
             stack: stack.clone(),
             source: Some(source),

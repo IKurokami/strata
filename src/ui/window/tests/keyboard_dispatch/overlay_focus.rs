@@ -699,10 +699,32 @@ fn window_accelerator_actions_yield_to_modals_and_inline_edits() {
                 window_key_claimed(&fixture.window, key, modifiers),
                 "{accelerator:?} was not dispatched past the closing dialog"
             );
-            wait_until(|| accelerator.ran(&before, &effects()));
+            wait_until_or(
+                || accelerator.ran(&before, &effects()),
+                || {
+                    format!(
+                        "{accelerator:?} did not run: before={before:?}, after={:?}",
+                        effects()
+                    )
+                },
+            );
             if accelerator.toggles() {
                 activate(accelerator);
-                wait_until(|| !accelerator.ran(&before, &effects()));
+                wait_until_or(
+                    || !accelerator.ran(&before, &effects()),
+                    || {
+                        format!(
+                            "{accelerator:?} did not reset: before={before:?}, after={:?}, inline_edit={}, search_classes={:?}, visible_modal={:?}",
+                            effects(),
+                            browser.inline_edit_is_open(),
+                            fixture
+                                .layer("search-backdrop")
+                                .map(|layer| layer.css_classes()),
+                            crate::ui::window::visible_modal_layer(&fixture.window)
+                                .map(|layer| layer.css_classes())
+                        )
+                    },
+                );
             }
         }
         fixture.content.overlay().remove_overlay(&closing);

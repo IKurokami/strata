@@ -75,6 +75,28 @@ fn settings_launcher_refuses_to_open_over_another_modal() {
                 "hidden modals must not block Settings"
             );
             assert_eq!(launcher.layer.borrow().as_ref(), Some(&settings));
+            launcher.preferences.set_reduce_motion(false);
+            gtk::Settings::default()
+                .expect("settings")
+                .set_gtk_enable_animations(true);
+            let closed = Rc::new(Cell::new(0));
+            let seen = closed.clone();
+            let closing = settings.clone();
+            settings.add_css_class("dismissing");
+            crate::ui::modal::animate_out(&settings, move || {
+                closing.set_visible(false);
+                seen.set(seen.get() + 1);
+            });
+            launcher.show();
+            glib::MainContext::default().block_on(glib::timeout_future(
+                crate::ui::motion::MODAL + std::time::Duration::from_millis(200),
+            ));
+            assert_eq!(
+                closed.get(),
+                0,
+                "the reopened Settings layer must ignore its old close"
+            );
+            assert!(settings.is_visible() && settings.is_sensitive());
             window.destroy();
         },
     );

@@ -4,7 +4,9 @@
 
 use super::super::{
     ArchiveError, archive_failed,
-    extraction::{ArchiveOutcome, ExtractionSession, MemberContent, MemberMetadata},
+    extraction::{
+        ArchiveOutcome, ExtractionName, ExtractionSession, MemberContent, MemberMetadata,
+    },
 };
 use super::{dos_local_time, filetime, member_mode};
 use crate::{
@@ -23,13 +25,13 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-pub(in crate::adapters::local_operations::archive) fn extract_rar(
+pub(in crate::adapters::local_operations::archive) fn extract_rar<'a>(
     archive_path: &Path,
-    dest_dir: &Path,
-    archive_name: &str,
+    dest_dir: &'a Path,
+    archive_name: impl Into<ExtractionName<'a>>,
     password: Option<&str>,
-    progress: &Arc<AtomicUsize>,
-    cancelled: &AtomicBool,
+    progress: &'a Arc<AtomicUsize>,
+    cancelled: &'a AtomicBool,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
     let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
     // The stream's callback errors carry only text; retain the structured kind separately.

@@ -248,6 +248,8 @@ pub struct CompressRequest {
 
 #[derive(Clone, Debug)]
 pub struct ExtractRequest {
+    /// Always publish the contents inside a fresh folder named after the archive.
+    pub into_folder: bool,
     pub id: OperationRequestId,
     pub entry: FileEntry,
     pub destination: Location,

@@ -5,7 +5,7 @@ use std::{
     env,
     path::PathBuf,
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use gtk::{
@@ -43,7 +43,7 @@ use super::{
         },
     },
     modal::{ModalHost, close_on_escape, dismiss_modal_layer, modal_layer},
-    motion::{animations_enabled, emphasized_deceleration},
+    motion::animations_enabled,
     preferences::PreferenceManager,
 };
 
@@ -56,6 +56,8 @@ mod drive_dialogs;
 mod drive_ops;
 mod keyboard;
 mod open_argument;
+#[cfg(any(windows, test))]
+mod resize;
 mod sidebar;
 mod unlock_argument;
 mod volume_password;
@@ -136,7 +138,7 @@ pub(in crate::ui) fn sidebar_fits_without_preview(content: &gtk::Paned) -> Optio
         .map_or_else(|| content.width(), |root| root.width());
     (available > 0).then(|| available > preferred_sidebar_width() + super::browser::COLUMN_WIDTH)
 }
-const SIDEBAR_TRANSITION: Duration = Duration::from_millis(300);
+const SIDEBAR_TRANSITION: Duration = crate::ui::motion::PANEL;
 const PINNED_DRAG_PREFIX: &str = "pinned:";
 const STANDARD_PLACE_IDS: &[&str] = &[
     "home",
@@ -356,7 +358,10 @@ pub(super) fn present_target(
         .build();
 
     #[cfg(windows)]
-    window.set_decorated(false);
+    {
+        window.set_decorated(false);
+        resize::install(&window);
+    }
 
     #[cfg(windows)]
     super::windows_window_state::bind(&window);
@@ -404,6 +409,9 @@ pub(super) fn present_target(
     #[cfg(not(windows))]
     let early_navigation = false;
     let map_started = std::time::Instant::now();
+    #[cfg(windows)]
+    super::windows_runtime::present_window(&window);
+    #[cfg(not(windows))]
     window.present();
     tracing::debug!(
         elapsed_ms = map_started.elapsed().as_millis() as u64,
@@ -575,41 +583,43 @@ fn animate_sidebar(
         return;
     }
 
-    let started = Instant::now();
     let paned = paned.clone();
     let sidebar = sidebar.clone();
     let generation = generation.clone();
     let animating = animating.clone();
     let state = Rc::downgrade(state);
-    let _tick = paned.clone().add_tick_callback(move |_, _| {
-        if generation.get() != animation_id {
-            return glib::ControlFlow::Break;
-        }
-        let Some(state) = state.upgrade() else {
-            return glib::ControlFlow::Break;
-        };
-
-        let target = sidebar_animation_target(&paned, &sidebar, &state, expanded);
-        let progress =
-            (started.elapsed().as_secs_f64() / SIDEBAR_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-        let eased = emphasized_deceleration(progress);
-        let position = f64::from(start) + f64::from(target - start) * eased;
-        paned.set_position(position.round() as i32);
-
-        if progress >= 1.0 {
-            // Clear before the final set_position so the position clamp sees
-            // the settled state, including an engaged icon rail.
-            animating.set(false);
-            paned.set_position(target);
-            if !expanded {
-                sidebar.set_visible(false);
+    crate::ui::motion::animate(
+        &paned.clone(),
+        Some("sidebar"),
+        SIDEBAR_TRANSITION,
+        move |_, elapsed| {
+            if generation.get() != animation_id {
+                return;
             }
-            paned.set_shrink_start_child(!expanded);
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    });
+            let Some(state) = state.upgrade() else {
+                return;
+            };
+
+            let target = sidebar_animation_target(&paned, &sidebar, &state, expanded);
+            let progress =
+                (elapsed.as_secs_f64() / SIDEBAR_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+            let eased = crate::ui::motion::smooth(progress);
+            let position = f64::from(start) + f64::from(target - start) * eased;
+            paned.set_position(position.round() as i32);
+
+            if progress >= 1.0 {
+                // Clear before the final set_position so the position clamp sees
+                // the settled state, including an engaged icon rail.
+                animating.set(false);
+                paned.set_position(target);
+                if !expanded {
+                    sidebar.set_visible(false);
+                }
+                paned.set_shrink_start_child(!expanded);
+            }
+        },
+        || {},
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

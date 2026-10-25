@@ -19,6 +19,9 @@ use crate::{
     },
 };
 
+#[cfg(all(test, windows))]
+#[path = "settings/tests/restart_windows.rs"]
+mod restart_windows_tests;
 #[cfg(all(test, not(windows)))]
 mod tests;
 
@@ -806,6 +809,7 @@ pub fn build_layer(
         .hexpand(true)
         .vexpand(true)
         .build();
+    super::motion::bind_stack(&stack, &preferences);
     let (general, responsive_setting_rows, responsive_activation_rows) =
         general_page(preferences.clone());
     stack.add_named(&general, Some("general"));
@@ -2226,12 +2230,20 @@ fn apply_install_progress(
     }
 }
 
-/// Relaunches the (just-updated) executable and quits the current instance.
+/// Exits for the staged Windows handoff, or restarts the updated Unix executable.
 fn restart_application(button: &gtk::Button) {
     let application = button
         .root()
         .and_then(|root| root.downcast::<gtk::Window>().ok())
         .and_then(|window| window.application());
+    #[cfg(windows)]
+    if let Some(application) = application {
+        // Installed is reported only after the Windows handoff is launched.
+        // It applies the staged bundle and relaunches after this process exits;
+        // spawning another waiter would race that replacement.
+        super::windows_runtime::quit(&application);
+    }
+    #[cfg(not(windows))]
     restart(application.as_ref());
 }
 
@@ -2286,9 +2298,8 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
     Some(command)
 }
 
-// Fail closed: a Windows self-update cannot reuse the Linux shell waiter.
-// A future native helper must wait for this process to exit before relaunching
-// and must verify the replacement image without UAC or PATH-based executables.
+// General preference restarts cannot reuse the Linux shell waiter on Windows.
+// Completed updates already have a handoff; restart_application exits for it.
 #[cfg(windows)]
 fn restart_waiter(_current_exe: &std::path::Path, _parent_pid: u32) -> Option<Command> {
     None

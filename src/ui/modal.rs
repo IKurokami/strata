@@ -9,7 +9,6 @@ use gtk::glib;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
 
 pub(super) mod layout;
 
@@ -554,44 +553,80 @@ fn activate_primary(confirm: &gtk::Button) {
 }
 
 pub(super) fn animate_in(layer: &gtk::Box) {
+    if !layer.has_css_class("modal-motion-tracked") {
+        layer.add_css_class("modal-motion-tracked");
+        layer.connect_unmap(|layer| layer.remove_css_class("modal-presented"));
+    }
+    if !layer.has_css_class("dismissing")
+        && (layer.has_css_class("modal-entering")
+            || (layer.has_css_class("modal-presented") && !layer.has_css_class("modal-hidden")))
+    {
+        return;
+    }
+    crate::ui::motion::cancel(layer, "modal");
     layer.remove_css_class("dismissing");
+    layer.remove_css_class("modal-exiting");
     layer.set_sensitive(true);
+    if !crate::ui::motion::animations_enabled() {
+        layer.remove_css_class("modal-hidden");
+        layer.remove_css_class("modal-entering");
+        if layer.is_mapped() {
+            layer.add_css_class("modal-presented");
+        }
+        return;
+    }
+    layer.add_css_class("modal-entering");
     layer.add_css_class("modal-hidden");
     let weak = layer.downgrade();
-    glib::timeout_add_local_once(Duration::from_millis(16), move || {
-        if let Some(layer) = weak.upgrade() {
-            layer.remove_css_class("modal-hidden");
-        }
-    });
+    crate::ui::motion::animate(
+        layer,
+        Some("modal"),
+        crate::ui::motion::MODAL,
+        |layer, elapsed| {
+            if !elapsed.is_zero() {
+                layer.remove_css_class("modal-hidden");
+            }
+        },
+        move || {
+            if let Some(layer) = weak.upgrade() {
+                layer.remove_css_class("modal-hidden");
+                layer.remove_css_class("modal-entering");
+                if layer.is_mapped() {
+                    layer.add_css_class("modal-presented");
+                }
+            }
+        },
+    );
 }
 
 pub(super) fn animate_out(layer: &gtk::Box, on_done: impl FnOnce() + 'static) {
+    if layer.has_css_class("modal-exiting") {
+        return;
+    }
+    layer.remove_css_class("modal-entering");
+    layer.add_css_class("modal-exiting");
     layer.add_css_class("modal-hidden");
-    glib::timeout_add_local_once(Duration::from_millis(200), on_done);
+    let weak = layer.downgrade();
+    crate::ui::motion::animate(
+        layer,
+        Some("modal"),
+        crate::ui::motion::MODAL,
+        |_, _| {},
+        move || {
+            if let Some(layer) = weak.upgrade() {
+                layer.remove_css_class("modal-exiting");
+            }
+            on_done();
+        },
+    );
 }
 
 pub(super) fn slide_out(widget: &impl IsA<gtk::Widget>) {
-    let w = widget.as_ref();
-    w.remove_css_class("slide-out");
-    w.add_css_class("slide-out");
-    let weak = w.downgrade();
-    glib::timeout_add_local_once(Duration::from_millis(240), move || {
-        if let Some(w) = weak.upgrade() {
-            w.remove_css_class("slide-out");
-        }
-    });
+    crate::ui::motion::class_once(widget, "slide-out", crate::ui::motion::FEEDBACK);
 }
 
 pub(super) fn slide_in_down(widget: &impl IsA<gtk::Widget>) {
-    let w = widget.as_ref();
-    w.remove_css_class("just-dropped");
-    w.add_css_class("just-dropped");
-    let weak = w.downgrade();
-    glib::timeout_add_local_once(Duration::from_millis(200), move || {
-        if let Some(w) = weak.upgrade() {
-            w.remove_css_class("just-dropped");
-        }
-    });
+    crate::ui::motion::class_once(widget, "just-dropped", crate::ui::motion::FEEDBACK);
 }
 
 pub(super) fn dismiss_modal_layer(
@@ -777,9 +812,13 @@ fn show_message_dialog(
         if dismissed.replace(true) {
             return;
         }
-        dismiss_modal_layer(&close_layer, &close_overlay, close_root.as_ref());
         let on_close = on_close.clone();
-        glib::timeout_add_local_once(Duration::from_millis(250), move || on_close());
+        dismiss_modal_layer_then(
+            &close_layer,
+            &close_overlay,
+            close_root.as_ref(),
+            move || on_close(),
+        );
     };
     let dismiss = Rc::new(dismiss);
     let clicked_dismiss = dismiss.clone();

@@ -903,6 +903,7 @@ impl ShortcutFooter {
     }
 
     pub fn bind_preferences(&self, manager: &super::preferences::PreferenceManager) {
+        super::motion::bind_stack(&self.root, manager);
         let tag = self.tag.downgrade();
         let reference = self.reference.downgrade();
         let categories = self.categories.downgrade();
@@ -1999,21 +2000,16 @@ fn refresh_paste_availability(
     };
     paste.set_visible(false);
     let formats = clipboard.formats();
-    if !formats.contains_type(gdk::FileList::static_type())
-        && !formats.contain_mime_type("text/uri-list")
-    {
+    if !super::browser::clipboard_has_files(&formats) {
         return;
     }
     let clipboard = clipboard.clone();
     let label = label.clone();
     let generation = generation.clone();
     glib::MainContext::default().spawn_local(async move {
-        let available = clipboard
-            .read_value_future(gdk::FileList::static_type(), glib::Priority::DEFAULT)
+        let available = super::browser::read_clipboard_files(&clipboard)
             .await
-            .ok()
-            .and_then(|value| value.get::<gdk::FileList>().ok())
-            .is_some_and(|files| !files.files().is_empty());
+            .is_some_and(|files| !files.is_empty());
         if revision == generation.get()
             && let Some(label) = label.upgrade()
         {

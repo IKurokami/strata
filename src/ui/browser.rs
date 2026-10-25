@@ -36,6 +36,9 @@ pub(in crate::ui) type PlaybackHandoff = Rc<dyn Fn(&Location) -> Option<Duration
 mod archive;
 pub(super) mod camera_scroll;
 mod clipboard;
+#[cfg(windows)]
+pub(in crate::ui) use clipboard::copy_native_files;
+pub(in crate::ui) use clipboard::{clipboard_has_files, read_clipboard_files};
 mod collection;
 mod columns;
 pub(super) mod context_menu;
@@ -254,7 +257,7 @@ pub(super) struct ViewState {
     pending_select: RefCell<Vec<String>>,
     pending_properties: RefCell<Option<Location>>,
     pending_location_selection: RefCell<Option<(Location, Vec<Location>)>>,
-    pending_extract_retry: RefCell<Option<(FileEntry, Location)>>,
+    pending_extract_retry: RefCell<Option<(FileEntry, Location, bool)>>,
     extract_destination: RefCell<Option<Location>>,
     pending_archive_destination: RefCell<Option<Location>>,
     /// The entries a just-dispatched, non-permanent delete requested,
@@ -526,6 +529,10 @@ impl BrowserView {
             .transition_type(gtk::StackTransitionType::Crossfade)
             .transition_duration(100)
             .build();
+        crate::ui::motion::bind_stack(
+            &location_stack,
+            &crate::ui::preferences::PreferenceManager::shared(),
+        );
         location_stack.add_named(&breadcrumb_container, Some("breadcrumbs"));
         location_stack.add_named(&entry_control, Some("entry"));
         location_stack.set_visible_child_name("breadcrumbs");

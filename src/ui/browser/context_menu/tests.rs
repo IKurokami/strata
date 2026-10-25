@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 #[cfg(not(windows))]
 mod menus;
-#[cfg(not(windows))]
 mod open_with;
 
 #[track_caller]

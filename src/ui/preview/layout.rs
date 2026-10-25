@@ -809,7 +809,11 @@ impl PreviewState {
         expanded: bool,
         on_settled: impl FnOnce(&Rc<Self>) + 'static,
     ) {
+        super::super::motion::cancel(split, "preview-reveal");
+        let animation_id = self.animation_generation.get().saturating_add(1);
+        self.animation_generation.set(animation_id);
         if self.reserves_column_space() {
+            self.animating.set(false);
             if expanded {
                 self.show_panel();
                 self.sync_split(split);
@@ -819,13 +823,12 @@ impl PreviewState {
         }
         let geometry = self.geometry(split);
         if expanded && !geometry.can_show_preview() {
+            self.animating.set(false);
             self.show_panel();
             self.sync_split(split);
             on_settled(self);
             return;
         }
-        let animation_id = self.animation_generation.get().saturating_add(1);
-        self.animation_generation.set(animation_id);
         let (start, restore_browser_focus) = if expanded {
             // A reopen during the slide out turns back from where the drawer is.
             let start = if self.animating.get() {
@@ -872,34 +875,38 @@ impl PreviewState {
         }
 
         self.animating.set(true);
-        let started = Instant::now();
         let weak = Rc::downgrade(self);
         let on_settled = RefCell::new(Some(on_settled));
-        split.add_tick_callback(move |split, _| {
-            let Some(state) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            if state.animation_generation.get() != animation_id {
-                return glib::ControlFlow::Break;
-            }
-            let progress =
-                (started.elapsed().as_secs_f64() / TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-            let eased = super::super::motion::emphasized_deceleration(progress);
-            let end = target(&state, split);
-            let position = (f64::from(start) + f64::from(end - start) * eased).round() as i32;
-            // Resize the scroll range with the viewport, without clamping its retained offset.
-            state.preserve_column_positions(position);
-            split.set_position(position);
-            state.pin_pane_width(split);
-            if progress < 1.0 {
-                return glib::ControlFlow::Continue;
-            }
-            settle(&state, split);
-            if let Some(callback) = on_settled.borrow_mut().take() {
-                callback(&state);
-            }
-            glib::ControlFlow::Break
-        });
+        super::super::motion::animate(
+            split,
+            Some("preview-reveal"),
+            TRANSITION,
+            move |widget, elapsed| {
+                let split = widget.downcast_ref::<gtk::Paned>().expect("preview split");
+                let Some(state) = weak.upgrade() else {
+                    return;
+                };
+                if state.animation_generation.get() != animation_id {
+                    return;
+                }
+                let progress = (elapsed.as_secs_f64() / TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+                let eased = super::super::motion::smooth(progress);
+                let end = target(&state, split);
+                let position = (f64::from(start) + f64::from(end - start) * eased).round() as i32;
+                // Resize the scroll range with the viewport, without clamping its retained offset.
+                state.preserve_column_positions(position);
+                split.set_position(position);
+                state.pin_pane_width(split);
+                if progress < 1.0 {
+                    return;
+                }
+                settle(&state, split);
+                if let Some(callback) = on_settled.borrow_mut().take() {
+                    callback(&state);
+                }
+            },
+            || {},
+        );
     }
 
     pub(super) fn resize_preview(

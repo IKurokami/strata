@@ -43,6 +43,8 @@ pub(super) struct ActionMenuSection {
     refresh_pending: Cell<bool>,
     selection: RefCell<Option<SelectionMenuContext>>,
     pressed_inside: Rc<Cell<bool>>,
+    #[cfg(windows)]
+    shell_menu: RefCell<Option<Rc<crate::ui::windows_open::ShellMenuController>>>,
 }
 
 #[derive(Clone)]
@@ -249,7 +251,11 @@ impl ActionMenuSection {
             refresh_pending: Cell::new(false),
             selection: RefCell::new(None),
             pressed_inside,
+            #[cfg(windows)]
+            shell_menu: RefCell::new(None),
         });
+        #[cfg(windows)]
+        menu.install_shell_menu();
         let monitor = &menu.monitor;
         if menu.transfer_sections.is_some() {
             menu.monitor_handlers.replace(vec![
@@ -265,6 +271,53 @@ impl ActionMenuSection {
             ]);
         }
         menu
+    }
+
+    #[cfg(windows)]
+    fn install_shell_menu(self: &Rc<Self>) {
+        fn attach(model: &gio::MenuModel, commands: &gio::Menu) -> usize {
+            let mut count = 0;
+            for index in 0..model.n_items() {
+                if model
+                    .item_attribute_value(index, "x-strata-shell-menu", None)
+                    .and_then(|value| value.get::<bool>())
+                    .unwrap_or(false)
+                    && let Some(submenu) = model
+                        .item_link(index, "submenu")
+                        .and_downcast::<gio::Menu>()
+                {
+                    submenu.append_section(None, commands);
+                    count += 1;
+                } else {
+                    for link in ["section", "submenu"] {
+                        if let Some(child) = model.item_link(index, link) {
+                            count += attach(&child, commands);
+                        }
+                    }
+                }
+            }
+            count
+        }
+        let commands = gio::Menu::new();
+        if attach(self.root_model.upcast_ref(), &commands) == 0 {
+            return;
+        }
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        let controller = crate::ui::windows_open::ShellMenuController::new(
+            commands,
+            &self.popover,
+            &owner,
+            move || {
+                if let Some(menu) = weak.upgrade() {
+                    refresh_presentation(&menu.popover, &menu.navigation);
+                    menu.navigation.model_changed();
+                }
+            },
+        );
+        self.shell_menu.replace(Some(controller));
     }
 
     fn schedule_removable_refresh(self: &Rc<Self>) {
@@ -330,6 +383,10 @@ impl ActionMenuSection {
         entries: &[FileEntry],
         parent: Option<PathBuf>,
     ) {
+        #[cfg(windows)]
+        if let Some(shell) = self.shell_menu.borrow().as_ref() {
+            shell.prepare(native_paths(entries).unwrap_or_default());
+        }
         self.selection.replace(Some(SelectionMenuContext {
             state: Rc::downgrade(state),
             entries: entries.to_vec(),

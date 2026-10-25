@@ -4,6 +4,29 @@ use std::{fs, io, path::PathBuf};
 
 use strata_win_shell::{permanently_delete, recycle, restore};
 
+#[test]
+fn locked_file_reports_a_sharing_failure_without_deleting_the_file() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let dir = scratch("locked-file");
+    let path = dir.join("locked.txt");
+    fs::write(&path, "keep this content").expect("write fixture");
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&path)
+        .expect("lock fixture");
+    let result = recycle(std::slice::from_ref(&path));
+    drop(lock);
+    let error = result.expect_err("a locked file cannot be recycled");
+    assert_eq!(error.kind(), io::ErrorKind::ResourceBusy, "{error}");
+    assert_eq!(
+        fs::read_to_string(&path).expect("read surviving file"),
+        "keep this content"
+    );
+    fs::remove_file(path).expect("remove own fixture");
+    fs::remove_dir(dir).expect("remove own empty scratch folder");
+}
+
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("strata-win-shell-{}-{name}", std::process::id()));
     fs::create_dir_all(&dir).expect("scratch folder");

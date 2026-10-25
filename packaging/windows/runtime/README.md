@@ -1,5 +1,52 @@
 # Windows GTK and playback runtime
 
+The GTK patch also maps the explicit outgoing MIME type
+`application/x.windows.CF_HDROP` to the predefined Windows `CF_HDROP` value.
+GTK 4.24.1 otherwise registers the string `CF_HDROP` as a new format, which
+native file drop targets do not recognize. Strata supplies a `DROPFILES` header
+and a double-NUL-terminated UTF-16 path list alongside its GTK FileList and URI
+providers. List, icon, column, search and preview drags share this provider.
+Mixed non-native selections retain the GTK/URI formats without exporting a
+partial native file selection. The GTK and GstPlay lifetime fixes below remain
+required and are preserved; no dependency baseline or source hash changed.
+
+The same patch must classify `CF_HDROP` as HGLOBAL-backed data. GTK 4.24.1 and
+upstream main inspected on 2026-10-24 omit it from
+`_gdk_win32_format_uses_hdata`. Mapping the format without this classification
+routes a DROPFILES payload through the single-handle stream and writes through
+a null pointer. Two local crash dumps and the actual private stream reproduce
+the access violation. Adding `CF_HDROP` to the HGLOBAL cases preserves ownership:
+the stream allocates movable global memory, writes the complete payload and
+hands the handle to the OLE consumer, which releases the returned STGMEDIUM.
+The IME, font backend and GstPlay patches remain required and unchanged.
+
+`scripts/windows/test-file-drop-stream.py RUNTIME_DIRECTORY` tests the exact
+loaded DLL without initializing GTK, opening a window or touching the clipboard.
+It resolves private entry points from the pinned build's retained COFF symbols;
+missing symbols fail the probe. Both synchronous and asynchronous chunked writes
+must produce an HGLOBAL that `DragQueryFileW` reads as the complete Unicode and
+UNC file selection. `--expect-unsupported` checks the faulty baseline's
+classification without deliberately crashing it. Running the normal probe on
+the previous mapping-only runtime reproduces exit code `-1073741819`.
+The runtime lifecycle runner includes this probe. This verifies serialization
+and native ownership, not a physical drag into a particular third-party app.
+Use `test-gtk-runtime.ps1 -ExpectFileDropUnsupported` only for the mapping-only
+baseline; candidate and release checks must use the normal, required stream test.
+
+`file-drop.c` checks this mapping through the native OLE `IDataObject` consumer
+and `DragQueryFileW`, including multiple Unicode and UNC paths. It creates a
+private window station and desktop with their own clipboard and stops if that
+isolation is unavailable; it never replaces the user's clipboard. Some Windows
+accounts cannot create a fresh station (errors 5/183); this is a blocked probe,
+not a passing or silently skipped native interoperability check. Compile with
+`gcc -Wall -Wextra -Werror file-drop.c -o file-drop.exe $(pkgconf --cflags --libs gtk4) -lole32 -lshell32 -luser32`.
+Place the executable beside the candidate GTK DLL and verify the printed loaded
+path. The candidate must pass normally. An otherwise identical runtime without
+the file-format hunk must pass `--expect-unsupported`, demonstrating that it
+offers a registered name instead of the predefined format. This is a native
+data-format contract check, not proof of a physical mouse drag into every app;
+test those interactions on the installed artifact before promotion.
+
 GTK 4.24.1 registers a Win32 display message filter with a borrowed
 `GtkIMContextIME` pointer. Losing the client surface before focus-out, disposing
 the context, or repeated focus-in can leave the filter referencing freed memory.
