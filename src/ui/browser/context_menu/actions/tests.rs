@@ -4,6 +4,69 @@ use super::*;
 use crate::ui::browser::context_menu::tests::wait_until;
 use crate::ui::browser::{BrowserView, PeekBehavior, SendToMenuTestOverride};
 
+#[cfg(windows)]
+#[test]
+fn native_shell_commands_are_linked_into_open_in() {
+    crate::test_support::gtk_test(
+        "ui::browser::context_menu::actions::tests::native_shell_commands_are_linked_into_open_in",
+        || {
+            let owner = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let before = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let after = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let header = gtk::Button::with_label("Open in…");
+            header.add_css_class("windows-shell-submenu");
+            let tab = gtk::Button::with_label("New Tab");
+            let window = gtk::Button::with_label("New Window");
+            window.set_visible(false);
+            after.append(&super::super::submenu_row(&header, [&tab, &window]));
+            let menu = ActionMenuSection::new(&before, &after, None, owner.upcast_ref(), None);
+            fn submenu(model: &gio::MenuModel) -> Option<gio::MenuModel> {
+                for index in 0..model.n_items() {
+                    if model
+                        .item_attribute_value(index, "submenu-action", None)
+                        .and_then(|value| value.get::<String>())
+                        .as_deref()
+                        == Some("shell.open")
+                    {
+                        return model.item_link(index, "submenu");
+                    }
+                    if let Some(section) = model.item_link(index, "section")
+                        && let Some(found) = submenu(&section)
+                    {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            let open_in = submenu(menu.root_model.upcast_ref()).expect("Open in submenu action");
+            let commands = (0..open_in.n_items())
+                .find_map(|index| open_in.item_link(index, "section"))
+                .expect("Shell commands embedded directly in Open in");
+            let shell = menu
+                .shell_menu
+                .borrow()
+                .as_ref()
+                .expect("Shell controller")
+                .clone();
+            shell.prepare(vec![PathBuf::from(r"C:\example.txt")]);
+            assert_eq!(
+                commands
+                    .item_attribute_value(0, "label", None)
+                    .expect("Shell menu model")
+                    .get::<String>()
+                    .as_deref(),
+                Some("Loading…")
+            );
+            shell.prepare(Vec::new());
+            assert_eq!(
+                commands.n_items(),
+                0,
+                "non-native selections must not request Shell commands"
+            );
+        },
+    );
+}
+
 fn has_visible_label(widget: &gtk::Widget, text: &str) -> bool {
     if let Some(label) = widget.downcast_ref::<gtk::Label>()
         && label.is_visible()

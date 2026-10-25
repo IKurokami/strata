@@ -35,7 +35,7 @@ const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
 pub(super) const SUBMENU_ROW_CLASS: &str = "item-context-submenu";
 pub(super) const SUBMENU_ENTRIES_CLASS: &str = "item-context-submenu-entries";
 
-fn submenu_row<const N: usize>(header: &gtk::Button, entries: [&gtk::Button; N]) -> gtk::Box {
+fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
     let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
     wrapper.add_css_class(SUBMENU_ROW_CLASS);
     wrapper.append(header);
@@ -817,14 +817,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::OpenInNewWindow,
     );
     #[cfg(windows)]
-    let shell_menu = item_context_option(
-        crate::assets::icons::APP_WINDOW,
-        "Windows context menu…",
-        ContextHint::None,
-    );
-    #[cfg(windows)]
-    let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window, &shell_menu]);
-    #[cfg(not(windows))]
+    open_in.add_css_class("windows-shell-submenu");
     let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window]);
     open_in_window.set_visible(!cfg!(windows));
     let open_with = item_context_option(
@@ -1027,21 +1020,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::OpenInNewWindow,
     );
     #[cfg(windows)]
-    let shell_menu_multiple = item_context_option(
-        crate::assets::icons::APP_WINDOW,
-        "Windows context menu…",
-        ContextHint::None,
-    );
-    #[cfg(windows)]
-    let open_in_multiple_submenu = submenu_row(
-        &open_in_multiple,
-        [
-            &open_in_tab_multiple,
-            &open_in_window_multiple,
-            &shell_menu_multiple,
-        ],
-    );
-    #[cfg(not(windows))]
+    open_in_multiple.add_css_class("windows-shell-submenu");
     let open_in_multiple_submenu = submenu_row(
         &open_in_multiple,
         [&open_in_tab_multiple, &open_in_window_multiple],
@@ -1202,17 +1181,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         (&open_in_window_multiple, "win.open-window-at"),
     ] {
         connect_open_in(button, &popover, state, &target, action);
-    }
-    #[cfg(windows)]
-    for button in [&shell_menu, &shell_menu_multiple] {
-        connect_selection_action(button, &popover, state, &target, |state, entries| {
-            let paths = entries
-                .iter()
-                .filter_map(|entry| entry.location.native_path())
-                .map(std::path::Path::to_path_buf)
-                .collect();
-            crate::ui::windows_open::context_menu(paths, &state.overlay);
-        });
     }
     let open_file_location_target = target.clone();
     let open_file_location_state = Rc::downgrade(state);
@@ -1742,11 +1710,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let shell_available = false;
             open_in_tab.set_visible(entry.is_directory());
             open_in_tab_multiple.set_visible(directories);
-            #[cfg(windows)]
-            {
-                shell_menu.set_visible(shell_available);
-                shell_menu_multiple.set_visible(shell_available);
-            }
             open_in_submenu.set_visible(entry.is_directory() || shell_available);
             open_in_multiple_submenu
                 .set_visible(entries.len() > 1 && (directories || shell_available));

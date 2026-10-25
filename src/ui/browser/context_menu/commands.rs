@@ -184,6 +184,11 @@ fn append_row_model(
     update_item(&item, button);
     if let Some(submenu) = submenu {
         item.set_submenu(Some(submenu));
+        #[cfg(windows)]
+        if button.has_css_class("windows-shell-submenu") {
+            item.set_attribute_value("x-strata-shell-menu", Some(&true.to_variant()));
+            item.set_attribute_value("submenu-action", Some(&"shell.open".to_variant()));
+        }
     }
     let index = model.n_items();
     model.append_item(&item);

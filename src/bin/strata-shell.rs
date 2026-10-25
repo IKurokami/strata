@@ -2,6 +2,10 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+#[path = "strata-shell/context_menu.rs"]
+mod context_menu;
+
+#[cfg(windows)]
 fn main() -> std::process::ExitCode {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if let Ok(executable) = std::env::current_exe()
@@ -37,10 +41,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        [mode, paths @ ..] if mode == "--context-menu" => {
-            let paths: Vec<_> = paths.iter().map(std::path::PathBuf::from).collect();
-            strata_win_shell::context_menu::show(&paths)
-        }
+        [mode] if mode == "--context-menu-model" => context_menu::serve(),
         [mode] if mode == "--watch" => strata_win_shell::file_manager::watch(),
         [mode, flag, target] if mode == "--unregister" && flag == "--target" => {
             strata_win_shell::file_manager::disable(std::path::Path::new(target))

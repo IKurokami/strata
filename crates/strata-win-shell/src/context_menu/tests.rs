@@ -3,10 +3,13 @@ use super::*;
 #[test]
 fn invalid_selections_never_reach_shell_handlers() {
     let empty: [&Path; 0] = [];
-    assert_eq!(show(&empty).unwrap_err().raw_os_error(), Some(87));
+    assert_eq!(Session::new(&empty).err().unwrap().raw_os_error(), Some(87));
     for path in ["relative.txt", "C:\\bad\0.txt", ""] {
         assert_eq!(
-            show(&[Path::new(path)]).unwrap_err().raw_os_error(),
+            Session::new(&[Path::new(path)])
+                .err()
+                .unwrap()
+                .raw_os_error(),
             Some(87)
         );
     }
@@ -14,11 +17,6 @@ fn invalid_selections_never_reach_shell_handlers() {
 
 #[test]
 fn shell_binds_complete_file_and_folder_selection_without_showing_a_menu() {
-    // SAFETY: This test owns the apartment on its test thread until scope exit.
-    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
-        .ok()
-        .unwrap();
-    let _apartment = Apartment;
     let root = std::env::temp_dir().join(format!("strata-shell-context-{}", std::process::id()));
     std::fs::create_dir(&root).unwrap();
     let file = root.join("ảnh & notes.txt");
@@ -27,17 +25,22 @@ fn shell_binds_complete_file_and_folder_selection_without_showing_a_menu() {
     std::fs::create_dir(&folder).unwrap();
     let result = (|| {
         for paths in [vec![&file], vec![&folder], vec![&file, &folder]] {
-            let context = selection_context(&paths)?;
-            // SAFETY: The menu is private to this STA and not displayed.
-            let menu = Menu(unsafe { CreatePopupMenu() }.map_err(io::Error::other)?);
-            // SAFETY: Context and menu stay live for the entire Shell query.
-            unsafe { context.QueryContextMenu(menu.0, 0, FIRST_COMMAND, LAST_COMMAND, CMF_NORMAL) }
-                .ok()
-                .map_err(io::Error::other)?;
-            // SAFETY: This test owns the live menu handle.
-            assert!(unsafe { GetMenuItemCount(Some(menu.0)) } > 0);
+            let mut session = Session::new(&paths)?;
+            assert_eq!(
+                session.invoke(FIRST_COMMAND).unwrap_err().raw_os_error(),
+                Some(87)
+            );
+            let snapshot = session.snapshot()?;
+            assert!(!snapshot.is_empty());
+            assert!(!session.allowed.is_empty());
+            assert_eq!(session.invoke(0).unwrap_err().raw_os_error(), Some(87));
+            assert_eq!(
+                session.invoke(LAST_COMMAND + 1).unwrap_err().raw_os_error(),
+                Some(87)
+            );
+            session.pump_messages();
         }
-        assert!(selection_context(&[root.join("missing.txt")]).is_err());
+        assert!(Session::new(&[root.join("missing.txt")]).is_err());
         Ok::<_, io::Error>(())
     })();
     std::fs::remove_file(file).unwrap();
