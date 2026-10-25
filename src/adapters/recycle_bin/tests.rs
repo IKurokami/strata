@@ -8,6 +8,28 @@ use crate::{
 use gtk::prelude::*;
 use std::cell::RefCell;
 
+#[test]
+fn operation_errors_distinguish_stopped_operations_and_filesystem_failures() {
+    for (kind, message) in [
+        (std::io::ErrorKind::Interrupted, "Operation cancelled"),
+        (std::io::ErrorKind::PermissionDenied, "Permission denied"),
+        (std::io::ErrorKind::ResourceBusy, "The item is in use"),
+        (
+            std::io::ErrorKind::StorageFull,
+            "There is not enough space on the device",
+        ),
+        (
+            std::io::ErrorKind::Other,
+            "An unexpected system error occurred",
+        ),
+    ] {
+        assert_eq!(
+            operation_error_message(&std::io::Error::new(kind, "native detail")),
+            crate::i18n::tr(message)
+        );
+    }
+}
+
 fn wait(context: &glib::MainContext, done: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while !done() {
