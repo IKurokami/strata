@@ -56,6 +56,8 @@ mod drive_dialogs;
 mod drive_ops;
 mod keyboard;
 mod open_argument;
+#[cfg(any(windows, test))]
+mod resize;
 mod sidebar;
 mod unlock_argument;
 mod volume_password;
@@ -356,7 +358,10 @@ pub(super) fn present_target(
         .build();
 
     #[cfg(windows)]
-    window.set_decorated(false);
+    {
+        window.set_decorated(false);
+        resize::install(&window);
+    }
 
     #[cfg(windows)]
     super::windows_window_state::bind(&window);
