@@ -3,7 +3,54 @@
 use super::*;
 use gtk::gdk;
 use gtk::subclass::prelude::ObjectSubclassIsExt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+fn escape_controller(layer: &impl IsA<gtk::Widget>) -> gtk::EventControllerKey {
+    let controllers = layer.observe_controllers();
+    (0..controllers.n_items())
+        .find_map(|index| {
+            controllers
+                .item(index)
+                .and_downcast::<gtk::EventControllerKey>()
+        })
+        .expect("escape controller")
+}
+
+#[test]
+fn message_close_callback_observes_completed_dismissal() {
+    crate::test_support::gtk_test(
+        "ui::modal::tests::message_close_callback_observes_completed_dismissal",
+        || {
+            crate::ui::motion::set_reduce_motion(false);
+            gtk::Settings::default()
+                .expect("settings")
+                .set_gtk_enable_animations(true);
+            let overlay = gtk::Overlay::new();
+            let window = gtk::Window::builder().child(&overlay).build();
+            window.present();
+            let closed = Rc::new(Cell::new(false));
+            let seen = closed.clone();
+            let host = overlay.clone();
+            show_error_dialog_after_close(
+                &overlay,
+                "Fixture",
+                "Fixture detail",
+                Rc::new(move || {
+                    assert!(!overlay_has_modal_layer(&host));
+                    seen.set(true);
+                }),
+            );
+            let layer = overlay.last_child().expect("message layer");
+            wait_until(|| layer.is_mapped());
+            escape_controller(&layer).emit_by_name::<bool>(
+                "key-pressed",
+                &[&gdk::Key::Escape, &0u32, &gdk::ModifierType::empty()],
+            );
+            wait_until(|| closed.get());
+            window.destroy();
+        },
+    );
+}
 
 #[test]
 fn modal_hosts_preserve_nested_blur_and_support_plain_overlays() {
@@ -70,6 +117,42 @@ fn repeated_dismissal_does_not_repeat_the_confirmed_operation() {
 }
 
 #[test]
+fn reopening_a_persistent_modal_cancels_its_stale_close() {
+    crate::test_support::gtk_test(
+        "ui::modal::tests::reopening_a_persistent_modal_cancels_its_stale_close",
+        || {
+            crate::ui::motion::set_reduce_motion(false);
+            gtk::Settings::default()
+                .expect("settings")
+                .set_gtk_enable_animations(true);
+            let overlay = gtk::Overlay::new();
+            let layer = modal_layer(&gtk::Label::new(None), &overlay, None, None);
+            overlay.add_overlay(&layer);
+            let window = gtk::Window::builder().child(&overlay).build();
+            window.present();
+            wait_until(|| layer.is_mapped());
+            let closed = Rc::new(Cell::new(0));
+            let seen = closed.clone();
+            animate_out(&layer, move || seen.set(seen.get() + 1));
+            animate_in(&layer);
+            let waited = Rc::new(Cell::new(false));
+            let done = waited.clone();
+            glib::timeout_add_local_once(
+                crate::ui::motion::MODAL + Duration::from_millis(200),
+                move || done.set(true),
+            );
+            wait_until(|| waited.get());
+            assert_eq!(closed.get(), 0);
+            assert!(layer.is_sensitive());
+            let seen = closed.clone();
+            animate_out(&layer, move || seen.set(seen.get() + 1));
+            wait_until(|| closed.get() == 1);
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn enter_in_a_single_line_field_invokes_the_primary_action() {
     crate::test_support::gtk_test(
         "ui::modal::tests::enter_in_a_single_line_field_invokes_the_primary_action",
@@ -110,14 +193,7 @@ fn escape_closes_with_any_modifiers_held_and_other_keys_pass_through() {
             let closed = Rc::new(Cell::new(false));
             let close = closed.clone();
             close_on_escape(&layer, move || close.set(true));
-            let controllers = layer.observe_controllers();
-            let keys = (0..controllers.n_items())
-                .find_map(|index| {
-                    controllers
-                        .item(index)
-                        .and_downcast::<gtk::EventControllerKey>()
-                })
-                .expect("key controller on the layer");
+            let keys = escape_controller(&layer);
             let every_modifier = gdk::ModifierType::CONTROL_MASK
                 | gdk::ModifierType::ALT_MASK
                 | gdk::ModifierType::SHIFT_MASK

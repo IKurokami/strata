@@ -32,7 +32,7 @@ struct Indicator {
     position: Cell<(f64, f64)>,
     from: Cell<(f64, f64)>,
     target: Cell<(f64, f64)>,
-    started: Cell<i64>,
+    progress: RefCell<motion::FrameProgress>,
     active: Cell<u64>,
 }
 
@@ -114,20 +114,27 @@ impl TabStrip {
             let Some(bounds) = header.widget.compute_bounds(overlay) else {
                 return glib::ControlFlow::Continue;
             };
-            let target = (bounds.x() as f64, bounds.width() as f64);
+            let target = ((bounds.x() as f64).round(), (bounds.width() as f64).round());
             if ticking_indicator.target.get() != target {
                 ticking_indicator.from.set(ticking_indicator.position.get());
                 ticking_indicator.target.set(target);
-                ticking_indicator.started.set(clock.frame_time());
+                ticking_indicator
+                    .progress
+                    .replace(motion::FrameProgress::default());
             }
             let progress = if !motion::animations_enabled() || ticking_indicator.from.get().1 == 0.0
             {
                 1.0
             } else {
-                ((clock.frame_time() - ticking_indicator.started.get()) as f64 / 220_000.0)
-                    .clamp(0.0, 1.0)
+                (ticking_indicator
+                    .progress
+                    .borrow_mut()
+                    .elapsed(clock.frame_time())
+                    .as_secs_f64()
+                    / motion::PANEL.as_secs_f64())
+                .clamp(0.0, 1.0)
             };
-            let eased = motion::emphasized_deceleration(progress);
+            let eased = motion::smooth(progress);
             let from = ticking_indicator.from.get();
             let position = (
                 from.0 + (target.0 - from.0) * eased,

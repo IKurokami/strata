@@ -809,6 +809,7 @@ pub fn build_layer(
         .hexpand(true)
         .vexpand(true)
         .build();
+    super::motion::bind_stack(&stack, &preferences);
     let (general, responsive_setting_rows, responsive_activation_rows) =
         general_page(preferences.clone());
     stack.add_named(&general, Some("general"));

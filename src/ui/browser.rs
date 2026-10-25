@@ -529,6 +529,10 @@ impl BrowserView {
             .transition_type(gtk::StackTransitionType::Crossfade)
             .transition_duration(100)
             .build();
+        crate::ui::motion::bind_stack(
+            &location_stack,
+            &crate::ui::preferences::PreferenceManager::shared(),
+        );
         location_stack.add_named(&breadcrumb_container, Some("breadcrumbs"));
         location_stack.add_named(&entry_control, Some("entry"));
         location_stack.set_visible_child_name("breadcrumbs");

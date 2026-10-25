@@ -2,8 +2,7 @@
 
 use super::columns::{COLUMN_TRANSITION, ColumnSpan};
 use super::*;
-use crate::ui::motion::{animations_enabled, emphasized_deceleration};
-use std::time::Instant;
+use crate::ui::motion::animations_enabled;
 
 impl ViewState {
     pub(super) fn column_span(&self, depth: usize) -> Option<ColumnSpan> {
@@ -187,36 +186,38 @@ impl BrowserView {
             self.state.columns_widget.set_margin_end(0);
             return;
         }
-        let started = Instant::now();
         let generation = self.state.horizontal_scroll_generation.clone();
         let preview = preview.clone();
         let weak = self.downgrade();
-        let _tick = self.state.scroller.add_tick_callback(move |_, _| {
-            let Some(view) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            let reopened = preview
-                .upgrade()
-                .is_some_and(|preview| preview.reveals_child());
-            if reopened
-                || generation.get() != animation_id
-                || view.view_mode() != BrowserMode::Columns
-            {
-                return glib::ControlFlow::Break;
-            }
-            let progress =
-                (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-            let eased = emphasized_deceleration(progress);
-            view.state
-                .columns_widget
-                .set_margin_end((f64::from(margin) * (1.0 - eased)).round() as i32);
-            if progress >= 1.0 {
-                view.state.columns_widget.set_margin_end(0);
-                glib::ControlFlow::Break
-            } else {
-                glib::ControlFlow::Continue
-            }
-        });
+        crate::ui::motion::animate(
+            &self.state.scroller,
+            Some("preview-scroll-space"),
+            COLUMN_TRANSITION,
+            move |_, elapsed| {
+                let Some(view) = weak.upgrade() else {
+                    return;
+                };
+                let reopened = preview
+                    .upgrade()
+                    .is_some_and(|preview| preview.reveals_child());
+                if reopened
+                    || generation.get() != animation_id
+                    || view.view_mode() != BrowserMode::Columns
+                {
+                    return;
+                }
+                let progress =
+                    (elapsed.as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+                let eased = crate::ui::motion::smooth(progress);
+                view.state
+                    .columns_widget
+                    .set_margin_end((f64::from(margin) * (1.0 - eased)).round() as i32);
+                if progress >= 1.0 {
+                    view.state.columns_widget.set_margin_end(0);
+                }
+            },
+            || {},
+        );
     }
 
     pub(in crate::ui) fn bind_preview_scrolling(&self, preview: &gtk::Revealer) {

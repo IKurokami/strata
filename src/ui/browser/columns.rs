@@ -28,7 +28,7 @@ use crate::ui::keys::{
     self,
     bindings::{DOWN, UP},
 };
-use crate::ui::motion::{animations_enabled, emphasized_acceleration, emphasized_deceleration};
+use crate::ui::motion::{animations_enabled, emphasized_acceleration};
 use gtk::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 
 pub(in crate::ui) const COLUMN_WIDTH: i32 = 300;
 
-pub(super) const COLUMN_TRANSITION: Duration = Duration::from_millis(220);
+pub(super) const COLUMN_TRANSITION: Duration = crate::ui::motion::PANEL;
 
 pub(super) fn install_horizontal_scroll(state: &Rc<ViewState>) {
     let controller = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
@@ -830,8 +830,7 @@ pub(super) fn set_mark_path_style(row: &gtk::Box, mark: super::clipboard::Clipbo
     }
 }
 
-/// Runs once per column, so its timeout owns the class outright; width
-/// animations keep their own generation.
+/// Entry classes settle independently of width changes on the same column.
 fn animate_column_entry(column: &gtk::Box, swapped: bool) {
     if !animations_enabled() {
         return;
@@ -842,13 +841,7 @@ fn animate_column_entry(column: &gtk::Box, swapped: bool) {
     } else {
         "column-entering"
     };
-    column.add_css_class(class);
-    let column = column.downgrade();
-    glib::timeout_add_local_once(COLUMN_TRANSITION, move || {
-        if let Some(column) = column.upgrade() {
-            column.remove_css_class(class);
-        }
-    });
+    crate::ui::motion::class_once(column, class, COLUMN_TRANSITION);
 }
 
 fn animate_column_exit(state: &Rc<ViewState>, column: ColumnView, animation_id: u64) {
@@ -859,6 +852,10 @@ fn animate_column_exit(state: &Rc<ViewState>, column: ColumnView, animation_id: 
         ..
     } = column;
     let band = marquee.band();
+    for class in ["column-entering", "column-swapping"] {
+        crate::ui::motion::cancel(&shell, class);
+        shell.remove_css_class(class);
+    }
     shell.add_css_class("column-exiting");
     // Its depth may already belong to a new column, so it must not take clicks or drops.
     shell.set_can_target(false);
@@ -866,31 +863,35 @@ fn animate_column_exit(state: &Rc<ViewState>, column: ColumnView, animation_id: 
     // Width and opacity are driven from the same tick (not a separate CSS
     // keyframe) so they never drift out of lockstep.
     let start_width = shell.width().max(shell.width_request()).max(0);
-    let started = Instant::now();
     let weak_shell = shell.downgrade();
-    let _tick = shell.add_tick_callback(move |_, _| {
-        if generation.get() != animation_id {
-            return glib::ControlFlow::Break;
-        }
-        let Some(widget) = weak_shell.upgrade() else {
-            return glib::ControlFlow::Break;
-        };
-        let progress =
-            (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-        let eased = emphasized_acceleration(progress);
-        let width = (f64::from(start_width) * (1.0 - eased)).round().max(0.0) as i32;
-        widget.set_size_request(width, -1);
-        widget.set_opacity(1.0 - eased);
-        if progress < 1.0 {
-            return glib::ControlFlow::Continue;
-        }
-        widget.set_size_request(0, -1);
-        if let Some(state) = weak.upgrade() {
-            state.columns_widget.remove(&widget);
-            state.overlay.remove_overlay(&band);
-        }
-        glib::ControlFlow::Break
-    });
+    crate::ui::motion::animate(
+        &shell,
+        Some("column-exit"),
+        COLUMN_TRANSITION,
+        move |_, elapsed| {
+            if generation.get() != animation_id {
+                return;
+            }
+            let Some(widget) = weak_shell.upgrade() else {
+                return;
+            };
+            let progress =
+                (elapsed.as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+            let eased = emphasized_acceleration(progress);
+            let width = (f64::from(start_width) * (1.0 - eased)).round().max(0.0) as i32;
+            widget.set_size_request(width, -1);
+            widget.set_opacity(1.0 - eased);
+            if progress < 1.0 {
+                return;
+            }
+            widget.set_size_request(0, -1);
+            if let Some(state) = weak.upgrade() {
+                state.columns_widget.remove(&widget);
+                state.overlay.remove_overlay(&band);
+            }
+        },
+        || {},
+    );
 }
 
 fn remember_column_width(state: &ViewState, width: i32) {
@@ -973,24 +974,26 @@ fn animate_horizontal_scroll(
         return;
     }
 
-    let started = Instant::now();
     let adjustment = adjustment.clone();
     let generation = generation.clone();
-    let _tick = scroller.add_tick_callback(move |_, _| {
-        if generation.get() != animation_id {
-            return glib::ControlFlow::Break;
-        }
-        let progress =
-            (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-        let eased = emphasized_deceleration(progress);
-        adjustment.set_value(start + (target - start) * eased);
-        if progress >= 1.0 {
-            adjustment.set_value(target);
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    });
+    crate::ui::motion::animate(
+        scroller,
+        Some("column-scroll"),
+        COLUMN_TRANSITION,
+        move |_, elapsed| {
+            if generation.get() != animation_id {
+                return;
+            }
+            let progress =
+                (elapsed.as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+            let eased = crate::ui::motion::smooth(progress);
+            adjustment.set_value(start + (target - start) * eased);
+            if progress >= 1.0 {
+                adjustment.set_value(target);
+            }
+        },
+        || {},
+    );
 }
 
 fn animate_column_resize(
@@ -1004,30 +1007,33 @@ fn animate_column_resize(
         shell.set_size_request(target_width, -1);
         return;
     }
-    let started = Instant::now();
     let shell = shell.downgrade();
     let generation = generation.clone();
-    let _tick = shell.upgrade().map(|widget| {
-        widget.add_tick_callback(move |_, _| {
-            if generation.get() != animation_id {
-                return glib::ControlFlow::Break;
-            }
-            let Some(shell) = shell.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            let progress =
-                (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-            let eased = emphasized_deceleration(progress);
-            let width = start_width + ((target_width - start_width) as f64 * eased).round() as i32;
-            shell.set_size_request(width, -1);
-            if progress >= 1.0 {
-                shell.set_size_request(target_width, -1);
-                glib::ControlFlow::Break
-            } else {
-                glib::ControlFlow::Continue
-            }
-        })
-    });
+    if let Some(widget) = shell.upgrade() {
+        crate::ui::motion::animate(
+            &widget,
+            Some("column-width"),
+            COLUMN_TRANSITION,
+            move |_, elapsed| {
+                if generation.get() != animation_id {
+                    return;
+                }
+                let Some(shell) = shell.upgrade() else {
+                    return;
+                };
+                let progress =
+                    (elapsed.as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+                let eased = crate::ui::motion::smooth(progress);
+                let width =
+                    start_width + ((target_width - start_width) as f64 * eased).round() as i32;
+                shell.set_size_request(width, -1);
+                if progress >= 1.0 {
+                    shell.set_size_request(target_width, -1);
+                }
+            },
+            || {},
+        );
+    }
 }
 
 impl ViewState {

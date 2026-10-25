@@ -142,6 +142,12 @@ def test_media_details_are_properties_only(strata):
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview_shows("video/mp4"), "video preview ready")
     strata.open_context_menu("clip.mp4")
+    properties = strata.wait(
+        lambda: strata.context_menu().find(role="menu item", name="Properties"),
+        "Properties in the scrollable context menu",
+    )
+    menu_scroll = next(node for node in properties.ancestors() if node.role == "scroll pane")
+    strata.pointer.scroll(menu_scroll.screen_bounds().center, clicks=5, down=True)
     strata.choose_menu_item("Properties")
     dialog = strata.wait_for_dialog()
     strata.wait(

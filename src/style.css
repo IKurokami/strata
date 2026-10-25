@@ -138,7 +138,7 @@ headerbar menubutton.header-action > button,
   min-height: 24px;
   min-width: 24px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 headerbar .sidebar-toggle:hover,
@@ -350,7 +350,7 @@ headerbar.browser-header menubutton.header-action > button {
   margin: 0;
   min-height: 26px;
   padding: 0 8px;
-  transition: background 160ms ease-out, transform 160ms ease-out;
+  transition: background 180ms ease-out, transform 180ms ease-out;
 }
 
 .appearance-option:hover {
@@ -506,7 +506,7 @@ headerbar.browser-header menubutton.header-action > button {
   min-height: 22px;
   min-width: 22px;
   padding: 2px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .location-action:active {
@@ -566,7 +566,7 @@ headerbar.browser-header menubutton.header-action > button {
   color: @strata_dim_text;
   min-height: 22px;
   padding: 0 5px;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .breadcrumb:hover {
@@ -603,7 +603,7 @@ headerbar.browser-header menubutton.header-action > button {
   min-width: 22px;
   opacity: 0;
   padding: 2px 4px;
-  transition: opacity 160ms ease-out, background 160ms ease-out;
+  transition: opacity 180ms ease-out, background 180ms ease-out;
 }
 
 .current-breadcrumb:hover .copy-path,
@@ -648,7 +648,7 @@ headerbar.browser-header menubutton.header-action > button {
   color: @strata_text;
   min-height: 28px;
   padding: 4px 8px;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background 180ms ease-out, color 180ms ease-out;
 }
 
 .breadcrumb-hierarchy-item:hover {
@@ -667,7 +667,7 @@ headerbar.browser-header menubutton.header-action > button {
 
 .search-backdrop {
   background: alpha(@strata_bg, 0.58);
-  transition: opacity 200ms ease-out;
+  transition: opacity 260ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .search-backdrop.modal-hidden {
@@ -790,7 +790,7 @@ headerbar.browser-header menubutton.header-action > button {
 
 .settings-backdrop {
   background: alpha(@strata_bg, 0.82);
-  transition: opacity 200ms ease-out;
+  transition: opacity 260ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .settings-backdrop.modal-hidden {
@@ -803,7 +803,7 @@ headerbar.browser-header menubutton.header-action > button {
 .modal-backdrop:focus-within {
   background: alpha(@strata_bg, 0.55);
   outline: none;
-  transition: opacity 200ms ease-out;
+  transition: opacity 260ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .modal-backdrop.modal-hidden {
@@ -813,7 +813,7 @@ headerbar.browser-header menubutton.header-action > button {
 .action-dialog,
 .search-dialog,
 .settings-dialog {
-  transition: opacity 200ms ease-out, transform 200ms ease-out;
+  transition: opacity 260ms cubic-bezier(0.22, 0, 0.35, 1), transform 260ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .modal-hidden .action-dialog,
@@ -921,7 +921,7 @@ colorchooser button.circular {
   min-height: 28px;
   min-width: 28px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .action-dialog-close:hover,
@@ -1082,7 +1082,7 @@ window.dialog.colorchooser button.text-button:not(.suggested-action) {
   color: @strata_text;
   min-height: 26px;
   padding: 2px 11px;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
 }
 
 .action-dialog-cancel:hover,
@@ -1122,7 +1122,7 @@ window.dialog.colorchooser button.text-button.suggested-action {
   color: @strata_accent;
   min-height: 26px;
   padding: 2px 11px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .action-dialog-confirm:hover,
@@ -1185,7 +1185,7 @@ colorchooser button.circular:disabled {
   border: 1px solid alpha(@strata_border, 0.72);
   border-radius: 4px;
   color: @strata_bg;
-  transition: background 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  transition: background 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
 }
 
 .form-check:hover check {
@@ -1510,7 +1510,7 @@ menubutton.form-control > button {
   color: @strata_text;
   min-height: 34px;
   padding: 3px 9px;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out;
 }
 
 dropdown.form-control > button:hover,
@@ -1662,7 +1662,7 @@ menubutton.form-control:disabled > button {
   color: @strata_text;
   min-height: 38px;
   padding: 5px 10px;
-  transition: background 160ms ease-out, color 160ms ease-out, transform 160ms ease-out;
+  transition: background 180ms ease-out, color 180ms ease-out, transform 180ms ease-out;
 }
 
 .settings-navigation.compact button {
@@ -1709,7 +1709,7 @@ menubutton.form-control:disabled > button {
   min-height: 28px;
   min-width: 28px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .settings-close:hover {
@@ -1844,7 +1844,7 @@ menubutton.form-control:disabled > button {
   box-shadow: none;
   color: @strata_accent;
   padding: 2px 0;
-  transition: transform 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, color 180ms ease-out;
 }
 
 .release-notes-fallback:hover,
@@ -1893,7 +1893,7 @@ menubutton.form-control:disabled > button {
   color: @strata_accent;
   min-height: 28px;
   padding: 3px 12px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .settings-update-check:hover {
@@ -1977,7 +1977,7 @@ menubutton.form-control:disabled > button {
   min-height: 42px;
   padding: 4px 14px;
   text-decoration: none;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .about-repository:hover {
@@ -2002,7 +2002,7 @@ switch {
   box-shadow: none;
   min-height: 22px;
   min-width: 40px;
-  transition: background 160ms ease-out, border-color 160ms ease-out;
+  transition: background 180ms ease-out, border-color 180ms ease-out;
 }
 
 switch:checked {
@@ -2017,7 +2017,7 @@ switch:checked slider {
   box-shadow: 0 1px 3px alpha(#000000, 0.4);
   min-height: 18px;
   min-width: 18px;
-  transition: background 160ms ease-out;
+  transition: background 180ms ease-out;
 }
 
 .sidebar-shell,
@@ -2163,7 +2163,7 @@ scrollbar.horizontal > range > trough > slider {
   color: @strata_accent;
   min-height: 38px;
   padding: 4px 13px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .sidebar-update:hover {
@@ -2480,7 +2480,7 @@ paned > separator {
   min-height: 24px;
   min-width: 24px;
   padding: 0;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
 }
 
 .preview-header-action:hover {
@@ -2526,7 +2526,7 @@ paned > separator {
 .preview-content scrolledwindow,
 .preview-content viewport {
   background: @strata_surface;
-  transition: opacity 200ms ease-out, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: opacity 200ms ease-out, transform 200ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .preview-content.dragging {
@@ -2534,7 +2534,7 @@ paned > separator {
 }
 
 .preview-content.slide-out {
-  animation: slide-out-up 240ms ease-out;
+  animation: slide-out-up 280ms ease-out;
 }
 
 .preview-text,
@@ -2641,7 +2641,7 @@ paned > separator {
   min-width: 27px;
   opacity: 0;
   padding: 3px;
-  transition: opacity 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out;
+  transition: opacity 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out;
 }
 
 .preview-code-overlay:hover .preview-code-copy,
@@ -2727,7 +2727,7 @@ paned > separator {
 .preview-media {
   background: alpha(@strata_bg, 0.55);
   border-radius: 8px;
-  transition: transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 200ms ease-out, box-shadow 200ms ease-out;
+  transition: transform 240ms cubic-bezier(0.22, 0, 0.35, 1), opacity 200ms ease-out, box-shadow 200ms ease-out;
 }
 
 .preview-image:hover,
@@ -2920,7 +2920,7 @@ paned > separator {
   min-height: 24px;
   min-width: 24px;
   padding: 3px;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out;
 }
 
 .preview-volume-toggle:hover {
@@ -3073,7 +3073,7 @@ paned > separator {
   min-height: 56px;
   min-width: 56px;
   padding: 8px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .preview-media-center:hover {
@@ -3094,7 +3094,7 @@ paned > separator {
   min-height: 24px;
   min-width: 24px;
   padding: 2px;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out;
 }
 
 .preview-media-button:hover {
@@ -3637,7 +3637,7 @@ button.shortcut-footer-button:disabled {
 }
 
 .directory-column.column-entering {
-  animation: column-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: column-enter 320ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 @keyframes column-swap {
@@ -3646,7 +3646,7 @@ button.shortcut-footer-button:disabled {
 }
 
 .directory-column.column-swapping {
-  animation: column-swap 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: column-swap 320ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .directory-column:focus-within .column-header {
@@ -3754,7 +3754,7 @@ menubutton.column-header-action > button {
   min-height: 24px;
   min-width: 24px;
   padding: 2px 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 button.column-header-action:hover,
@@ -3840,7 +3840,7 @@ dropdown.form-control popover row {
   color: @strata_text;
   min-height: 30px;
   padding: 3px 7px;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .column-menu-option:hover,
@@ -4165,7 +4165,7 @@ dropdown.form-control popover row:selected check {
   color: @strata_text;
   min-height: 28px;
   padding: 3px 9px;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
 }
 
 .properties-action:hover {
@@ -4647,7 +4647,7 @@ textview > popover.menu button.model {
   letter-spacing: 0;
   min-height: 26px;
   padding: 0 8px;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .actions-context-popover modelbutton:hover,
@@ -4780,7 +4780,7 @@ textview > popover.menu button.model:focus-visible,
   background: transparent;
   color: @strata_text;
   border-radius: 6px;
-  transition: color 160ms ease-out;
+  transition: color 180ms ease-out;
 }
 
 .file-list row,
@@ -4799,7 +4799,7 @@ textview > popover.menu button.model:focus-visible,
 .preview-archive-row {
   outline: 1px solid transparent;
   outline-offset: -1px;
-  transition: color 180ms ease-out, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 200ms ease-out;
+  transition: color 180ms ease-out, transform 200ms cubic-bezier(0.22, 0, 0.35, 1), opacity 200ms ease-out;
 }
 
 .icons-card {
@@ -4849,7 +4849,7 @@ textview > popover.menu button.model:focus-visible,
   box-shadow: none;
   padding: 4px;
   transform: scale(1);
-  transition: transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: transform 180ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .fly-to-trash-contracted {
@@ -4967,7 +4967,7 @@ textview > popover.menu button.model:focus-visible,
 }
 
 .trash-rebel-shudder {
-  animation: trash-rebel-shudder 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: trash-rebel-shudder 240ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 @keyframes trash-receiving {
@@ -4988,7 +4988,7 @@ textview > popover.menu button.model:focus-visible,
 }
 
 .trash-impact {
-  animation: trash-impact 280ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: trash-impact 280ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 @keyframes trash-release {
@@ -5002,11 +5002,11 @@ textview > popover.menu button.model:focus-visible,
 }
 
 .file-row.just-dropped {
-  animation: slide-in-down 200ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: slide-in-down 280ms cubic-bezier(0.22, 0, 0.35, 1);
 }
 
 .file-row.slide-out {
-  animation: slide-out-up 240ms ease-out;
+  animation: slide-out-up 280ms ease-out;
 }
 
 .file-row:drop(active),
@@ -5113,7 +5113,7 @@ textview > popover.menu button.model:focus-visible,
   opacity: 0;
   padding: 0 7px;
   border-radius: 5px;
-  transition: opacity 120ms ease-out;
+  transition: opacity 180ms ease-out;
 }
 
 .file-list row:hover .file-size {
@@ -5328,7 +5328,7 @@ entry.theme-search {
   min-height: 26px;
   min-width: 26px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 .theme-search-clear:hover,
@@ -5429,7 +5429,7 @@ entry.theme-search {
 .add-theme-card {
   border: 1px dashed alpha(@strata_border, 0.75);
   color: @strata_dim_text;
-  transition: transform 160ms ease-out, background 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
 }
 
 .add-theme-card:hover {
@@ -5477,7 +5477,7 @@ entry.theme-search {
   border-radius: 6px;
   box-shadow: none;
   padding: 0;
-  transition: transform 160ms ease-out, border-color 160ms ease-out;
+  transition: transform 180ms ease-out, border-color 180ms ease-out;
 }
 
 .theme-color-picker button:hover,
@@ -5602,7 +5602,7 @@ menubutton.icons-thumbnail-menu > button {
   min-height: 24px;
   min-width: 24px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out;
 }
 
 menubutton.icons-thumbnail-menu > button:hover {
@@ -5803,7 +5803,7 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
   color: @strata_dim_text;
   min-height: 28px;
   padding: 0 12px;
-  transition: background 160ms ease-out, color 160ms ease-out;
+  transition: background 180ms ease-out, color 180ms ease-out;
 }
 
 .list-heading-button:hover {
@@ -5840,7 +5840,7 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
   min-height: 24px;
   min-width: 24px;
   padding: 4px;
-  transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
 }
 
 .list-navigation-button image {

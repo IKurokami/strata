@@ -50,7 +50,7 @@ impl Default for PeekBehavior {
         Self {
             open_delay: Duration::from_millis(500),
             close_delay: Duration::from_millis(80),
-            fade_duration: Duration::from_millis(150),
+            fade_duration: crate::ui::motion::CONTENT,
             item_limit: 8,
         }
     }
@@ -346,11 +346,14 @@ impl ViewState {
         content.add_controller(click);
 
         content.add_css_class("peek-popover");
-        let transition_duration = self
-            .peek_behavior
-            .fade_duration
-            .as_millis()
-            .min(u128::from(u32::MAX)) as u32;
+        let transition_duration = if crate::ui::motion::animations_enabled() {
+            self.peek_behavior
+                .fade_duration
+                .as_millis()
+                .min(u128::from(u32::MAX)) as u32
+        } else {
+            0
+        };
         let transition_type = peek_transition(placement.side);
         let (halign, margin_start, margin_end) =
             peek_horizontal_layout(placement, self.overlay.width() as f32);
@@ -380,7 +383,11 @@ impl ViewState {
             entry_count,
             spinner,
         }));
-        glib::idle_add_local_once(move || revealer.set_reveal_child(true));
+        glib::idle_add_local_once(move || {
+            if revealer.can_target() && revealer.parent().is_some() {
+                revealer.set_reveal_child(true);
+            }
+        });
     }
 
     pub(in crate::ui) fn open_keyboard_peek(&self) {

@@ -41,6 +41,7 @@ impl LoadPresentation {
             .vexpand(true)
             .accessible_role(gtk::AccessibleRole::Group)
             .build();
+        crate::ui::motion::bind_stack(&stack, &crate::ui::preferences::PreferenceManager::shared());
         stack.add_named(content, Some(CONTENT_PAGE));
         stack.add_named(&skeleton, Some(LOADING_PAGE));
         stack.add_named(&feedback, Some(FEEDBACK_PAGE));

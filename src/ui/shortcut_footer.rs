@@ -903,6 +903,7 @@ impl ShortcutFooter {
     }
 
     pub fn bind_preferences(&self, manager: &super::preferences::PreferenceManager) {
+        super::motion::bind_stack(&self.root, manager);
         let tag = self.tag.downgrade();
         let reference = self.reference.downgrade();
         let categories = self.categories.downgrade();
