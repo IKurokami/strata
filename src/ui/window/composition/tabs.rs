@@ -32,8 +32,17 @@ struct Tab {
     content: Rc<WindowContent>,
     focus: RefCell<Option<glib::WeakRef<gtk::Widget>>>,
     pending_location: RefCell<Option<Location>>,
+    pending_load: RefCell<Option<glib::SourceId>>,
     #[cfg(windows)]
     requested_location: RefCell<Option<Location>>,
+}
+
+impl Drop for Tab {
+    fn drop(&mut self) {
+        if let Some(source) = self.pending_load.get_mut().take() {
+            source.remove();
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -105,6 +114,17 @@ impl TabWindow {
             drag_token: glib::uuid_string_random().to_string(),
         });
         state.add(None);
+        if let Some(application) = window.application() {
+            application.connect_shutdown(|_| tabs_session::flush());
+        }
+        let saving = Rc::downgrade(&state);
+        window.connect_close_request(move |_| {
+            if let Some(state) = saving.upgrade() {
+                state.persist_session();
+                tabs_session::flush();
+            }
+            glib::Propagation::Proceed
+        });
         #[cfg(windows)]
         WINDOWS.with_borrow_mut(|windows| windows.push(Rc::downgrade(&state)));
         state.install_actions(window);
@@ -327,8 +347,17 @@ impl TabWindow {
         if self.blocked() {
             return;
         }
-        let location = self.active_browser().browser().active_location();
-        self.add(location.or_else(|| Some(super::super::startup_location(&self.preferences))));
+        let active = self.active_tab();
+        let location = active
+            .content
+            .browser
+            .browser()
+            .active_location()
+            .or_else(|| active.pending_location.borrow().clone())
+            .unwrap_or_else(|| super::super::startup_location(&self.preferences));
+        self.add_prepared(location);
+        let id = self.tabs.borrow().last().expect("new tab").id;
+        self.select(id);
     }
 
     fn open_in_new_tab(self: &Rc<Self>, location: Location) {
@@ -370,6 +399,7 @@ impl TabWindow {
             content: content.clone(),
             focus: RefCell::new(None),
             pending_location: RefCell::new((!navigate).then_some(location.clone()).flatten()),
+            pending_load: RefCell::new(None),
             #[cfg(windows)]
             requested_location: RefCell::new(None),
         });
@@ -383,6 +413,20 @@ impl TabWindow {
             }
         });
         self.tabs.borrow_mut().push(tab);
+        let weak_map = weak_tab.clone();
+        content.overlay.connect_map(move |_| {
+            if let Some(tab) = weak_map.upgrade() {
+                Self::load_visible_tab(&tab);
+            }
+        });
+        let weak_unmap = weak_tab.clone();
+        content.overlay.connect_unmap(move |_| {
+            if let Some(tab) = weak_unmap.upgrade()
+                && let Some(source) = tab.pending_load.borrow_mut().take()
+            {
+                source.remove();
+            }
+        });
         self.strip.add(self, id, &content.browser);
         if let Some(location) = location.as_ref().filter(|_| !navigate) {
             self.strip.label(id, &tab_label(Some(location)));
@@ -408,8 +452,6 @@ impl TabWindow {
         }
         if navigate {
             self.select(id);
-        } else {
-            self.refresh_chrome();
         }
         self.refresh_chrome();
         if navigate && let Some(location) = location {
@@ -452,13 +494,34 @@ impl TabWindow {
         if !saved.is_some_and(|focus| focus.grab_focus()) {
             tab.content.browser.browser().focus_active();
         }
-        if let Some(location) = pending_location {
+        if let Some(location) = pending_location.filter(|_| id == 1) {
             tab.content.browser.navigate_location(location);
             if tab.content.browser.browser().active_location().is_some() {
                 tab.pending_location.take();
             }
+        } else {
+            Self::load_visible_tab(&tab);
         }
         self.persist_session();
+    }
+
+    fn load_visible_tab(tab: &Rc<Tab>) {
+        if tab.pending_location.borrow().is_none() || tab.pending_load.borrow().is_some() {
+            return;
+        }
+        let weak = Rc::downgrade(tab);
+        let source =
+            glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+                let Some(tab) = weak.upgrade() else { return };
+                tab.pending_load.borrow_mut().take();
+                if !tab.content.overlay.is_mapped() {
+                    return;
+                }
+                if let Some(location) = tab.pending_location.take() {
+                    tab.content.browser.navigate_location(location);
+                }
+            });
+        *tab.pending_load.borrow_mut() = Some(source);
     }
 
     fn close(&self, id: u64) {
@@ -662,7 +725,7 @@ impl TabWindow {
             return;
         }
         if !self.preferences.restore_tabs() {
-            tabs_session::remove();
+            tabs_session::remove_deferred();
             return;
         }
         let tabs = self.tabs.borrow();
@@ -687,7 +750,7 @@ impl TabWindow {
         if locations.is_empty() {
             return;
         }
-        tabs_session::save(&locations, active);
+        tabs_session::save_deferred(&locations, active);
     }
 
     pub(in crate::ui::window) fn try_restore(self: &Rc<Self>) -> bool {

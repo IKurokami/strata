@@ -5,6 +5,41 @@ use std::fs;
 use super::*;
 use crate::model::Location;
 
+#[test]
+fn deferred_writes_keep_the_latest_session_and_removal_supersedes_pending_saves() {
+    let (directory, path) = session_file();
+    let first = Location::local(existing_dir(directory.path(), "first"));
+    let last = Location::local(existing_dir(directory.path(), "last"));
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || write_sessions(receive));
+    let barrier = || {
+        let (done, ready) = std::sync::mpsc::channel();
+        send.send(WriteCommand::Flush(done)).unwrap();
+        ready
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+    };
+    send.send(WriteCommand::Save(path.clone(), vec![first.clone()], 0))
+        .unwrap();
+    send.send(WriteCommand::Save(
+        path.clone(),
+        vec![first.clone(), last.clone()],
+        1,
+    ))
+    .unwrap();
+    barrier();
+    let restored = load_from(&path).unwrap();
+    assert_eq!(restored.tabs, vec![first.clone(), last]);
+    assert_eq!(restored.active, 1);
+    send.send(WriteCommand::Save(path.clone(), vec![first], 0))
+        .unwrap();
+    send.send(WriteCommand::Remove(path.clone())).unwrap();
+    barrier();
+    assert!(!path.exists());
+    drop(send);
+    worker.join().unwrap();
+}
+
 fn session_file() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::tempdir().expect("session fixture");
     let path = directory.path().join("tabs.toml");

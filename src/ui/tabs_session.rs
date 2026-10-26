@@ -15,6 +15,85 @@ const MAX_RESTORED_TABS: usize = 32;
 const KIND_PATH: &str = "path";
 const KIND_URI: &str = "uri";
 
+enum WriteCommand {
+    Save(PathBuf, Vec<Location>, usize),
+    Remove(PathBuf),
+    Flush(std::sync::mpsc::Sender<()>),
+}
+
+fn writer() -> Option<&'static std::sync::mpsc::Sender<WriteCommand>> {
+    static WRITER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<WriteCommand>>> =
+        std::sync::OnceLock::new();
+    WRITER
+        .get_or_init(|| {
+            let (send, receive) = std::sync::mpsc::channel();
+            std::thread::Builder::new()
+                .name("strata-tab-session".into())
+                .spawn(move || write_sessions(receive))
+                .ok()
+                .map(|_| send)
+        })
+        .as_ref()
+}
+
+fn write_sessions(receive: std::sync::mpsc::Receiver<WriteCommand>) {
+    let mut pending = None;
+    loop {
+        let next = if pending.is_some() {
+            receive.recv_timeout(std::time::Duration::from_millis(150))
+        } else {
+            receive
+                .recv()
+                .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected)
+        };
+        match next {
+            Ok(WriteCommand::Save(path, tabs, active)) => pending = Some((path, tabs, active)),
+            Ok(WriteCommand::Remove(path)) => {
+                pending = None;
+                if let Err(error) = fs::remove_file(path)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    tracing::warn!(%error, "unable to clear saved tabs");
+                }
+            }
+            Ok(WriteCommand::Flush(done)) => {
+                write_pending(&mut pending);
+                let _ = done.send(());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => write_pending(&mut pending),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                write_pending(&mut pending);
+                break;
+            }
+        }
+    }
+}
+
+fn write_pending(pending: &mut Option<(PathBuf, Vec<Location>, usize)>) {
+    if let Some((path, tabs, active)) = pending.take()
+        && let Err(error) = save_to(&path, &tabs, active)
+    {
+        tracing::warn!(%error, "unable to save open tabs");
+    }
+}
+
+pub(crate) fn save_deferred(tabs: &[Location], active: usize) {
+    if writer().is_none_or(|writer| {
+        writer
+            .send(WriteCommand::Save(session_path(), tabs.to_vec(), active))
+            .is_err()
+    }) {
+        save(tabs, active);
+    }
+}
+
+pub(crate) fn flush() {
+    let (send, receive) = std::sync::mpsc::channel();
+    if writer().is_some_and(|writer| writer.send(WriteCommand::Flush(send)).is_ok()) {
+        let _ = receive.recv_timeout(std::time::Duration::from_secs(3));
+    }
+}
+
 const RESTORABLE_URI_SCHEMES: [&str; 9] = [
     "smb", "sftp", "ftp", "ftps", "dav", "davs", "trash", "network", "recent",
 ];
@@ -82,11 +161,13 @@ pub(crate) fn save(tabs: &[Location], active: usize) {
 }
 
 pub(crate) fn remove() {
-    let path = session_path();
-    if path.is_file()
-        && let Err(error) = fs::remove_file(&path)
-    {
-        tracing::warn!(%error, "unable to clear saved tabs");
+    remove_deferred();
+    flush();
+}
+
+pub(crate) fn remove_deferred() {
+    if writer().is_none_or(|writer| writer.send(WriteCommand::Remove(session_path())).is_err()) {
+        let _ = fs::remove_file(session_path());
     }
 }
 
