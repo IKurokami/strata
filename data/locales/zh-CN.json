@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "永久删除方式",
   "Fast (parallel)": "快速（并行）",
   "Windows (standard)": "Windows（标准）",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "选择永久删除文件的方式。普通删除仍会使用回收站。",
-  "settings_keywords.permanent-delete-method": "windows 删除 永久 快速 并行 标准 系统 回收站"
+  "settings_keywords.permanent-delete-method": "windows 删除 永久 快速 并行 标准 系统 回收站",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "选择永久删除文件的方式。普通删除仍会使用回收站。"
 }

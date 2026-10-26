@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "Способ безвозвратного удаления",
   "Fast (parallel)": "Быстрый (параллельный)",
   "Windows (standard)": "Windows (стандартный)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Выберите способ безвозвратного удаления файлов. Обычное удаление по-прежнему использует Корзину.",
-  "settings_keywords.permanent-delete-method": "windows удаление безвозвратно быстро параллельно стандарт система корзина"
+  "settings_keywords.permanent-delete-method": "windows удаление безвозвратно быстро параллельно стандарт система корзина",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Выберите способ безвозвратного удаления файлов. Обычное удаление по-прежнему использует Корзину."
 }

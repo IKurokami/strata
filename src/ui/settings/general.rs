@@ -904,7 +904,7 @@ fn append_permanent_delete_option(content: &gtk::Box, manager: &Rc<PreferenceMan
     );
     content.append(&super::control_row(
         "Permanent deletion method",
-        "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.",
+        "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.",
         &control,
     ));
 }

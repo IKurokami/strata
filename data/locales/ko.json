@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "영구 삭제 방식",
   "Fast (parallel)": "빠르게 (병렬)",
   "Windows (standard)": "Windows (표준)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "파일을 영구 삭제하는 방식을 선택합니다. 일반 삭제는 계속 휴지통을 사용합니다.",
-  "settings_keywords.permanent-delete-method": "windows 삭제 영구 빠르게 병렬 표준 시스템 휴지통"
+  "settings_keywords.permanent-delete-method": "windows 삭제 영구 빠르게 병렬 표준 시스템 휴지통",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "파일을 영구 삭제하는 방식을 선택합니다. 일반 삭제는 계속 휴지통을 사용합니다."
 }

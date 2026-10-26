@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "Método de exclusão permanente",
   "Fast (parallel)": "Rápido (paralelo)",
   "Windows (standard)": "Windows (padrão)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Escolha como excluir arquivos permanentemente. A exclusão normal continua usando a Lixeira.",
-  "settings_keywords.permanent-delete-method": "windows exclusão permanente rápido paralelo padrão sistema lixeira"
+  "settings_keywords.permanent-delete-method": "windows exclusão permanente rápido paralelo padrão sistema lixeira",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Escolha como excluir arquivos permanentemente. A exclusão normal continua usando a Lixeira."
 }

@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "Metodo di eliminazione definitiva",
   "Fast (parallel)": "Rapido (parallelo)",
   "Windows (standard)": "Windows (standard)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Scegli come eliminare definitivamente i file. L’eliminazione normale continua a usare il Cestino.",
-  "settings_keywords.permanent-delete-method": "windows eliminazione definitiva rapido parallelo standard sistema cestino"
+  "settings_keywords.permanent-delete-method": "windows eliminazione definitiva rapido parallelo standard sistema cestino",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Scegli come eliminare definitivamente i file. L’eliminazione normale continua a usare il Cestino."
 }

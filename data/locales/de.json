@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "Methode zum endgültigen Löschen",
   "Fast (parallel)": "Schnell (parallel)",
   "Windows (standard)": "Windows (Standard)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Wählen Sie, wie Dateien endgültig gelöscht werden. Normales Löschen verwendet weiterhin den Papierkorb.",
-  "settings_keywords.permanent-delete-method": "windows löschen endgültig schnell parallel standard system papierkorb"
+  "settings_keywords.permanent-delete-method": "windows löschen endgültig schnell parallel standard system papierkorb",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Wählen Sie, wie Dateien endgültig gelöscht werden. Normales Löschen verwendet weiterhin den Papierkorb."
 }

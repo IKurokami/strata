@@ -1307,6 +1307,6 @@
   "Permanent deletion method": "Phương thức xóa vĩnh viễn",
   "Fast (parallel)": "Nhanh (song song)",
   "Windows (standard)": "Windows (tiêu chuẩn)",
-  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Chọn cách xóa vĩnh viễn các tệp. Thao tác Delete thông thường vẫn dùng Thùng rác.",
-  "settings_keywords.permanent-delete-method": "windows xóa vĩnh viễn nhanh song song tiêu chuẩn hệ thống thùng rác"
+  "settings_keywords.permanent-delete-method": "windows xóa vĩnh viễn nhanh song song tiêu chuẩn hệ thống thùng rác",
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Chọn cách xóa vĩnh viễn các tệp. Thao tác xóa thông thường vẫn dùng Thùng rác."
 }
