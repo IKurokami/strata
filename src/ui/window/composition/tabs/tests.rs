@@ -46,6 +46,41 @@ fn press(key: gdk::Key, modifiers: gdk::ModifierType) -> KeyPress {
     KeyPress::from_signal(key, 0, modifiers)
 }
 
+#[test]
+fn the_first_command_initializes_a_deferred_tab_without_overwriting_later_navigation() {
+    gtk_test(
+        "ui::window::composition::tabs::tests::the_first_command_initializes_a_deferred_tab_without_overwriting_later_navigation",
+        || {
+            let (window, tabs) = open();
+            let fixture = tempfile::tempdir().expect("tab fixture");
+            let root = fixture.path().join("root");
+            std::fs::create_dir(&root).expect("root");
+            load(&tabs.active_browser(), Location::local(&root));
+            tabs.new_tab();
+            let active = tabs.active_browser();
+            assert!(active.browser().active_location().is_none());
+            active.prepare_for_input();
+            assert_eq!(
+                active.browser().active_location(),
+                Some(Location::local(&root))
+            );
+            active.browser().parent();
+            let settled = Rc::new(Cell::new(false));
+            let completed = settled.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(180), move || {
+                completed.set(true)
+            });
+            wait_until(|| settled.get());
+            assert_eq!(
+                active.browser().active_location(),
+                Some(Location::local(fixture.path()))
+            );
+            assert!(tabs.active_tab().pending_load.borrow().is_none());
+            window.close();
+        },
+    );
+}
+
 fn application() -> gtk::Application {
     let application = gtk::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
     application

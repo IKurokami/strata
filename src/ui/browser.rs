@@ -203,6 +203,7 @@ pub(super) struct ViewState {
     context_menu_generation: Cell<u64>,
     context_menu_focus: RefCell<Option<glib::WeakRef<gtk::Widget>>>,
     context_selected_entry: RefCell<Option<Location>>,
+    deferred_input_navigation: RefCell<Option<Box<dyn FnOnce()>>>,
     input_ownership: RefCell<super::input_ownership::InputOwnership>,
     /// True only while a column row gesture is writing the selection model.
     /// Focus echoes of the cursor are not pointer-owned.
@@ -605,6 +606,7 @@ impl BrowserView {
             context_menu_generation: Cell::new(0),
             context_menu_focus: RefCell::new(None),
             context_selected_entry: RefCell::new(None),
+            deferred_input_navigation: RefCell::new(None),
             input_ownership: RefCell::new(super::input_ownership::InputOwnership::default()),
             pointer_owns_selection: Cell::new(false),
             folder_press: RefCell::new(None),
@@ -859,6 +861,19 @@ impl BrowserView {
 
     pub fn navigate_location(&self, location: Location) {
         self.state.browser.navigate_location(location, true);
+    }
+
+    pub(crate) fn defer_navigation_until_input(&self, prepare: impl FnOnce() + 'static) {
+        self.state
+            .deferred_input_navigation
+            .replace(Some(Box::new(prepare)));
+    }
+
+    pub(crate) fn prepare_for_input(&self) {
+        let prepare = self.state.deferred_input_navigation.take();
+        if let Some(prepare) = prepare {
+            prepare();
+        }
     }
 
     pub(crate) fn overlay(&self) -> gtk::Overlay {

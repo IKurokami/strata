@@ -413,6 +413,12 @@ impl TabWindow {
             }
         });
         self.tabs.borrow_mut().push(tab);
+        let input_tab = weak_tab.clone();
+        content.browser.defer_navigation_until_input(move || {
+            if let Some(tab) = input_tab.upgrade() {
+                Self::load_pending_tab(&tab);
+            }
+        });
         let weak_map = weak_tab.clone();
         content.overlay.connect_map(move |_| {
             if let Some(tab) = weak_map.upgrade() {
@@ -446,6 +452,9 @@ impl TabWindow {
                 && let Some(tab) = weak_tab.upgrade()
             {
                 tab.pending_location.take();
+                if let Some(source) = tab.pending_load.take() {
+                    source.remove();
+                }
                 #[cfg(windows)]
                 tab.requested_location.take();
             }
@@ -522,11 +531,19 @@ impl TabWindow {
                 if !tab.content.overlay.is_mapped() {
                     return;
                 }
-                if let Some(location) = tab.pending_location.take() {
-                    tab.content.browser.navigate_location(location);
-                }
+                Self::load_pending_tab(&tab);
             });
         *tab.pending_load.borrow_mut() = Some(source);
+    }
+
+    fn load_pending_tab(tab: &Rc<Tab>) {
+        if let Some(source) = tab.pending_load.take() {
+            source.remove();
+        }
+        let location = tab.pending_location.take();
+        if let Some(location) = location {
+            tab.content.browser.navigate_location(location);
+        }
     }
 
     fn close(&self, id: u64) {
