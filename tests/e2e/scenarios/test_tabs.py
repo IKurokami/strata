@@ -23,7 +23,7 @@ def test_rapid_control_t_creates_every_tab_and_retains_the_original_folder(strat
     strata.keyboard.type_text(str(strata.fixture.path("documents")))
     strata.keyboard.press("Return")
     strata.wait_for_directory("documents")
-    strata.keyboard.press("ctrl+1")
+    strata.keyboard.press("ctrl+shift+1")
     strata.wait_for_directory(strata.fixture.root.name)
 
 

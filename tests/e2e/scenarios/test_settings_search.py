@@ -15,7 +15,7 @@ def test_clear_preview_cache_is_searchable_and_keeps_the_open_preview(strata):
     search = strata.wait(lambda: strata.window.find(role="text", name="Search settings"), "settings search")
     strata.pointer.click(search)
     strata.keyboard.type_text("clear preview cache")
-    clear = strata.wait(lambda: strata.window.find(role="button", name="Clear preview cache"), "cache action")
+    clear = strata.wait(lambda: strata.window.find(role="button", name="Clear"), "cache action")
     assert clear.activate()
     strata.wait(lambda: strata.window.find(name="Preview cache cleared"), "cache completion")
     assert strata.window.find(role="button", name="Close settings").activate()
