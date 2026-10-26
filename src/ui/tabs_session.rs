@@ -89,8 +89,10 @@ pub(crate) fn save_deferred(tabs: &[Location], active: usize) {
 
 pub(crate) fn flush() {
     let (send, receive) = std::sync::mpsc::channel();
-    if writer().is_some_and(|writer| writer.send(WriteCommand::Flush(send)).is_ok()) {
-        let _ = receive.recv_timeout(std::time::Duration::from_secs(3));
+    if writer().is_some_and(|writer| writer.send(WriteCommand::Flush(send)).is_ok())
+        && let Err(error) = receive.recv_timeout(std::time::Duration::from_secs(3))
+    {
+        tracing::warn!(%error, "unable to finish saving open tabs before shutdown");
     }
 }
 

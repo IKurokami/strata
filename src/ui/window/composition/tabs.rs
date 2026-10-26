@@ -224,8 +224,8 @@ impl TabWindow {
         }
         let retained = state.clone();
         window.connect_unrealize(move |window| {
-            #[cfg(windows)]
             retained.persist_session();
+            tabs_session::flush();
             PreferenceManager::shared().release_bindings_within(window);
             for tab in retained.tabs.take() {
                 tab.content.dispose();

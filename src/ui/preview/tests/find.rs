@@ -11,7 +11,12 @@ fn pathological_code_previews_search_safely_and_cancel_replaced_source_loads() {
             let window = gtk::Window::new();
             let normal = "let value = 1;\n".repeat(400);
             source.show(&entry("old.rs"), "text/x-rust", &normal, false);
-            let old = source.view.borrow().as_ref().unwrap().buffer();
+            let old = source
+                .view
+                .borrow()
+                .as_ref()
+                .expect("active source preview")
+                .buffer();
             assert!(source.fill.borrow().is_some());
             for (name, mime) in [
                 ("large.json", "application/json"),
@@ -28,14 +33,24 @@ fn pathological_code_previews_search_safely_and_cancel_replaced_source_loads() {
                 }
                 assert!(source.fill.borrow().is_none());
                 assert_eq!(old.char_count(), 0);
-                let state = source.virtual_state.borrow().as_ref().unwrap().clone();
+                let state = source
+                    .virtual_state
+                    .borrow()
+                    .as_ref()
+                    .expect("active source preview")
+                    .clone();
                 assert_eq!(state.find_matches("unique-needle").len(), 1, "{name}");
             }
             source.show(&entry("new.rs"), "text/x-rust", "let latest = 7;", false);
             while glib::MainContext::default().pending() {
                 glib::MainContext::default().iteration(false);
             }
-            let buffer = source.view.borrow().as_ref().unwrap().buffer();
+            let buffer = source
+                .view
+                .borrow()
+                .as_ref()
+                .expect("active source preview")
+                .buffer();
             assert_eq!(
                 buffer.text(&buffer.start_iter(), &buffer.end_iter(), true),
                 "let latest = 7;"

@@ -11,7 +11,7 @@ fn rapid_control_t_preserves_every_tab_and_loads_the_final_active_folder() {
         "ui::window::composition::tabs::tests::rapid_control_t_preserves_every_tab_and_loads_the_final_active_folder",
         || {
             let (window, tabs) = open();
-            let root = tempfile::tempdir().unwrap();
+            let root = tempfile::tempdir().expect("tab fixture");
             load(&tabs.active_browser(), Location::local(root.path()));
             let previous = tabs.active_browser();
             for _ in 0..10 {
@@ -34,7 +34,7 @@ fn rapid_control_t_preserves_every_tab_and_loads_the_final_active_folder() {
                 Some(Location::local(root.path()))
             );
             tabs_session::flush();
-            let saved = tabs_session::load_restorable().unwrap();
+            let saved = tabs_session::load_restorable().expect("saved tab session");
             assert_eq!(saved.tabs.len(), 11);
             assert_eq!(saved.active, 10);
             window.destroy();
@@ -1058,10 +1058,10 @@ fn late_startup_session_respects_tabs_preferences_and_modal_lifecycle() {
                         tab_locations(&tabs),
                         vec![None, Some(Location::local(&chosen))]
                     );
-                    assert_eq!(
-                        saved_session().expect("current session").tabs,
-                        vec![Location::local(&chosen)]
-                    );
+                    wait_until(|| {
+                        saved_session()
+                            .is_some_and(|session| session.tabs == vec![Location::local(&chosen)])
+                    });
                 } else if matches!(input, Input::OptOut) {
                     assert_eq!(tab_locations(&tabs), vec![Some(Location::local(&chosen))]);
                     assert!(
