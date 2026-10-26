@@ -5,6 +5,7 @@ pub(crate) mod camera_preview;
 mod document;
 pub(crate) mod document_media;
 pub(crate) mod docx;
+pub(crate) mod file_mutations;
 #[cfg(not(windows))]
 pub(crate) mod file_providers;
 #[cfg(windows)]

@@ -77,10 +77,32 @@ fn dissolve_canvas(fixture: &Fixture) -> Option<gtk::Widget> {
     None
 }
 
+fn assert_feedback_started(fixture: &Fixture, permanent: bool, trash: Option<&gtk::Button>) {
+    if permanent {
+        assert!(
+            dissolve_canvas(fixture).is_some(),
+            "feedback must start before a provider result"
+        );
+    } else {
+        assert!(
+            trash
+                .expect("trash target")
+                .has_css_class("trash-receiving")
+        );
+    }
+}
+
+fn wait_for_feedback(fixture: &Fixture, trash: Option<&gtk::Button>) {
+    pump_until(|| {
+        dissolve_canvas(fixture).is_none()
+            && trash.is_none_or(|trash| !trash.has_css_class("trash-receiving"))
+    });
+}
+
 #[test]
-fn progress_discards_delete_animation_without_blocking_browsing_or_replaying_it() {
+fn slow_delete_starts_feedback_without_blocking_browsing_or_replaying_it() {
     crate::test_support::gtk_test(
-        "ui::browser::progress::tests::minimization::deletion::progress_discards_delete_animation_without_blocking_browsing_or_replaying_it",
+        "ui::browser::progress::tests::minimization::deletion::slow_delete_starts_feedback_without_blocking_browsing_or_replaying_it",
         || {
             for (permanent, mode) in deletion_routes() {
                 for count in [1, IMMEDIATE_PROGRESS_ITEM_COUNT] {
@@ -100,7 +122,10 @@ fn progress_discards_delete_animation_without_blocking_browsing_or_replaying_it(
                         .browser()
                         .last_started_operation()
                         .expect("deletion started");
+                    assert_feedback_started(&fixture, permanent, trash.as_ref());
                     assert_browser_receives_pointer(&fixture, &source);
+                    wait_for_feedback(&fixture, trash.as_ref());
+                    assert!(fixture.view.browser().has_background_operations());
                     let progress = fixture.progress(deletion);
                     assert_browser_receives_pointer(&fixture, &source);
                     assert!(dissolve_canvas(&fixture).is_none());
@@ -163,9 +188,9 @@ fn progress_discards_delete_animation_without_blocking_browsing_or_replaying_it(
 }
 
 #[test]
-fn fast_delete_animates_only_its_own_success_without_showing_progress() {
+fn delete_feedback_is_immediate_and_terminal_results_never_replay_it() {
     crate::test_support::gtk_test(
-        "ui::browser::progress::tests::minimization::deletion::fast_delete_animates_only_its_own_success_without_showing_progress",
+        "ui::browser::progress::tests::minimization::deletion::delete_feedback_is_immediate_and_terminal_results_never_replay_it",
         || {
             for (permanent, mode) in deletion_routes() {
                 for outcome in ["success", "unsuccessful", "failed", "cancelled", "partial"] {
@@ -181,6 +206,10 @@ fn fast_delete_animates_only_its_own_success_without_showing_progress() {
                         .browser()
                         .last_started_operation()
                         .expect("deletion started");
+                    assert_feedback_started(&fixture, permanent, trash.as_ref());
+                    assert_browser_receives_pointer(&fixture, &source);
+                    wait_for_feedback(&fixture, trash.as_ref());
+                    assert!(fixture.temp.path().join("delete-me.txt").exists());
                     let progress = fixture.progress_state(deletion);
                     assert!(progress.file_progress_view.borrow().is_none());
                     assert_browser_receives_pointer(&fixture, &source);
@@ -223,7 +252,7 @@ fn fast_delete_animates_only_its_own_success_without_showing_progress() {
                                 .state
                                 .pending_delete_dissolve
                                 .borrow()
-                                .is_some()
+                                .is_none()
                         );
                     }
                     if let Some(trash) = &trash {
@@ -256,17 +285,10 @@ fn fast_delete_animates_only_its_own_success_without_showing_progress() {
                         .handle_background_file_operation(deletion, &event);
                     assert!(progress.pending_file_progress.borrow().is_none());
                     assert!(progress.file_progress_view.borrow().is_none());
-                    if permanent && outcome == "success" {
-                        pump_until(|| dissolve_canvas(&fixture).is_some());
-                        let canvas =
-                            dissolve_canvas(&fixture).expect("fast permanent-delete animation");
-                        pump_until(|| canvas.parent().is_none());
-                    } else {
-                        assert!(dissolve_canvas(&fixture).is_none());
-                    }
+                    while glib::MainContext::default().iteration(false) {}
+                    assert!(dissolve_canvas(&fixture).is_none());
                     if let Some(trash) = trash {
-                        assert_eq!(trash.has_css_class("trash-receiving"), outcome == "success");
-                        pump_until(|| !trash.has_css_class("trash-receiving"));
+                        assert!(!trash.has_css_class("trash-receiving"));
                     }
                     assert!(
                         fixture
@@ -364,6 +386,9 @@ fn cancelling_docked_deletion_keeps_animations_discarded_and_reports_the_result(
                     .browser()
                     .last_started_operation()
                     .expect("deletion started");
+                assert_feedback_started(&fixture, permanent, trash.as_ref());
+                assert_browser_receives_pointer(&fixture, &source);
+                wait_for_feedback(&fixture, trash.as_ref());
                 let progress = fixture.progress(deletion);
                 let card = progress_card(&progress);
                 card.cancel.emit_clicked();

@@ -807,6 +807,11 @@ impl ViewState {
                 crate::ui::preferences::PreferenceManager::shared().restore_folder_views(location);
             }
             BrowserEvent::DeletionStarted { total } => {
+                // Feedback belongs to the accepted command, not the filesystem completion.
+                self.play_pending_file_operation_animation();
+                if let Some((_, dissolve)) = self.pending_delete_dissolve.take() {
+                    dissolve.play(|| {});
+                }
                 let browser = self.browser.clone();
                 self.show_file_operation_progress(
                     *total,

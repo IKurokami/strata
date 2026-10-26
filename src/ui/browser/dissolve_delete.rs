@@ -19,19 +19,12 @@ pub(super) struct PreparedDissolve {
     overlay: gtk::Overlay,
     canvas: DissolveCanvas,
     source: glib::WeakRef<gtk::Widget>,
-    source_presentation: Option<(f64, bool)>,
 }
 
 impl Drop for PreparedDissolve {
     fn drop(&mut self) {
         if self.canvas.parent().is_some() {
             self.overlay.remove_overlay(&self.canvas);
-        }
-        if let Some((opacity, can_target)) = self.source_presentation
-            && let Some(source) = self.source.upgrade()
-        {
-            source.set_opacity(opacity);
-            source.set_can_target(can_target);
         }
     }
 }
@@ -61,7 +54,6 @@ mod imp {
     #[derive(Default)]
     pub(super) struct DissolveCanvas {
         pub(super) rows: RefCell<Vec<DissolveRow>>,
-        pub(super) backdrop: RefCell<Option<gtk::gsk::RenderNode>>,
         pub(super) progress: Cell<f64>,
     }
 
@@ -76,9 +68,6 @@ mod imp {
 
     impl WidgetImpl for DissolveCanvas {
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
-            if let Some(backdrop) = self.backdrop.borrow().as_ref() {
-                snapshot.append_node(backdrop);
-            }
             let progress = self.progress.get();
             for row in self.rows.borrow().iter() {
                 for fragment in &row.fragments {
@@ -144,7 +133,6 @@ pub(super) fn prepare_dissolve(
     );
     let mut random = Random::new(0x9E37_79B9_7F4A_7C15);
     let mut rendered_rows = Vec::with_capacity(measured.len());
-    let mut rendered_bounds = Vec::with_capacity(measured.len());
     for (index, (row, bounds)) in measured.iter().enumerate() {
         let Some(node) = snapshot_row(row, bounds.width(), bounds.height()) else {
             continue;
@@ -162,7 +150,6 @@ pub(super) fn prepare_dissolve(
             motion,
         })
         .collect();
-        rendered_bounds.push(*bounds);
         rendered_rows.push(DissolveRow {
             origin: gtk::graphene::Point::new(bounds.x(), bounds.y()),
             fragments,
@@ -172,47 +159,23 @@ pub(super) fn prepare_dissolve(
         return None;
     }
 
-    let source_bounds = bounds_in_overlay(source, &overlay)?;
-    let source_node = snapshot_row(source, source_bounds.width(), source_bounds.height())?;
-    let mut regions = vec![source_bounds];
-    for bounds in rendered_bounds {
-        regions = regions
-            .into_iter()
-            .flat_map(|region| subtract_rect(region, bounds))
-            .collect();
-    }
-    let backdrop = gtk::Snapshot::new();
-    for region in regions {
-        backdrop.push_clip(&region);
-        backdrop.save();
-        backdrop.translate(&gtk::graphene::Point::new(
-            source_bounds.x(),
-            source_bounds.y(),
-        ));
-        backdrop.append_node(&source_node);
-        backdrop.restore();
-        backdrop.pop();
-    }
     let canvas = DissolveCanvas::new(rendered_rows);
-    canvas.imp().backdrop.replace(backdrop.to_node());
     Some(PreparedDissolve {
         overlay,
         canvas,
         source: source.downgrade(),
-        source_presentation: None,
     })
 }
 
 impl PreparedDissolve {
-    pub(super) fn play(mut self, on_done: impl FnOnce() + 'static) {
+    pub(super) fn play(self, on_done: impl FnOnce() + 'static) {
         if !crate::ui::motion::animations_enabled() {
             drop(self);
             on_done();
             return;
         }
 
-        // Overlapping freezes would restore the second animation's disabled source state.
-        let Some(source) = self
+        let Some(_source) = self
             .source
             .upgrade()
             .filter(|source| source.is_mapped() && source.can_target())
@@ -221,10 +184,7 @@ impl PreparedDissolve {
             on_done();
             return;
         };
-        self.source_presentation = Some((source.opacity(), source.can_target()));
-        // Freeze only during playback; frozen rows must not target the reconciled model.
-        source.set_can_target(false);
-        source.set_opacity(0.0);
+        // The live listing stays interactive and authoritative until deletion succeeds.
         self.overlay.add_overlay(&self.canvas);
         let canvas = self.canvas.clone();
         canvas.add_css_class("delete-dissolving");
@@ -242,38 +202,6 @@ impl PreparedDissolve {
             },
         );
     }
-}
-
-fn subtract_rect(
-    region: gtk::graphene::Rect,
-    cut: gtk::graphene::Rect,
-) -> Vec<gtk::graphene::Rect> {
-    let Some(overlap) = region.intersection(&cut) else {
-        return vec![region];
-    };
-    let right = region.x() + region.width();
-    let bottom = region.y() + region.height();
-    let cut_right = overlap.x() + overlap.width();
-    let cut_bottom = overlap.y() + overlap.height();
-    [
-        gtk::graphene::Rect::new(
-            region.x(),
-            region.y(),
-            region.width(),
-            overlap.y() - region.y(),
-        ),
-        gtk::graphene::Rect::new(region.x(), cut_bottom, region.width(), bottom - cut_bottom),
-        gtk::graphene::Rect::new(
-            region.x(),
-            overlap.y(),
-            overlap.x() - region.x(),
-            overlap.height(),
-        ),
-        gtk::graphene::Rect::new(cut_right, overlap.y(), right - cut_right, overlap.height()),
-    ]
-    .into_iter()
-    .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
-    .collect()
 }
 
 fn snapshot_row(row: &gtk::Widget, width: f32, height: f32) -> Option<gtk::gsk::RenderNode> {

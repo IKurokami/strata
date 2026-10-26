@@ -2418,6 +2418,7 @@ impl Browser {
             }
             emit(event);
         });
+        crate::services::file_mutations::prepare(std::slice::from_ref(&entry.location));
         let load = provider.rename(
             RenameRequest {
                 id: request_id,
@@ -2587,6 +2588,14 @@ impl Browser {
                 refresh_locations.insert(parent);
             }
         }
+        if move_sources {
+            crate::services::file_mutations::prepare(
+                &items
+                    .iter()
+                    .map(|item| item.source.clone())
+                    .collect::<Vec<_>>(),
+            );
+        }
         let load = provider.paste(
             PasteRequest {
                 id: request_id,
@@ -2627,6 +2636,12 @@ impl Browser {
                 .first()
                 .map(|entry| entry.display_name.clone())
                 .unwrap_or_default(),
+        );
+        crate::services::file_mutations::prepare(
+            &entries
+                .iter()
+                .map(|entry| entry.location.clone())
+                .collect::<Vec<_>>(),
         );
         self.emit(BrowserEvent::DeletionStarted { total });
         let load = provider.delete(
@@ -3161,6 +3176,7 @@ impl Browser {
         self.deletion_operation.set(true);
         self.replay_claim(redo).replace(Some((generation, entry)));
         self.emit(BrowserEvent::DeletionStarted { total });
+        crate::services::file_mutations::prepare(&locations);
         let load = provider.undo_copy(
             UndoCopyRequest {
                 id: request_id,

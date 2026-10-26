@@ -171,6 +171,7 @@ struct DocumentPreview {
 }
 
 struct PreviewState {
+    mutation_watch: RefCell<Option<crate::services::file_mutations::MutationWatch>>,
     provider: Rc<dyn PreviewProvider>,
     revealer: gtk::Revealer,
     slot: gtk::Box,
@@ -218,6 +219,7 @@ struct PreviewState {
     current: RefCell<Option<FileEntry>>,
     current_depth: Cell<Option<usize>>,
     pending_show: RefCell<Option<glib::SourceId>>,
+    pending_show_location: RefCell<Option<crate::model::Location>>,
     load: RefCell<Option<LoadHandle>>,
     loading_delay: RefCell<Option<glib::SourceId>>,
     loading_label: RefCell<Option<gtk::Label>>,
@@ -404,6 +406,7 @@ impl PreviewDrawer {
         slot.append(&slot_overlay);
 
         let state = Rc::new(PreviewState {
+            mutation_watch: RefCell::new(None),
             provider,
             revealer,
             slot,
@@ -446,6 +449,7 @@ impl PreviewDrawer {
             current: RefCell::new(None),
             current_depth: Cell::new(None),
             pending_show: RefCell::new(None),
+            pending_show_location: RefCell::new(None),
             load: RefCell::new(None),
             loading_delay: RefCell::new(None),
             loading_label: RefCell::new(None),
@@ -564,6 +568,23 @@ impl PreviewDrawer {
             }
         });
 
+        let weak = Rc::downgrade(&state);
+        state
+            .mutation_watch
+            .replace(Some(crate::services::file_mutations::watch(move |roots| {
+                let Some(state) = weak.upgrade() else {
+                    return;
+                };
+                let affected = state.current.borrow().as_ref().is_some_and(|entry| {
+                    crate::services::file_mutations::contains(roots, &entry.location)
+                }) || state.pending_show_location.borrow().as_ref().is_some_and(
+                    |location| crate::services::file_mutations::contains(roots, location),
+                );
+                if affected {
+                    state.print_load.borrow_mut().take();
+                    state.clear_target();
+                }
+            })));
         Self { state }
     }
 
@@ -837,6 +858,7 @@ impl PreviewState {
     }
 
     fn cancel_pending_show(&self) {
+        self.pending_show_location.take();
         if let Some(source) = self.pending_show.borrow_mut().take() {
             source.remove();
         }
@@ -864,11 +886,14 @@ impl PreviewState {
         // not mistake a replacement request for an empty, closed drawer.
 
         let weak = Rc::downgrade(self);
+        self.pending_show_location
+            .replace(Some(entry.location.clone()));
         let source = glib::timeout_add_local_once(FOCUS_PREVIEW_DELAY, move || {
             let Some(state) = weak.upgrade() else {
                 return;
             };
             state.pending_show.borrow_mut().take();
+            state.pending_show_location.take();
             if state.is_enabled() {
                 state.show(entry, depth);
             }
@@ -2973,8 +2998,9 @@ impl PreviewState {
         self.detach_find();
         self.rendered_text.borrow_mut().take();
         self.source_preview.cancel();
-        self.source_preview.scroll.borrow_mut().take();
-        self.source_preview.virtual_state.borrow_mut().take();
+        let scroll = self.source_preview.scroll.borrow_mut().take();
+        let virtual_state = self.source_preview.virtual_state.borrow_mut().take();
+        drop((scroll, virtual_state));
         self.document_view_button.set_visible(false);
         self.document_preview.borrow_mut().take();
         let audio = self.audio.borrow_mut().take();

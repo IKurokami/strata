@@ -353,7 +353,11 @@ fn unsupported_trash_fallback_explains_and_focuses_cancel() {
                 button(window.upcast_ref(), "Permanently delete 2 items")
                     .expect("confirm")
                     .emit_clicked();
-                wait_until(|| held.delete_requests.borrow().len() == requests + 2);
+                assert_eq!(
+                    held.delete_requests.borrow().len(),
+                    requests + 2,
+                    "confirmation must dispatch before the modal exit animation finishes"
+                );
                 let (id, permanent, count) = held
                     .delete_requests
                     .borrow()

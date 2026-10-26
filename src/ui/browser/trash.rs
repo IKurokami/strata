@@ -19,8 +19,7 @@ use crate::ui::keys::{
     bindings::{ENTER_ANY, ESCAPE_ANY, LEFT, RIGHT, TENXER_DELETE_CONFIRM, VIM_LEFT, VIM_RIGHT},
 };
 use crate::ui::modal::{
-    ModalHost, close_on_escape, dismiss_modal_layer, dismiss_modal_layer_then, modal_layer,
-    show_error_dialog,
+    ModalHost, close_on_escape, dismiss_modal_layer, modal_layer, show_error_dialog,
 };
 use gtk::gdk::ModifierType as Modifiers;
 use gtk::prelude::*;
@@ -963,37 +962,30 @@ impl ViewState {
             let Some(entries_for_dissolve) = pending_entries.borrow_mut().take() else {
                 return;
             };
-            let browser = browser.clone();
-            let weak_ui = weak_ui.clone();
-            dismiss_modal_layer_then(
+            dismiss_modal_layer(
                 &confirmed_layer,
                 &confirmed_overlay,
                 confirmed_root.as_ref(),
-                move || {
-                    if trash {
-                        if let Some(ui) = weak_ui.upgrade() {
-                            let entries = Rc::try_unwrap(entries_for_dissolve)
-                                .unwrap_or_else(|shared| shared.as_ref().clone());
-                            ui.move_to_trash(entries);
-                        }
-                        return;
-                    }
-                    if let Some(ui) = weak_ui.upgrade() {
-                        ui.reset_delete_animation();
-                        let dissolve = ui.delete_animation_source().and_then(|source| {
-                            super::dissolve_delete::prepare_dissolve(&source, &entries_for_dissolve)
-                        });
-                        if let (Some(depth), Some(dissolve)) = (ui.browser.active_depth(), dissolve)
-                        {
-                            ui.pending_delete_dissolve.replace(Some((depth, dissolve)));
-                        }
-                    }
-                    let entries = Rc::try_unwrap(entries_for_dissolve)
-                        .unwrap_or_else(|shared| shared.as_ref().clone());
-                    browser.delete(entries, true);
-                    browser.focus_active();
-                },
             );
+            let entries = Rc::try_unwrap(entries_for_dissolve)
+                .unwrap_or_else(|shared| shared.as_ref().clone());
+            if trash {
+                if let Some(ui) = weak_ui.upgrade() {
+                    ui.move_to_trash(entries);
+                }
+                return;
+            }
+            if let Some(ui) = weak_ui.upgrade() {
+                ui.reset_delete_animation();
+                let dissolve = ui
+                    .delete_animation_source()
+                    .and_then(|source| super::dissolve_delete::prepare_dissolve(&source, &entries));
+                if let (Some(depth), Some(dissolve)) = (ui.browser.active_depth(), dissolve) {
+                    ui.pending_delete_dissolve.replace(Some((depth, dissolve)));
+                }
+            }
+            browser.delete(entries, true);
+            browser.focus_active();
         });
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
