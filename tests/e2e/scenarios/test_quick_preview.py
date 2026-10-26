@@ -25,7 +25,7 @@ PREVIEW_FIXTURE = {
 @pytest.mark.parametrize("fixture_tree", [{
     "a-huge.json": '{"data":"' + "x" * (2 * 1024 * 1024) + '"}',
     "b-latest.json": '{"sentinel":"latest-safe"}',
-    "c-page.pdf": (Path(__file__).resolve().parents[2] / "fixtures/documents/text.pdf").read_bytes(),
+    "c-page.pdf": Path(__file__).resolve().parents[2] / "fixtures/documents/text.pdf",
 }], indirect=True, ids=["large-json-switching"])
 def test_large_json_and_rapid_switching_keep_the_latest_preview_and_pdf_working(strata):
     strata.select_entry_with_keyboard("a-huge.json")

@@ -11,11 +11,12 @@ from harness.modes import ALL_MODES
 
 
 def test_rapid_control_t_creates_every_tab_and_retains_the_original_folder(strata):
-    initial = len(strata.window.find_all(role="page tab"))
+    initial = max(1, len(strata.window.find_all(role="page tab")))
     started = time.monotonic()
     for _ in range(10):
         strata.keyboard.press("ctrl+t")
     strata.wait(lambda: len(strata.window.find_all(role="page tab")) == initial + 10, "all requested tabs")
+    assert all(tab.name == strata.fixture.root.name for tab in strata.window.find_all(role="page tab"))
     print(f"Ten Ctrl+T requests and tab publication: {time.monotonic() - started:.3f}s")
     strata.keyboard.press("ctrl+l")
     strata.keyboard.press("ctrl+a")

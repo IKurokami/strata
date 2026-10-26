@@ -434,7 +434,12 @@ impl TabWindow {
         let weak = Rc::downgrade(self);
         content.browser.observe_tab_location(move |location| {
             if let Some(state) = weak.upgrade() {
-                state.strip.label(id, &tab_label(location));
+                let pending = weak_tab
+                    .upgrade()
+                    .and_then(|tab| tab.pending_location.borrow().clone());
+                state
+                    .strip
+                    .label(id, &tab_label(location.or(pending.as_ref())));
                 state.persist_session();
             }
             if location.is_some()
@@ -573,18 +578,12 @@ impl TabWindow {
         self.strip.widget().set_visible(multiple);
         for tab in self.tabs.borrow().iter() {
             let header = &tab.content.header;
-            if let Some(parent) = header.new_tab.parent().and_downcast::<gtk::Box>() {
-                parent.remove(&header.new_tab);
-            }
-            if let Some(parent) = header.close.parent().and_downcast::<gtk::Box>() {
-                parent.remove(&header.close);
-            }
             if multiple && tab.id == self.active.get() {
-                self.strip.actions.append(&header.new_tab);
-                self.strip.end.append(&header.close);
+                move_header_button(&header.new_tab, &self.strip.actions, false);
+                move_header_button(&header.close, &self.strip.end, false);
             } else {
-                header.actions.prepend(&header.new_tab);
-                header.actions.append(&header.close);
+                move_header_button(&header.new_tab, &header.actions, true);
+                move_header_button(&header.close, &header.actions, false);
                 header.new_tab.set_visible(!multiple);
                 header
                     .close
@@ -895,6 +894,20 @@ impl TabWindow {
             }
         });
         window.add_controller(keys);
+    }
+}
+
+fn move_header_button(button: &gtk::Button, parent: &gtk::Box, prepend: bool) {
+    if button.parent().as_ref() == Some(parent.upcast_ref()) {
+        return;
+    }
+    if let Some(previous) = button.parent().and_downcast::<gtk::Box>() {
+        previous.remove(button);
+    }
+    if prepend {
+        parent.prepend(button);
+    } else {
+        parent.append(button);
     }
 }
 

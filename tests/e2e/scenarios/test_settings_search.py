@@ -5,8 +5,9 @@ import pytest
 
 
 @pytest.mark.preferences(browser_mode="list", single_click_previews=False)
-@pytest.mark.parametrize("fixture_tree", [{"notes.txt": "cache-live-preview\n"}], indirect=True)
 def test_clear_preview_cache_is_searchable_and_keeps_the_open_preview(strata):
+    strata.fixture.path("documents/notes.txt").write_text("cache-live-preview\n")
+    strata.open_directory("documents")
     strata.select_entry_with_keyboard("notes.txt")
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview_shows("cache-live-preview"), "open preview")
