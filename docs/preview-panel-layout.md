@@ -12,7 +12,9 @@ geometry manually with captures; do not add layout assertions.
 Secondary clicks choose a context-menu target without opening, replacing, or
 closing the current preview. Restoring keyboard focus after the popup closes
 must preserve that preview too. Primary selection and keyboard navigation keep
-their normal preview behavior; an explicit Preview menu action still opens its
+their normal preview behavior. The first primary click on a context-selected
+file must announce its selection even if it is already selected, rather than
+starting slow-click rename. An explicit Preview menu action still opens its
 target. Search-result notifications and Miller-column mirroring must suppress
 their deferred preview work at dispatch, before queueing an idle or timeout.
 

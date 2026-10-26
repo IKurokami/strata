@@ -202,6 +202,7 @@ pub(super) struct ViewState {
     context_menu_column: Cell<Option<usize>>,
     context_menu_generation: Cell<u64>,
     context_menu_focus: RefCell<Option<glib::WeakRef<gtk::Widget>>>,
+    context_selected_entry: RefCell<Option<Location>>,
     input_ownership: RefCell<super::input_ownership::InputOwnership>,
     /// True only while a column row gesture is writing the selection model.
     /// Focus echoes of the cursor are not pointer-owned.
@@ -603,6 +604,7 @@ impl BrowserView {
             context_menu_column: Cell::new(None),
             context_menu_generation: Cell::new(0),
             context_menu_focus: RefCell::new(None),
+            context_selected_entry: RefCell::new(None),
             input_ownership: RefCell::new(super::input_ownership::InputOwnership::default()),
             pointer_owns_selection: Cell::new(false),
             folder_press: RefCell::new(None),

@@ -4553,6 +4553,9 @@ fn install_preview_click(
             }
             return;
         }
+        let context_selected = weak_state.upgrade().is_some_and(|state| {
+            super::browser::context_menu::resume_primary_selection(&state, &entry)
+        });
         if should_activate_pointer_click(press_count, entry.is_directory(), click_activation.get())
         {
             if !browser.is_chooser_mode() || entry.is_directory() {
@@ -4560,6 +4563,7 @@ fn install_preview_click(
                 browser.activate_in_place(depth, position);
             }
         } else if press_count == 1
+            && !context_selected
             && !modifiers.intersects(
                 gtk::gdk::ModifierType::ALT_MASK
                     | gtk::gdk::ModifierType::SUPER_MASK

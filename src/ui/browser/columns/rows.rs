@@ -593,8 +593,12 @@ pub(super) fn column_rows(
             {
                 let entry = state.browser.entry_at(depth, source_position);
                 if let Some(entry) = entry.as_ref() {
+                    let context_selected = !control
+                        && !shift
+                        && super::super::context_menu::resume_primary_selection(&state, entry);
                     let reopening = state.browser.is_open_child(depth, &entry.location);
                     let slow_click_rename = press_count == 1
+                        && !context_selected
                         && selected_before
                         && selected_count_before == 1
                         && !modifiers.intersects(

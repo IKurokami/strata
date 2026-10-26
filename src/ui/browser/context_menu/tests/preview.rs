@@ -65,7 +65,7 @@ fn item_context_focus_and_dismissal_preserve_preview_until_primary_selection_cha
                             .expect("fixture entry")
                     };
                     let (first_position, first) = position("notes.txt");
-                    let (other_position, _) = position("other.txt");
+                    let (other_position, other) = position("other.txt");
                     let positions = if grouped {
                         vec![first_position, other_position]
                     } else {
@@ -101,9 +101,10 @@ fn item_context_focus_and_dismissal_preserve_preview_until_primary_selection_cha
                         provider.0.borrow()
                     );
                     assert_eq!(title.text(), "notes.txt");
-                    view.browser().select(0, other_position);
+                    assert!(resume_primary_selection(&view.state, &other));
                     wait_until(|| !provider.0.borrow().is_empty());
                     assert_eq!(&*provider.0.borrow(), &["other.txt"]);
+                    assert!(!resume_primary_selection(&view.state, &other));
                     view.browser().clear_observer();
                     window.destroy();
                     settle_callbacks();

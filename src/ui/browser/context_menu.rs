@@ -225,6 +225,9 @@ pub(super) fn focus_context_entry(
     entry: &FileEntry,
 ) {
     let _preview_guard = crate::ui::preview::suppress_selection_preview();
+    state
+        .context_selected_entry
+        .replace(Some(entry.location.clone()));
     if let Some(position) = current_context_position(state, depth, position, entry) {
         let positions = state.browser.selected_positions(depth);
         state.browser.commit_selection();
@@ -235,6 +238,17 @@ pub(super) fn focus_context_entry(
         focus_search_result(state, depth, entry);
     }
     focus_context_column(state, depth);
+}
+
+pub(in crate::ui) fn resume_primary_selection(state: &ViewState, entry: &FileEntry) -> bool {
+    let selected_by_context = state.context_selected_entry.take();
+    if selected_by_context.as_ref() != Some(&entry.location) {
+        return false;
+    }
+    // The context menu already changed selection without previewing it. A primary
+    // click must announce that selection even when GTK has no selection change.
+    state.browser.focus_active();
+    true
 }
 
 pub(in crate::ui) fn show_context_popover(
