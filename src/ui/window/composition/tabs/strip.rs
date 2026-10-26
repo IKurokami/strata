@@ -331,28 +331,26 @@ impl TabStrip {
         let publish = move || {
             if selected_indicator.active.get() == id
                 && let Some(headers) = selected_headers.upgrade()
+                && let (Some(row), Some(scroller)) = (row.upgrade(), scroller.upgrade())
+                && let Some(header) = headers.borrow().iter().find(|header| header.id == id)
+                && let Some(bounds) = header.widget.compute_bounds(&row)
             {
-                if let (Some(row), Some(scroller)) = (row.upgrade(), scroller.upgrade())
-                    && let Some(header) = headers.borrow().iter().find(|header| header.id == id)
-                    && let Some(bounds) = header.widget.compute_bounds(&row)
+                let adjustment = scroller.hadjustment();
+                let left = bounds.x() as f64;
+                let trailing = if headers
+                    .borrow()
+                    .last()
+                    .is_some_and(|header| header.id == id)
                 {
-                    let adjustment = scroller.hadjustment();
-                    let left = bounds.x() as f64;
-                    let trailing = if headers
-                        .borrow()
-                        .last()
-                        .is_some_and(|header| header.id == id)
-                    {
-                        actions.upgrade().map_or(0, |actions| actions.width())
-                    } else {
-                        0
-                    };
-                    let right = left + bounds.width() as f64 + trailing as f64;
-                    if left < adjustment.value() {
-                        adjustment.set_value(left);
-                    } else if right > adjustment.value() + adjustment.page_size() {
-                        adjustment.set_value(right - adjustment.page_size());
-                    }
+                    actions.upgrade().map_or(0, |actions| actions.width())
+                } else {
+                    0
+                };
+                let right = left + bounds.width() as f64 + trailing as f64;
+                if left < adjustment.value() {
+                    adjustment.set_value(left);
+                } else if right > adjustment.value() + adjustment.page_size() {
+                    adjustment.set_value(right - adjustment.page_size());
                 }
             }
         };
