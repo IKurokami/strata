@@ -1239,6 +1239,7 @@ impl PreferenceManager {
         self.preferences.borrow().permanent_delete_method
     }
 
+    #[cfg(any(windows, test))]
     pub fn set_permanent_delete_method(&self, method: PermanentDeleteMethod) {
         self.preferences.borrow_mut().permanent_delete_method = method;
         self.save_preferences();
