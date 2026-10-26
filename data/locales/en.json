@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Release unused preview data and thumbnails. Open previews stay available.",
   "Preview cache cleared": "Preview cache cleared",
   "Unable to clear preview cache: %{error}": "Unable to clear preview cache: %{error}",
-  "settings_keywords.clear-preview-cache": "cache memory thumbnails clean clear storage"
+  "settings_keywords.clear-preview-cache": "cache memory thumbnails clean clear storage",
+  "Permanent deletion method": "Permanent deletion method",
+  "Fast (parallel)": "Fast (parallel)",
+  "Windows (standard)": "Windows (standard)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.",
+  "settings_keywords.permanent-delete-method": "windows delete removal permanent fast parallel standard shell recycle bin"
 }

@@ -13,6 +13,13 @@ struct Target {
 }
 
 const TARGETS: &[Target] = &[
+    #[cfg(windows)]
+    Target {
+        id: "permanent-delete-method",
+        page: "general",
+        title: "Permanent deletion method",
+        aliases: "windows delete removal permanent fast parallel standard shell recycle bin",
+    },
     Target {
         id: "clear-preview-cache",
         page: "general",

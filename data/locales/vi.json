@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Giải phóng dữ liệu xem trước và ảnh thu nhỏ không dùng. Nội dung đang xem vẫn được giữ.",
   "Preview cache cleared": "Đã xóa bộ nhớ đệm xem trước",
   "Unable to clear preview cache: %{error}": "Không thể xóa bộ nhớ đệm xem trước: %{error}",
-  "settings_keywords.clear-preview-cache": "bộ nhớ đệm ảnh thu nhỏ dọn xóa dung lượng"
+  "settings_keywords.clear-preview-cache": "bộ nhớ đệm ảnh thu nhỏ dọn xóa dung lượng",
+  "Permanent deletion method": "Phương thức xóa vĩnh viễn",
+  "Fast (parallel)": "Nhanh (song song)",
+  "Windows (standard)": "Windows (tiêu chuẩn)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Chọn cách xóa vĩnh viễn các tệp. Thao tác Delete thông thường vẫn dùng Thùng rác.",
+  "settings_keywords.permanent-delete-method": "windows xóa vĩnh viễn nhanh song song tiêu chuẩn hệ thống thùng rác"
 }

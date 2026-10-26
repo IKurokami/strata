@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Liberar datos de vista previa y miniaturas sin usar. Las vistas previas abiertas siguen disponibles.",
   "Preview cache cleared": "Caché de vistas previas vaciada",
   "Unable to clear preview cache: %{error}": "No se pudo vaciar la caché de vistas previas: %{error}",
-  "settings_keywords.clear-preview-cache": "caché memoria miniaturas limpiar vaciar almacenamiento"
+  "settings_keywords.clear-preview-cache": "caché memoria miniaturas limpiar vaciar almacenamiento",
+  "Permanent deletion method": "Método de eliminación permanente",
+  "Fast (parallel)": "Rápido (en paralelo)",
+  "Windows (standard)": "Windows (estándar)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Elige cómo eliminar archivos permanentemente. La eliminación normal sigue usando la Papelera de reciclaje.",
+  "settings_keywords.permanent-delete-method": "windows eliminar permanente rápido paralelo estándar sistema papelera reciclaje"
 }

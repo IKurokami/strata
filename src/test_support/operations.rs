@@ -47,6 +47,7 @@ pub(crate) struct HeldOperations {
     pub(crate) before_return: RefCell<Option<BeforeReturn>>,
     /// Every held delete as `(id, permanent, entry count)`, in request order.
     pub(crate) delete_requests: RefCell<Vec<(OperationRequestId, bool, usize)>>,
+    pub(crate) delete_methods: RefCell<Vec<PermanentDeleteMethod>>,
 }
 
 impl HeldOperations {
@@ -120,6 +121,15 @@ impl OperationProvider for HeldOperations {
             request.entries.len(),
         ));
         self.hold(request.id, callback)
+    }
+    fn delete_with_method(
+        &self,
+        request: DeleteRequest,
+        method: PermanentDeleteMethod,
+        callback: Callback,
+    ) -> LoadHandle {
+        self.delete_methods.borrow_mut().push(method);
+        self.delete(request, callback)
     }
     unsupported!(restore, RestoreRequest);
 }

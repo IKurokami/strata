@@ -14,7 +14,12 @@ fn native_mutations_wait_for_preview_file_handles_without_blocking_the_main_cont
         .lock()
         .expect("main context");
     let context = glib::MainContext::default();
-    for deleting in [false, true] {
+    for method in [
+        None,
+        Some(crate::services::PermanentDeleteMethod::Native),
+        Some(crate::services::PermanentDeleteMethod::Fast),
+    ] {
+        let deleting = method.is_some();
         let root = tempfile::tempdir().expect("preview fixture");
         let source = root.path().join("preview.json");
         let destination = root.path().join("renamed.json");
@@ -40,10 +45,11 @@ fn native_mutations_wait_for_preview_file_handles_without_blocking_the_main_cont
         let captured = events.clone();
         let emit: Rc<dyn Fn(OperationEvent)> =
             Rc::new(move |event| captured.borrow_mut().push(event));
-        let operation = if deleting {
+        let operation = if let Some(method) = method {
             permanently_delete_locations(
                 OperationRequestId(901),
                 vec![Location::local(&source)],
+                method,
                 emit,
             )
         } else {

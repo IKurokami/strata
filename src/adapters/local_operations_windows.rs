@@ -445,13 +445,25 @@ impl OperationProvider for LocalOperationProvider {
         run_undo_merge(self.state.clone(), request, emit)
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+        self.delete_with_method(
+            request,
+            crate::services::PermanentDeleteMethod::Native,
+            emit,
+        )
+    }
+    fn delete_with_method(
+        &self,
+        request: DeleteRequest,
+        method: crate::services::PermanentDeleteMethod,
+        emit: Rc<dyn Fn(OperationEvent)>,
+    ) -> LoadHandle {
         if request.permanent {
             let locations = request
                 .entries
                 .into_iter()
                 .map(|entry| entry.location)
                 .collect();
-            return permanently_delete_locations(request.id, locations, emit);
+            return permanently_delete_locations(request.id, locations, method, emit);
         }
         let locations = request.entries.into_iter().map(|e| e.location).collect();
         recycle_locations(request.id, locations, emit)
@@ -480,6 +492,7 @@ impl OperationProvider for LocalOperationProvider {
 fn permanently_delete_locations(
     id: OperationRequestId,
     locations: Vec<Location>,
+    method: crate::services::PermanentDeleteMethod,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
     let mut paths = Vec::with_capacity(locations.len());
@@ -512,6 +525,8 @@ fn permanently_delete_locations(
                 }
                 let outcome = if super::recycle_bin::is_item(&location) {
                     strata_win_shell::delete_recycled(&path)
+                } else if method == crate::services::PermanentDeleteMethod::Fast {
+                    strata_native_io::deletion::remove(&path, &worker_cancelled)
                 } else {
                     strata_win_shell::permanently_delete(&[path])
                 };

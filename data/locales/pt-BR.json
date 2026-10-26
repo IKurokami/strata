@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Liberar dados de prévias e miniaturas não utilizados. As prévias abertas continuam disponíveis.",
   "Preview cache cleared": "Cache de prévias limpo",
   "Unable to clear preview cache: %{error}": "Não foi possível limpar o cache de prévias: %{error}",
-  "settings_keywords.clear-preview-cache": "cache memória miniaturas limpar excluir armazenamento"
+  "settings_keywords.clear-preview-cache": "cache memória miniaturas limpar excluir armazenamento",
+  "Permanent deletion method": "Método de exclusão permanente",
+  "Fast (parallel)": "Rápido (paralelo)",
+  "Windows (standard)": "Windows (padrão)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Escolha como excluir arquivos permanentemente. A exclusão normal continua usando a Lixeira.",
+  "settings_keywords.permanent-delete-method": "windows exclusão permanente rápido paralelo padrão sistema lixeira"
 }

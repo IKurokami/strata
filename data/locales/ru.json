@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Освободить неиспользуемые данные предпросмотра и миниатюры. Открытые предпросмотры останутся доступны.",
   "Preview cache cleared": "Кэш предпросмотра очищен",
   "Unable to clear preview cache: %{error}": "Не удалось очистить кэш предпросмотра: %{error}",
-  "settings_keywords.clear-preview-cache": "кэш память миниатюры очистка удалить хранилище"
+  "settings_keywords.clear-preview-cache": "кэш память миниатюры очистка удалить хранилище",
+  "Permanent deletion method": "Способ безвозвратного удаления",
+  "Fast (parallel)": "Быстрый (параллельный)",
+  "Windows (standard)": "Windows (стандартный)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Выберите способ безвозвратного удаления файлов. Обычное удаление по-прежнему использует Корзину.",
+  "settings_keywords.permanent-delete-method": "windows удаление безвозвратно быстро параллельно стандарт система корзина"
 }

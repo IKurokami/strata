@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "释放未使用的预览数据和缩略图。已打开的预览仍然可用。",
   "Preview cache cleared": "预览缓存已清除",
   "Unable to clear preview cache: %{error}": "无法清除预览缓存：%{error}",
-  "settings_keywords.clear-preview-cache": "缓存 内存 缩略图 清理 清除 存储"
+  "settings_keywords.clear-preview-cache": "缓存 内存 缩略图 清理 清除 存储",
+  "Permanent deletion method": "永久删除方式",
+  "Fast (parallel)": "快速（并行）",
+  "Windows (standard)": "Windows（标准）",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "选择永久删除文件的方式。普通删除仍会使用回收站。",
+  "settings_keywords.permanent-delete-method": "windows 删除 永久 快速 并行 标准 系统 回收站"
 }

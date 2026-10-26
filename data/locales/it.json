@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Libera i dati delle anteprime e le miniature inutilizzati. Le anteprime aperte restano disponibili.",
   "Preview cache cleared": "Cache delle anteprime svuotata",
   "Unable to clear preview cache: %{error}": "Impossibile svuotare la cache delle anteprime: %{error}",
-  "settings_keywords.clear-preview-cache": "cache memoria miniature pulisci svuota spazio"
+  "settings_keywords.clear-preview-cache": "cache memoria miniature pulisci svuota spazio",
+  "Permanent deletion method": "Metodo di eliminazione definitiva",
+  "Fast (parallel)": "Rapido (parallelo)",
+  "Windows (standard)": "Windows (standard)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Scegli come eliminare definitivamente i file. L’eliminazione normale continua a usare il Cestino.",
+  "settings_keywords.permanent-delete-method": "windows eliminazione definitiva rapido parallelo standard sistema cestino"
 }

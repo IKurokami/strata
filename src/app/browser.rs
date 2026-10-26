@@ -2609,6 +2609,19 @@ impl Browser {
     }
 
     pub fn delete(self: &Rc<Self>, entries: Vec<FileEntry>, permanent: bool) {
+        self.delete_with_method(
+            entries,
+            permanent,
+            crate::services::PermanentDeleteMethod::Native,
+        );
+    }
+
+    pub fn delete_with_method(
+        self: &Rc<Self>,
+        entries: Vec<FileEntry>,
+        permanent: bool,
+        method: crate::services::PermanentDeleteMethod,
+    ) {
         if entries.is_empty() {
             return;
         }
@@ -2644,12 +2657,13 @@ impl Browser {
                 .collect::<Vec<_>>(),
         );
         self.emit(BrowserEvent::DeletionStarted { total });
-        let load = provider.delete(
+        let load = provider.delete_with_method(
             DeleteRequest {
                 id: request_id,
                 entries,
                 permanent,
             },
+            method,
             self.operation_callback(request_id, false, HashSet::new()),
         );
         self.install_operation_load(request_id, load);

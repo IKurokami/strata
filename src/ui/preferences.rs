@@ -16,7 +16,7 @@ use std::os::unix::fs::MetadataExt;
 use crate::{
     model::{FolderColorValue, SortDirection, SortKey, ViewPreferences},
     sandbox::MediaPreviewBackend,
-    services::{Channel, CrossVolumeDropStrategy},
+    services::{Channel, CrossVolumeDropStrategy, PermanentDeleteMethod},
 };
 
 use super::icons_cell::{MAX_ICONS_THUMBNAIL_SIZE, MIN_ICONS_THUMBNAIL_SIZE};
@@ -209,6 +209,8 @@ pub(in crate::ui) struct Preferences {
     cross_volume_drop_strategy: String,
     #[serde(default)]
     open_folder_after_drop: bool,
+    #[serde(default)]
+    permanent_delete_method: PermanentDeleteMethod,
     #[serde(default = "default_date_format")]
     date_format: String,
     #[serde(default = "default_release_channel")]
@@ -331,6 +333,7 @@ impl Default for Preferences {
             browser_column_width: None,
             cross_volume_drop_strategy: default_cross_volume_drop_strategy(),
             open_folder_after_drop: false,
+            permanent_delete_method: PermanentDeleteMethod::Fast,
             date_format: default_date_format(),
             release_channel: default_release_channel(),
             default_directory: None,
@@ -1230,6 +1233,15 @@ impl PreferenceManager {
 
     pub fn cross_volume_drop_strategy(&self) -> CrossVolumeDropStrategy {
         CrossVolumeDropStrategy::parse(&self.preferences.borrow().cross_volume_drop_strategy)
+    }
+
+    pub fn permanent_delete_method(&self) -> PermanentDeleteMethod {
+        self.preferences.borrow().permanent_delete_method
+    }
+
+    pub fn set_permanent_delete_method(&self, method: PermanentDeleteMethod) {
+        self.preferences.borrow_mut().permanent_delete_method = method;
+        self.save_preferences();
     }
 
     pub fn set_cross_volume_drop_strategy(&self, strategy: CrossVolumeDropStrategy) {

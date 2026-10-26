@@ -984,7 +984,11 @@ impl ViewState {
                     ui.pending_delete_dissolve.replace(Some((depth, dissolve)));
                 }
             }
-            browser.delete(entries, true);
+            browser.delete_with_method(
+                entries,
+                true,
+                crate::ui::preferences::PreferenceManager::shared().permanent_delete_method(),
+            );
             browser.focus_active();
         });
         let keys = gtk::EventControllerKey::new();

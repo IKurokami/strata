@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Ungenutzte Vorschaudaten und Miniaturbilder freigeben. Geöffnete Vorschauen bleiben verfügbar.",
   "Preview cache cleared": "Vorschau-Cache geleert",
   "Unable to clear preview cache: %{error}": "Vorschau-Cache konnte nicht geleert werden: %{error}",
-  "settings_keywords.clear-preview-cache": "Cache Speicher Vorschaubilder bereinigen leeren"
+  "settings_keywords.clear-preview-cache": "Cache Speicher Vorschaubilder bereinigen leeren",
+  "Permanent deletion method": "Methode zum endgültigen Löschen",
+  "Fast (parallel)": "Schnell (parallel)",
+  "Windows (standard)": "Windows (Standard)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Wählen Sie, wie Dateien endgültig gelöscht werden. Normales Löschen verwendet weiterhin den Papierkorb.",
+  "settings_keywords.permanent-delete-method": "windows löschen endgültig schnell parallel standard system papierkorb"
 }

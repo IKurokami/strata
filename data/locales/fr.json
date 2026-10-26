@@ -1303,5 +1303,10 @@
   "Release unused preview data and thumbnails. Open previews stay available.": "Libérer les aperçus et miniatures inutilisés. Les aperçus ouverts restent disponibles.",
   "Preview cache cleared": "Cache des aperçus vidé",
   "Unable to clear preview cache: %{error}": "Impossible de vider le cache des aperçus : %{error}",
-  "settings_keywords.clear-preview-cache": "cache mémoire miniatures nettoyer vider stockage"
+  "settings_keywords.clear-preview-cache": "cache mémoire miniatures nettoyer vider stockage",
+  "Permanent deletion method": "Méthode de suppression définitive",
+  "Fast (parallel)": "Rapide (parallèle)",
+  "Windows (standard)": "Windows (standard)",
+  "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.": "Choisissez comment supprimer définitivement les fichiers. La suppression ordinaire utilise toujours la Corbeille.",
+  "settings_keywords.permanent-delete-method": "windows suppression définitive rapide parallèle standard système corbeille"
 }

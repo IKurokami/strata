@@ -84,6 +84,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         browser_column_width: Some(380),
         cross_volume_drop_strategy: CrossVolumeDropStrategy::Move.as_str().into(),
         open_folder_after_drop: true,
+        permanent_delete_method: crate::services::PermanentDeleteMethod::Native,
         date_format: "iso".into(),
         release_channel: "nightly".into(),
         default_directory: Some("/fixture/default".into()),

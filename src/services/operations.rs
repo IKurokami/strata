@@ -168,6 +168,14 @@ pub struct DeleteRequest {
     pub permanent: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermanentDeleteMethod {
+    #[default]
+    Fast,
+    Native,
+}
+
 #[derive(Clone, Debug)]
 pub struct RestoreTrashItem {
     pub entry: FileEntry,
@@ -443,6 +451,14 @@ pub trait OperationProvider {
     fn undo_merge(&self, request: UndoMergeRequest, emit: Rc<dyn Fn(OperationEvent)>)
     -> LoadHandle;
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
+    fn delete_with_method(
+        &self,
+        request: DeleteRequest,
+        _method: PermanentDeleteMethod,
+        emit: Rc<dyn Fn(OperationEvent)>,
+    ) -> LoadHandle {
+        self.delete(request, emit)
+    }
     fn restore(&self, request: RestoreRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
     fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
     fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;

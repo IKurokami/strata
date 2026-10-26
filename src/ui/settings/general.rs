@@ -43,6 +43,8 @@ pub(super) fn general_page(
     let responsive_activation_rows = append_click_activation(&preferences, &manager);
 
     let transfers = super::settings_group(&preferences, "FILE TRANSFERS");
+    #[cfg(windows)]
+    append_permanent_delete_option(&transfers, &manager);
     append_cross_volume_drop_option(&transfers, &manager);
     append_preference_switch(
         &transfers,
@@ -883,6 +885,26 @@ fn append_cross_volume_drop_option(content: &gtk::Box, manager: &Rc<PreferenceMa
     content.append(&super::control_row(
         "Drag & drop to another device",
         "What happens when you drop items onto a different drive or share.",
+        &control,
+    ));
+}
+
+#[cfg(windows)]
+fn append_permanent_delete_option(content: &gtk::Box, manager: &Rc<PreferenceManager>) {
+    use crate::services::PermanentDeleteMethod;
+    let control = super::bindings::choice_menu(
+        manager,
+        "Permanent deletion method",
+        &[
+            ("Fast (parallel)", PermanentDeleteMethod::Fast),
+            ("Windows (standard)", PermanentDeleteMethod::Native),
+        ],
+        PreferenceManager::permanent_delete_method,
+        PreferenceManager::set_permanent_delete_method,
+    );
+    content.append(&super::control_row(
+        "Permanent deletion method",
+        "Choose how files are permanently deleted. Regular Delete still uses the Recycle Bin.",
         &control,
     ));
 }

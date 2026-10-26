@@ -121,6 +121,17 @@ control that might be midway through synchronization.
 
 ## Consumers and intentional scopes
 
+On Windows, **Settings → General → File transfers → Permanent deletion method**
+selects bounded parallel deletion or the standard Windows Shell implementation.
+The choice is read when confirming a permanent deletion, including before
+Settings opens and after changing views. Parallel deletion uses at most four
+workers with a bounded queue, preserves native filenames, reports failures and
+checks cancellation between subtrees. It does not traverse junctions or symbolic
+links as ordinary directories. Existing preview-reader release and cancellation
+guards apply to both methods. Regular Delete continues to use the Recycle Bin;
+deleting existing Recycle Bin entries retains Windows' metadata bookkeeping.
+Both permanent-deletion methods are irreversible.
+
 | Stored preferences | Consumer / application point |
 | --- | --- |
 | Default directory | New windows without an explicit target read the current choice before navigating, without opening Settings. Existing windows and explicit targets are unchanged. Missing directories fall back to home and clear the saved choice; Reset also restores home. |
