@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Le sottocartelle senza un proprio ordinamento salvato seguono quello della cartella superiore più vicina.",
   "settings_keywords.file-icon-theme": "aspetto icone material catppuccin file cartelle colori",
   "settings_keywords.interface-font": "aspetto tipografia sistema windows caratteri proporzionale monospaziato famiglia",
-  "settings_keywords.inherit-folder-sorts": "ordinamento cartella sottocartelle superiore ereditare ricorsivo ordine ricordare"
+  "settings_keywords.inherit-folder-sorts": "ordinamento cartella sottocartelle superiore ereditare ricorsivo ordine ricordare",
+  "Clear preview cache": "Svuota la cache delle anteprime",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Libera i dati delle anteprime e le miniature inutilizzati. Le anteprime aperte restano disponibili.",
+  "Preview cache cleared": "Cache delle anteprime svuotata",
+  "Unable to clear preview cache: %{error}": "Impossibile svuotare la cache delle anteprime: %{error}",
+  "settings_keywords.clear-preview-cache": "cache memoria miniature pulisci svuota spazio"
 }

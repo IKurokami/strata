@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Подпапки без собственной сохранённой сортировки используют сортировку ближайшей родительской папки.",
   "settings_keywords.file-icon-theme": "оформление значки material catppuccin файлы папки цвета",
   "settings_keywords.interface-font": "оформление типографика система windows шрифты пропорциональный моноширинный семейство",
-  "settings_keywords.inherit-folder-sorts": "сортировка папка подпапки родительская наследовать рекурсивный порядок запомнить"
+  "settings_keywords.inherit-folder-sorts": "сортировка папка подпапки родительская наследовать рекурсивный порядок запомнить",
+  "Clear preview cache": "Очистить кэш предпросмотра",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Освободить неиспользуемые данные предпросмотра и миниатюры. Открытые предпросмотры останутся доступны.",
+  "Preview cache cleared": "Кэш предпросмотра очищен",
+  "Unable to clear preview cache: %{error}": "Не удалось очистить кэш предпросмотра: %{error}",
+  "settings_keywords.clear-preview-cache": "кэш память миниатюры очистка удалить хранилище"
 }

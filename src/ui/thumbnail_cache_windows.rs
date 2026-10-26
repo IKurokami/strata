@@ -163,6 +163,13 @@ fn cache_directory() -> Option<PathBuf> {
         .map(|path| path.join("Strata").join("thumbnails").join("large"))
 }
 
+pub(super) fn clear_owned() -> std::io::Result<()> {
+    match cache_directory() {
+        Some(directory) => super::cache_control::clear_thumbnail_files(&directory),
+        None => Ok(()),
+    }
+}
+
 fn cache_path(identity: &FileIdentity) -> Option<PathBuf> {
     cache_directory().map(|directory| cache_path_in(&directory, identity))
 }

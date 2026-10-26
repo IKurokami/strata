@@ -275,15 +275,20 @@ fn cold_previews_with_shared_thumbnails_match_rendered_cache_hits() {
                 let provider = LocalPreviewProvider::new(Rc::new(|| MediaPreviewBackend::Software));
                 let context = glib::MainContext::default();
                 let _owner = context.acquire().expect("main context owner");
-                for cached in [false, true] {
+                let renders = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                for (clear_before, expected_renders) in [(false, 1), (false, 1), (true, 2)] {
+                    if clear_before {
+                        clear_preview_cache();
+                    }
                     let events = Rc::new(RefCell::new(Vec::new()));
                     let events_for_emit = events.clone();
                     let rendered = png.clone();
+                    let observed_renders = renders.clone();
                     let handle = provider.load_with_renderer(
                         request.clone(),
                         Rc::new(move |event| events_for_emit.borrow_mut().push(event)),
                         move |_, _, _, _, _| {
-                            assert!(!cached, "reopening should use the rendered-page cache");
+                            observed_renders.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                             Ok(crate::sandbox::ParseOutput {
                                 data: rendered,
                                 page: 0,
@@ -300,6 +305,10 @@ fn cold_previews_with_shared_thumbnails_match_rendered_cache_hits() {
                     });
                     let events = events.borrow();
                     assert_eq!(events.len(), 1);
+                    assert_eq!(
+                        renders.load(std::sync::atomic::Ordering::SeqCst),
+                        expected_renders
+                    );
                     let PreviewEvent::Ready(preview) = &events[0] else {
                         panic!("PDF preview failed");
                     };

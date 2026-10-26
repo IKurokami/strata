@@ -62,6 +62,7 @@ pub(super) fn general_page(
     append_auto_refresh_option(&performance, &manager);
     append_thumbnail_workers_option(&performance, &manager);
     append_video_preview_option(&performance, &manager);
+    append_clear_cache(&performance);
 
     let window_buttons = super::settings_group(&preferences, "WINDOW BUTTONS");
     for switch in [
@@ -173,6 +174,44 @@ pub(super) fn general_page(
         desktop_rows,
         responsive_activation_rows,
     )
+}
+
+fn append_clear_cache(content: &gtk::Box) {
+    let button = gtk::Button::with_label(&crate::i18n::tr("Clear"));
+    button.add_css_class("form-control");
+    button.set_valign(gtk::Align::Center);
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Clear preview cache"));
+    let status = gtk::Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    status.add_css_class("settings-section-description");
+    let weak_status = status.downgrade();
+    button.connect_clicked(move |button| {
+        button.set_sensitive(false);
+        let button = button.downgrade();
+        let status = weak_status.clone();
+        crate::ui::cache_control::clear(move |result| {
+            if let Some(button) = button.upgrade() {
+                button.set_sensitive(true);
+            }
+            if let Some(status) = status.upgrade() {
+                status.set_text(&match result {
+                    Ok(()) => crate::i18n::tr("Preview cache cleared"),
+                    Err(error) => rust_i18n::t!(
+                        "Unable to clear preview cache: %{error}",
+                        error = error.to_string()
+                    )
+                    .into_owned(),
+                });
+            }
+        });
+    });
+    content.append(&super::control_row(
+        "Clear preview cache",
+        "Release unused preview data and thumbnails. Open previews stay available.",
+        &button,
+    ));
+    content.append(&status);
 }
 
 fn append_language_option(content: &gtk::Box, manager: &Rc<PreferenceManager>) {

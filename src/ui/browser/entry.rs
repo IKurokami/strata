@@ -5,8 +5,8 @@ use crate::adapters::read_file_for_location;
 use crate::assets::icons;
 use crate::model::{EntryKind, FileEntry, MetadataValue};
 use crate::services::{
-    PathMatcher, PathQuery, PreviewContent, content_family, filter_name_matches, fold_for_search,
-    has_plain_text_extension, is_extensionless_dotfile,
+    PathMatcher, PathQuery, PreviewContent, content_family_for_file, filter_name_matches,
+    fold_for_search, has_plain_text_extension, is_extensionless_dotfile,
 };
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -41,11 +41,17 @@ pub(super) fn entry_supports_printing(entry: &FileEntry) -> bool {
     let (content_type, uncertain) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
     // An uncertain name guess defers to the loader, which resolves the file's content type.
-    matches!(content_family(&content_type), PreviewContent::Text { .. })
-        || (uncertain && matches!(content_family(&content_type), PreviewContent::Unsupported))
+    matches!(
+        content_family_for_file(&entry.native_name, &content_type),
+        PreviewContent::Text { .. }
+    ) || (uncertain
+        && matches!(
+            content_family_for_file(&entry.native_name, &content_type),
+            PreviewContent::Unsupported
+        ))
         || (entry.location.native_path().is_some()
             && matches!(
-                content_family(&content_type),
+                content_family_for_file(&entry.native_name, &content_type),
                 PreviewContent::Image | PreviewContent::Pdf { .. }
             ))
         || gio::content_type_is_a(&content_type, "text/plain")

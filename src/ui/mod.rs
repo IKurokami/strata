@@ -5,6 +5,7 @@ mod actions;
 mod blur;
 mod browser;
 mod browser_modes;
+mod cache_control;
 #[cfg(target_os = "linux")]
 mod chooser;
 #[cfg(windows)]

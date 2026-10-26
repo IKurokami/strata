@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Subfolders without their own saved sort follow the nearest parent folder's sort.",
   "settings_keywords.file-icon-theme": "appearance icons material catppuccin files folders colors",
   "settings_keywords.interface-font": "appearance typography system windows fonts proportional monospace family",
-  "settings_keywords.inherit-folder-sorts": "sort sorting folder subfolders parent inherit recursive order remember"
+  "settings_keywords.inherit-folder-sorts": "sort sorting folder subfolders parent inherit recursive order remember",
+  "Clear preview cache": "Clear preview cache",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Release unused preview data and thumbnails. Open previews stay available.",
+  "Preview cache cleared": "Preview cache cleared",
+  "Unable to clear preview cache: %{error}": "Unable to clear preview cache: %{error}",
+  "settings_keywords.clear-preview-cache": "cache memory thumbnails clean clear storage"
 }

@@ -67,10 +67,11 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
         return;
     };
     let Some(icon) = tray_icon() else { return };
-    let tray = match Tray::new(
+    let tray = match Tray::with_cache_action(
         &crate::i18n::tr("Open Strata"),
         &crate::i18n::tr("Show application console"),
         &crate::i18n::tr("Quit Strata"),
+        &crate::i18n::tr("Clear preview cache"),
         &icon,
     ) {
         Ok(tray) => tray,
@@ -101,6 +102,7 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
                     }
                 }
                 Some(Event::Quit) => super::windows_runtime::quit(&application),
+                Some(Event::ClearCache) => crate::ui::cache_control::clear(|_| {}),
                 None | Some(Event::Restart) => {}
             }
             glib::ControlFlow::Continue

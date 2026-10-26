@@ -390,6 +390,22 @@ pub(crate) fn content_family(content_type: &str) -> PreviewContent {
     }
 }
 
+pub(crate) fn content_family_for_file(
+    name: impl AsRef<std::ffi::OsStr>,
+    content_type: &str,
+) -> PreviewContent {
+    let content = content_family(content_type);
+    if matches!(content, PreviewContent::Unsupported)
+        && std::path::Path::new(name.as_ref())
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    {
+        content_family("application/pdf")
+    } else {
+        content
+    }
+}
+
 /// Names are archive data, never paths to resolve against the host filesystem.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArchiveFileEntry {

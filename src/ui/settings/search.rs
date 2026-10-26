@@ -13,6 +13,12 @@ struct Target {
 }
 
 const TARGETS: &[Target] = &[
+    Target {
+        id: "clear-preview-cache",
+        page: "general",
+        title: "Clear preview cache",
+        aliases: "cache memory thumbnails clean clear storage",
+    },
     #[cfg(windows)]
     Target {
         id: "application-console",

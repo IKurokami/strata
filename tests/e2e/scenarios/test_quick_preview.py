@@ -22,6 +22,25 @@ PREVIEW_FIXTURE = {
 
 
 @pytest.mark.preferences(browser_mode="list", single_click_previews=False)
+@pytest.mark.parametrize("fixture_tree", [{
+    "a-huge.json": '{"data":"' + "x" * (2 * 1024 * 1024) + '"}',
+    "b-latest.json": '{"sentinel":"latest-safe"}',
+    "c-page.pdf": (Path(__file__).resolve().parents[2] / "fixtures/documents/text.pdf").read_bytes(),
+}], indirect=True, ids=["large-json-switching"])
+def test_large_json_and_rapid_switching_keep_the_latest_preview_and_pdf_working(strata):
+    strata.select_entry_with_keyboard("a-huge.json")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("first 1 MB"), "bounded large JSON preview")
+    for _ in range(20):
+        strata.keyboard.press("Down")
+        strata.keyboard.press("Up")
+    strata.keyboard.press("Down")
+    strata.wait(lambda: strata.preview_shows("latest-safe"), "latest JSON preview")
+    strata.keyboard.press("Down")
+    strata.wait(lambda: strata.preview() and strata.preview().find(role="image", name="PDF page text"), "PDF preview after text switching")
+
+
+@pytest.mark.preferences(browser_mode="list", single_click_previews=False)
 def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata):
     folder = strata.fixture.root
     (folder / "sample.stl").write_text(

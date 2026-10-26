@@ -669,11 +669,12 @@ fn reusable_document_view(
 }
 
 fn document_uses_source_buffer(unit: &DocumentUnit) -> bool {
-    highlighted_code_language(unit).is_some_and(|language| {
-        sourceview5::LanguageManager::default()
-            .language(language)
-            .is_some()
-    })
+    !use_virtual_plain_source(&unit.text)
+        && highlighted_code_language(unit).is_some_and(|language| {
+            sourceview5::LanguageManager::default()
+                .language(language)
+                .is_some()
+        })
 }
 
 fn bind_source_row(row: &gtk::Box, unit: &SourceUnit, wrapped: bool) -> BoundRow {
@@ -794,6 +795,7 @@ fn clear_box(box_: &gtk::Box) {
 fn plain_text_view(text: &str, source: bool) -> super::document_view::DocumentTextView {
     let text = normalize_preview_text(text);
     let buffer = gtk::TextBuffer::new(None);
+    buffer.set_enable_undo(false);
     assert!(
         buffer
             .tag_table()
@@ -832,6 +834,7 @@ fn document_text_view(
     } else {
         gtk::TextBuffer::new(Some(document_tags))
     };
+    buffer.set_enable_undo(false);
     ensure_document_text_tags(&buffer);
     super::theme::register_document_buffer(&buffer);
     let view = super::document_view::DocumentTextView::new(&buffer, Vec::new());
@@ -859,9 +862,10 @@ fn bind_document_text_view(
     if let Ok(source_buffer) = buffer.clone().downcast::<sourceview5::Buffer>() {
         let language = highlighted_code_language(unit)
             .and_then(|language| sourceview5::LanguageManager::default().language(language));
-        source_buffer.set_highlight_syntax(language.is_some());
+        source_buffer.set_highlight_syntax(false);
         source_buffer.set_language(language.as_ref());
         source_buffer.set_text(&text);
+        source_buffer.set_highlight_syntax(language.is_some());
         if language.is_some() {
             source_buffer.ensure_highlight(&source_buffer.start_iter(), &source_buffer.end_iter());
         }

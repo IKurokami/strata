@@ -162,6 +162,14 @@ Unsigned releases and releases without a trusted Windows signature cannot be
 installed in the app. Keep the private key outside the checkout and release
 archives. See [signed updates](signed-updates.md) for the signature format.
 
+## PDF previews
+
+Local PDF files are recognized by `.pdf` (case-insensitive) when Windows returns
+an unknown MIME type. The preview gate, loader and print action share that
+classification. PDFs use the existing bounded Poppler helper, page controls,
+text layer and search; no external PDF viewer is required. Invalid files still
+go through decoder validation rather than being trusted based on their suffix.
+
 ## Archive extraction
 
 The archive context menu offers **Extract to archive folder**, which always puts

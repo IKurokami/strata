@@ -26,6 +26,11 @@ static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 const MAX_CACHE_ENTRIES: usize = 256;
 const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CACHE_READERS: usize = 4;
+
+pub(super) fn clear_memory_cache() {
+    let discarded = THUMBNAIL_CACHE.with_borrow_mut(std::mem::take);
+    drop(discarded);
+}
 // Cache reads never wait for a decoder permit.
 thread_local! {
     static RENDER_QUEUE: RefCell<VecDeque<ThumbnailJob>> = const { RefCell::new(VecDeque::new()) };

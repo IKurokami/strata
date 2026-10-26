@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "별도의 정렬을 저장하지 않은 하위 폴더는 가장 가까운 상위 폴더의 정렬을 따릅니다.",
   "settings_keywords.file-icon-theme": "모양 아이콘 material catppuccin 파일 폴더 색상",
   "settings_keywords.interface-font": "모양 타이포그래피 시스템 windows 글꼴 가변폭 고정폭 글꼴 모음",
-  "settings_keywords.inherit-folder-sorts": "정렬 폴더 하위 상위 상속 재귀 순서 기억"
+  "settings_keywords.inherit-folder-sorts": "정렬 폴더 하위 상위 상속 재귀 순서 기억",
+  "Clear preview cache": "미리 보기 캐시 지우기",
+  "Release unused preview data and thumbnails. Open previews stay available.": "사용하지 않는 미리 보기 데이터와 썸네일을 해제합니다. 열려 있는 미리 보기는 유지됩니다.",
+  "Preview cache cleared": "미리 보기 캐시를 지웠습니다",
+  "Unable to clear preview cache: %{error}": "미리 보기 캐시를 지울 수 없습니다: %{error}",
+  "settings_keywords.clear-preview-cache": "캐시 메모리 썸네일 정리 삭제 저장 공간"
 }

@@ -21,7 +21,7 @@ use crate::{
     sandbox::{Cancellation, MediaPreviewBackend, ParseOperation, PdfRenderSize},
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
-        PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
+        PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family_for_file,
         document_kind, has_plain_text_extension, is_gif_path, is_image_path, is_media_path,
         is_non_executable_extensionless_dotfile, layout_document, normalize_preview_text,
         parse_document,
@@ -396,7 +396,7 @@ impl LocalPreviewProvider {
             let (guessed_type, uncertain) =
                 gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
             let mut content_type = guessed_type.to_string();
-            let mut content = content_family(&content_type);
+            let mut content = content_family_for_file(&entry.native_name, &content_type);
             if crate::services::is_model(&entry.native_name) {
                 content = PreviewContent::Unsupported;
             }
@@ -466,7 +466,7 @@ impl LocalPreviewProvider {
                 let unix_mode = info
                     .has_attribute(gio::FILE_ATTRIBUTE_UNIX_MODE)
                     .then(|| info.attribute_uint32(gio::FILE_ATTRIBUTE_UNIX_MODE));
-                let mut resolved = content_family(&queried_type);
+                let mut resolved = content_family_for_file(&entry.native_name, &queried_type);
                 if matches!(resolved, PreviewContent::Unsupported)
                     && (gio::content_type_is_a(&queried_type, "text/plain")
                         || has_plain_text_extension(&entry.native_name)
@@ -481,6 +481,9 @@ impl LocalPreviewProvider {
                 content_type = queried_type;
             }
 
+            if matches!(content, PreviewContent::Pdf { .. }) {
+                content_type = "application/pdf".to_owned();
+            }
             if let Some(format) = crate::services::archive_preview_format(&entry.native_name) {
                 let archive_path = match entry.location.native_path() {
                     Some(path) => path.to_path_buf(),
@@ -991,6 +994,7 @@ async fn read_text(
     native_path: Option<&Path>,
     byte_limit: usize,
 ) -> Result<(String, bool), glib::Error> {
+    let byte_limit = byte_limit.min(16 * 1024 * 1024);
     if let Some(path) = native_path {
         let path = path.to_path_buf();
         let result = gio::spawn_blocking(move || {
@@ -1029,6 +1033,11 @@ async fn read_text(
     let truncated = bytes.len() > byte_limit;
     let sample = &bytes[..bytes.len().min(byte_limit)];
     Ok((decode_text_sample(sample), truncated))
+}
+
+pub(crate) fn clear_preview_cache() {
+    let discarded = PREVIEW_CACHE.with_borrow_mut(std::mem::take);
+    drop(discarded);
 }
 
 fn decode_text_sample(sample: &[u8]) -> String {

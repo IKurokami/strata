@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Las subcarpetas sin un orden guardado propio siguen el de la carpeta superior más cercana.",
   "settings_keywords.file-icon-theme": "apariencia iconos material catppuccin archivos carpetas colores",
   "settings_keywords.interface-font": "apariencia tipografía sistema windows fuentes proporcional monoespaciada familia",
-  "settings_keywords.inherit-folder-sorts": "orden ordenar carpeta subcarpetas superior heredar recursivo recordar"
+  "settings_keywords.inherit-folder-sorts": "orden ordenar carpeta subcarpetas superior heredar recursivo recordar",
+  "Clear preview cache": "Vaciar caché de vistas previas",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Liberar datos de vista previa y miniaturas sin usar. Las vistas previas abiertas siguen disponibles.",
+  "Preview cache cleared": "Caché de vistas previas vaciada",
+  "Unable to clear preview cache: %{error}": "No se pudo vaciar la caché de vistas previas: %{error}",
+  "settings_keywords.clear-preview-cache": "caché memoria miniaturas limpiar vaciar almacenamiento"
 }

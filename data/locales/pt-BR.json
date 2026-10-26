@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Subpastas sem uma ordenação própria salva seguem a ordenação da pasta superior mais próxima.",
   "settings_keywords.file-icon-theme": "aparência ícones material catppuccin arquivos pastas cores",
   "settings_keywords.interface-font": "aparência tipografia sistema windows fontes proporcional monoespaçada família",
-  "settings_keywords.inherit-folder-sorts": "ordenação pasta subpastas superior herdar recursivo ordem lembrar"
+  "settings_keywords.inherit-folder-sorts": "ordenação pasta subpastas superior herdar recursivo ordem lembrar",
+  "Clear preview cache": "Limpar cache de prévias",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Liberar dados de prévias e miniaturas não utilizados. As prévias abertas continuam disponíveis.",
+  "Preview cache cleared": "Cache de prévias limpo",
+  "Unable to clear preview cache: %{error}": "Não foi possível limpar o cache de prévias: %{error}",
+  "settings_keywords.clear-preview-cache": "cache memória miniaturas limpar excluir armazenamento"
 }

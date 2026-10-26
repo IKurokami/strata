@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "未单独保存排序方式的子文件夹会使用最近上级文件夹的排序方式。",
   "settings_keywords.file-icon-theme": "外观 图标 material catppuccin 文件 文件夹 颜色",
   "settings_keywords.interface-font": "外观 排版 系统 windows 字体 比例 等宽 字体家族",
-  "settings_keywords.inherit-folder-sorts": "排序 文件夹 子文件夹 上级 继承 递归 顺序 记住"
+  "settings_keywords.inherit-folder-sorts": "排序 文件夹 子文件夹 上级 继承 递归 顺序 记住",
+  "Clear preview cache": "清除预览缓存",
+  "Release unused preview data and thumbnails. Open previews stay available.": "释放未使用的预览数据和缩略图。已打开的预览仍然可用。",
+  "Preview cache cleared": "预览缓存已清除",
+  "Unable to clear preview cache: %{error}": "无法清除预览缓存：%{error}",
+  "settings_keywords.clear-preview-cache": "缓存 内存 缩略图 清理 清除 存储"
 }

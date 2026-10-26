@@ -100,7 +100,7 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
 
     let (content_type, uncertain) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
-    let content = crate::services::content_family(&content_type);
+    let content = crate::services::content_family_for_file(&entry.native_name, &content_type);
     // Windows installations often lack a complete shared MIME database.
     // Keep quick preview available for known image/media extensions; the
     // provider still validates and decodes the actual file before rendering.
@@ -155,9 +155,11 @@ struct PendingSourcePreview {
 
 struct SourcePreviewView {
     view: RefCell<Option<sourceview5::View>>,
+    buffer: RefCell<Option<sourceview5::Buffer>>,
     scroll: RefCell<Option<gtk::ScrolledWindow>>,
     virtual_state: RefCell<Option<Rc<super::virtual_preview::VirtualPreviewState>>>,
     generation: Rc<Cell<u64>>,
+    fill: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 struct DocumentPreview {
@@ -1013,7 +1015,10 @@ impl PreviewState {
         let parent = self.pane.root().and_downcast::<gtk::Window>();
         let (content_type, _) =
             gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
-        if content_type == "application/pdf" {
+        if matches!(
+            crate::services::content_family_for_file(&entry.native_name, &content_type),
+            PreviewContent::Pdf { .. }
+        ) {
             self.show_print_progress();
         }
         self.load_print_page(entry, parent, 0, Rc::new(RefCell::new(Vec::new())));
@@ -3593,9 +3598,11 @@ impl SourcePreviewView {
     fn new() -> Self {
         Self {
             view: RefCell::new(None),
+            buffer: RefCell::new(None),
             scroll: RefCell::new(None),
             virtual_state: RefCell::new(None),
             generation: Rc::new(Cell::new(0)),
+            fill: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -3628,9 +3635,11 @@ impl SourcePreviewView {
         truncated: bool,
     ) -> (gtk::Widget, bool) {
         self.cancel();
-        self.scroll.borrow_mut().take();
-        self.virtual_state.borrow_mut().take();
-        if let Some(view) = self.view.borrow().as_ref()
+        let obsolete_scroll = self.scroll.borrow_mut().take();
+        let obsolete_virtual = self.virtual_state.borrow_mut().take();
+        drop((obsolete_scroll, obsolete_virtual));
+        let previous_view = self.view.borrow().clone();
+        if let Some(view) = previous_view
             && let Some(parent) = view.parent()
         {
             if let Ok(scroll) = parent.downcast::<gtk::ScrolledWindow>() {
@@ -3641,7 +3650,7 @@ impl SourcePreviewView {
         }
         let languages = sourceview5::LanguageManager::default();
         let language = languages.guess_language(entry.location.native_path(), Some(content_type));
-        if language.is_none() && super::virtual_preview::use_virtual_plain_source(content) {
+        if super::virtual_preview::use_virtual_plain_source(content) {
             let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
             let (container, state) =
                 super::virtual_preview::source_document(content, truncated, wrapped);
@@ -3651,10 +3660,12 @@ impl SourcePreviewView {
         let view = self.ensure_view();
         let display = normalize_preview_text(content).into_owned();
         let buffer = sourceview5::Buffer::new(None);
+        buffer.set_enable_undo(false);
         super::theme::register_source_buffer(&buffer);
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
         view.set_buffer(Some(&buffer));
+        self.buffer.replace(Some(buffer.clone()));
         let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
         view.set_wrap_mode(text_wrap_mode(wrapped));
         fill_source_buffer(
@@ -3663,6 +3674,7 @@ impl SourcePreviewView {
             self.generation.clone(),
             self.generation.get(),
             language.is_some(),
+            self.fill.clone(),
         );
 
         let scroll = gtk::ScrolledWindow::builder()
@@ -3690,6 +3702,21 @@ impl SourcePreviewView {
 
     fn cancel(&self) {
         self.generation.set(self.generation.get().saturating_add(1));
+        if let Some(source) = self.fill.borrow_mut().take() {
+            source.remove();
+        }
+        let previous_buffer = self.buffer.borrow_mut().take();
+        if let Some(buffer) = previous_buffer {
+            buffer.set_highlight_syntax(false);
+            buffer.set_language(None);
+            buffer.set_text("");
+        }
+    }
+}
+
+impl Drop for SourcePreviewView {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -3699,6 +3726,7 @@ fn fill_source_buffer(
     generation: Rc<Cell<u64>>,
     expected_generation: u64,
     highlight_syntax: bool,
+    pending: Rc<RefCell<Option<glib::SourceId>>>,
 ) {
     let text = normalize_preview_text(&text).into_owned();
     let first_end = source_chunk_end(&text, 0);
@@ -3711,17 +3739,21 @@ fn fill_source_buffer(
 
     let weak_buffer = buffer.downgrade();
     let mut offset = first_end;
-    glib::idle_add_local(move || {
+    let finished = pending.clone();
+    let source = glib::idle_add_local(move || {
         if generation.get() != expected_generation {
+            finished.borrow_mut().take();
             return glib::ControlFlow::Break;
         }
         let Some(buffer) = weak_buffer.upgrade() else {
+            finished.borrow_mut().take();
             return glib::ControlFlow::Break;
         };
         let end = source_chunk_end(&text, offset);
         buffer.insert(&mut buffer.end_iter(), &text[offset..end]);
         offset = end;
         if offset == text.len() {
+            finished.borrow_mut().take();
             buffer.set_modified(false);
             buffer.set_highlight_syntax(highlight_syntax);
             glib::ControlFlow::Break
@@ -3729,6 +3761,7 @@ fn fill_source_buffer(
             glib::ControlFlow::Continue
         }
     });
+    *pending.borrow_mut() = Some(source);
 }
 
 fn source_chunk_end(text: &str, start: usize) -> usize {

@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "独自の並べ替えを保存していないサブフォルダーは、最も近い親フォルダーの並べ替えに従います。",
   "settings_keywords.file-icon-theme": "外観 アイコン material catppuccin ファイル フォルダー 色",
   "settings_keywords.interface-font": "外観 タイポグラフィ システム windows フォント プロポーショナル 等幅 ファミリー",
-  "settings_keywords.inherit-folder-sorts": "並べ替え フォルダー サブフォルダー 親 継承 再帰 順序 記憶"
+  "settings_keywords.inherit-folder-sorts": "並べ替え フォルダー サブフォルダー 親 継承 再帰 順序 記憶",
+  "Clear preview cache": "プレビューキャッシュを消去",
+  "Release unused preview data and thumbnails. Open previews stay available.": "未使用のプレビューデータとサムネイルを解放します。開いているプレビューは引き続き利用できます。",
+  "Preview cache cleared": "プレビューキャッシュを消去しました",
+  "Unable to clear preview cache: %{error}": "プレビューキャッシュを消去できません: %{error}",
+  "settings_keywords.clear-preview-cache": "キャッシュ メモリ サムネイル 消去 削除 ストレージ"
 }

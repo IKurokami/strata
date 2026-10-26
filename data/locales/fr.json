@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Les sous-dossiers sans tri enregistré suivent celui du dossier parent le plus proche.",
   "settings_keywords.file-icon-theme": "apparence icônes material catppuccin fichiers dossiers couleurs",
   "settings_keywords.interface-font": "apparence typographie système windows polices proportionnelles chasse fixe famille",
-  "settings_keywords.inherit-folder-sorts": "tri dossiers sous-dossiers parent héritage récursif ordre mémoriser"
+  "settings_keywords.inherit-folder-sorts": "tri dossiers sous-dossiers parent héritage récursif ordre mémoriser",
+  "Clear preview cache": "Vider le cache des aperçus",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Libérer les aperçus et miniatures inutilisés. Les aperçus ouverts restent disponibles.",
+  "Preview cache cleared": "Cache des aperçus vidé",
+  "Unable to clear preview cache: %{error}": "Impossible de vider le cache des aperçus : %{error}",
+  "settings_keywords.clear-preview-cache": "cache mémoire miniatures nettoyer vider stockage"
 }

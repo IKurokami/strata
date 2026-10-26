@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Unterordner ohne eigene gespeicherte Sortierung übernehmen die Sortierung des nächsten übergeordneten Ordners.",
   "settings_keywords.file-icon-theme": "Darstellung Symbole material catppuccin Dateien Ordner Farben",
   "settings_keywords.interface-font": "Darstellung Typografie System windows Schriften proportional nichtproportional Schriftfamilie",
-  "settings_keywords.inherit-folder-sorts": "Sortierung Ordner Unterordner übergeordnet Vererbung rekursiv Reihenfolge merken"
+  "settings_keywords.inherit-folder-sorts": "Sortierung Ordner Unterordner übergeordnet Vererbung rekursiv Reihenfolge merken",
+  "Clear preview cache": "Vorschau-Cache leeren",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Ungenutzte Vorschaudaten und Miniaturbilder freigeben. Geöffnete Vorschauen bleiben verfügbar.",
+  "Preview cache cleared": "Vorschau-Cache geleert",
+  "Unable to clear preview cache: %{error}": "Vorschau-Cache konnte nicht geleert werden: %{error}",
+  "settings_keywords.clear-preview-cache": "Cache Speicher Vorschaubilder bereinigen leeren"
 }

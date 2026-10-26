@@ -1298,5 +1298,10 @@
   "Subfolders without their own saved sort follow the nearest parent folder's sort.": "Thư mục con chưa lưu cách sắp xếp riêng sẽ dùng cách sắp xếp của thư mục cha gần nhất.",
   "settings_keywords.file-icon-theme": "giao diện biểu tượng material catppuccin tệp thư mục màu sắc",
   "settings_keywords.interface-font": "giao diện kiểu chữ hệ thống windows phông chữ tỷ lệ đơn cách họ chữ",
-  "settings_keywords.inherit-folder-sorts": "sắp xếp thư mục con cha kế thừa đệ quy thứ tự ghi nhớ"
+  "settings_keywords.inherit-folder-sorts": "sắp xếp thư mục con cha kế thừa đệ quy thứ tự ghi nhớ",
+  "Clear preview cache": "Xóa bộ nhớ đệm xem trước",
+  "Release unused preview data and thumbnails. Open previews stay available.": "Giải phóng dữ liệu xem trước và ảnh thu nhỏ không dùng. Nội dung đang xem vẫn được giữ.",
+  "Preview cache cleared": "Đã xóa bộ nhớ đệm xem trước",
+  "Unable to clear preview cache: %{error}": "Không thể xóa bộ nhớ đệm xem trước: %{error}",
+  "settings_keywords.clear-preview-cache": "bộ nhớ đệm ảnh thu nhỏ dọn xóa dung lượng"
 }
