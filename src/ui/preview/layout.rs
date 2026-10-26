@@ -206,6 +206,9 @@ impl PreviewDrawer {
         let weak = Rc::downgrade(&self.state);
         let weak_browser = browser.downgrade();
         browser.connect_search_selection_changed(Rc::new(move || {
+            if super::selection_preview_suppressed() {
+                return;
+            }
             let request_at_selection = weak.upgrade().and_then(|state| state.current_request.get());
             let weak = weak.clone();
             let weak_browser = weak_browser.clone();

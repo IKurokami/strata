@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 #[cfg(not(windows))]
 mod menus;
 mod open_with;
+#[cfg(not(windows))]
+mod preview;
 
 #[track_caller]
 pub(in crate::ui::browser::context_menu) fn wait_until(condition: impl Fn() -> bool) {

@@ -90,6 +90,7 @@ pub(super) fn bind_column_context_owner(
 ) {
     let weak = Rc::downgrade(state);
     popover.connect_closed(move |popover| {
+        let _preview_guard = crate::ui::preview::suppress_selection_preview();
         if let Some(state) = weak.upgrade()
             && state.context_menu_column.get() == Some(depth)
         {
@@ -151,6 +152,7 @@ pub(super) fn bind_column_context_owner(
 }
 
 fn restore_context_focus(state: &ViewState, depth: usize) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if state.browser.active_depth() != Some(depth) {
         return;
     }
@@ -196,6 +198,7 @@ fn context_filter_or_search_active(state: &ViewState, depth: usize) -> bool {
 }
 
 pub(super) fn focus_context_column(state: &Rc<ViewState>, depth: usize) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     state
         .context_menu_generation
         .set(state.context_menu_generation.get().wrapping_add(1));
@@ -221,6 +224,7 @@ pub(super) fn focus_context_entry(
     position: Option<usize>,
     entry: &FileEntry,
 ) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if let Some(position) = current_context_position(state, depth, position, entry) {
         let positions = state.browser.selected_positions(depth);
         state.browser.commit_selection();
@@ -1646,6 +1650,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
 
     let open_at_resolved: ResolvedContextTrigger =
         Rc::new(move |x: f64, y: f64, gesture: Option<&gtk::GestureClick>| {
+            let _preview_guard = crate::ui::preview::suppress_selection_preview();
             let Some(widget) = widget_for_trigger.upgrade() else {
                 return false;
             };
@@ -1985,6 +1990,7 @@ pub(super) fn context_entries(
     state: &Rc<ViewState>,
     target: &RefCell<Option<ContextTarget>>,
 ) -> Vec<FileEntry> {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if let Some((_, entry)) = target.borrow().as_ref()
         && let Some(entries) = (super::BrowserView {
             state: state.clone(),

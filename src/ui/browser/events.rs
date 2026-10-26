@@ -1527,6 +1527,9 @@ impl ViewState {
         if let Some(source) = self.pending_mirror.borrow_mut().take() {
             source.remove();
         }
+        if crate::ui::preview::selection_preview_suppressed() {
+            return;
+        }
         let Some(position) = position else {
             return;
         };

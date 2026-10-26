@@ -45,7 +45,9 @@ pub(in crate::ui) mod media_layout;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod selection;
 mod session;
+pub(in crate::ui) use selection::{selection_preview_suppressed, suppress_selection_preview};
 pub(super) mod video;
 mod waveform;
 
@@ -654,6 +656,20 @@ impl PreviewDrawer {
     }
 
     pub fn handle_browser_event(&self, browser: &Browser, event: &BrowserEvent) {
+        if selection_preview_suppressed()
+            && matches!(
+                event,
+                BrowserEvent::FocusChanged { .. }
+                    | BrowserEvent::SelectionSynced { .. }
+                    | BrowserEvent::SelectionSetChanged { .. }
+                    | BrowserEvent::PreviewRequested {
+                        automatic: true,
+                        ..
+                    }
+            )
+        {
+            return;
+        }
         match event {
             BrowserEvent::PreviewRequested { entry, automatic } => {
                 if *automatic && self.state.dismissed.get() {
@@ -865,6 +881,9 @@ impl PreviewState {
     }
 
     fn show_after_focus_change(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
+        if selection_preview_suppressed() {
+            return;
+        }
         if crate::services::file_mutations::blocks(&entry.location) {
             self.clear_target();
             return;

@@ -21,6 +21,30 @@ PREVIEW_FIXTURE = {
 }
 
 
+@pytest.mark.preferences(single_click_previews=True)
+@pytest.mark.parametrize("mode", ALL_MODES)
+@pytest.mark.parametrize("preview_open", [False, True], ids=["closed", "open"])
+def test_secondary_click_preserves_preview_and_primary_click_changes_it(strata, mode, preview_open):
+    strata.select_entry_with_keyboard("notes.txt")
+    if preview_open:
+        if strata.preview() is None:
+            strata.keyboard.press("space")
+        strata.wait(lambda: strata.preview_shows("the quick brown fox"), "initial preview")
+    elif strata.preview() is not None:
+        strata.keyboard.press("space")
+        strata.wait(lambda: strata.preview() is None, "closed preview")
+    strata.pointer.right_click(strata.entry("third.txt"))
+    strata.wait(lambda: strata.window.find(role="menu item", name="Preview"), "context menu")
+    strata.settle(strata.window)
+    assert strata.preview_shows("the quick brown fox") if preview_open else strata.preview() is None
+    strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.window.find(role="menu item", name="Preview") is None, "closed menu")
+    strata.settle(strata.window)
+    assert strata.preview_shows("the quick brown fox") if preview_open else strata.preview() is None
+    strata.pointer.click(strata.entry("third.txt"))
+    strata.wait(lambda: strata.preview_shows("third preview fixture"), "primary-click preview")
+
+
 @pytest.mark.preferences(browser_mode="list", single_click_previews=False)
 @pytest.mark.parametrize("fixture_tree", [{
     "a-huge.json": '{"data":"' + "x" * (2 * 1024 * 1024) + '"}',
@@ -322,6 +346,14 @@ def test_preview_follows_the_selection(strata, mode, selection):
     if selection == "keyboard":
         strata.keyboard.press(NEXT_ENTRY_KEY[mode])
     else:
+        strata.pointer.right_click(strata.entry("page.md"))
+        strata.wait(lambda: strata.window.find(role="menu item", name="Preview"), "context menu")
+        strata.settle(strata.window)
+        assert strata.preview_shows("the quick brown fox")
+        strata.keyboard.press("Escape")
+        strata.wait(lambda: strata.window.find(role="menu item", name="Preview") is None, "closed context menu")
+        strata.settle(strata.window)
+        assert strata.preview_shows("the quick brown fox")
         strata.select_entry("page.md")
     strata.wait_for_selection(["page.md"])
 

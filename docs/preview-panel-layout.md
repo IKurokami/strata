@@ -7,6 +7,15 @@ resizing or animation, or selection mirroring must keep every rule below or
 update this page and the behavioral coverage in the same pull request. Verify
 geometry manually with captures; do not add layout assertions.
 
+## Preview input
+
+Secondary clicks choose a context-menu target without opening, replacing, or
+closing the current preview. Restoring keyboard focus after the popup closes
+must preserve that preview too. Primary selection and keyboard navigation keep
+their normal preview behavior; an explicit Preview menu action still opens its
+target. Search-result notifications and Miller-column mirroring must suppress
+their deferred preview work at dispatch, before queueing an idle or timeout.
+
 ## Window split
 
 `src/ui/window/composition/layout.rs` builds the content as nested horizontal
