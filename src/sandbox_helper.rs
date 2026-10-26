@@ -1424,6 +1424,7 @@ fn read_limited(reader: impl Read, max_bytes: u64) -> io::Result<Vec<u8>> {
 }
 
 fn bounded_output(command: &mut Command, max_bytes: u64) -> io::Result<Output> {
+    crate::background_process::configure(command);
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
