@@ -348,7 +348,7 @@ fn strata_archives_round_trip_links_modes_and_times() -> Result<(), Box<dyn Erro
         fs::create_dir(&extracted)?;
 
         let events = run_extraction(ExtractRequest {
-            into_folder: false,
+            mode: crate::services::ExtractionMode::Automatic,
             id: OperationRequestId(2),
             entry: test_file_entry(&archives.join(format!("source.{}", format.extension()))),
             destination: Location::local(&extracted),
@@ -494,7 +494,7 @@ fn cancelling_extraction_from_started_waits_for_the_worker_and_reports_pending_o
     let cancel_on_started = operation.clone();
     let handle = LocalOperationProvider.extract(
         ExtractRequest {
-            into_folder: false,
+            mode: crate::services::ExtractionMode::Automatic,
             id: OperationRequestId(11),
             entry: test_file_entry(&archive_path),
             destination: Location::local(&destination),
@@ -615,7 +615,7 @@ fn extraction_failures_stop_progress_and_preserve_error_distinctions() -> Result
         let emitted = events.clone();
         let handle = LocalOperationProvider.extract(
             ExtractRequest {
-                into_folder: false,
+                mode: crate::services::ExtractionMode::Automatic,
                 id: OperationRequestId(434),
                 entry: test_file_entry(&archive),
                 destination: Location::local(match name {
@@ -682,7 +682,7 @@ fn extraction_provider_sanitizes_parent_paths_without_failure() -> Result<(), Bo
     )?;
 
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(435),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -718,7 +718,7 @@ fn failed_extraction_removes_a_newly_created_empty_destination() -> Result<(), B
     fs::write(&archive, b"not an archive")?;
     let destination = root.path().join("leftover");
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(908),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -749,7 +749,7 @@ fn failed_extraction_preserves_a_pre_existing_destination() -> Result<(), Box<dy
     fs::create_dir(&destination)?;
     fs::write(destination.join("kept.txt"), b"kept")?;
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(909),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -781,7 +781,7 @@ fn failed_extraction_removes_a_caller_created_destination() -> Result<(), Box<dy
     let destination = root.path().join("broken");
     fs::create_dir(&destination)?;
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(910),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -831,7 +831,7 @@ fn spilled_members_bundle_under_the_archive_stem() -> Result<(), Box<dyn Error>>
         fs::create_dir(destination.path().join("dir"))?;
         fs::write(destination.path().join("dir/keep.txt"), b"keep")?;
         let events = run_extraction(ExtractRequest {
-            into_folder: false,
+            mode: crate::services::ExtractionMode::Automatic,
             id: OperationRequestId(1),
             entry: test_file_entry(archive),
             destination: Location::local(destination.path()),
@@ -915,7 +915,7 @@ fn failed_multi_root_extraction_keeps_partial_output_in_the_archive_folder()
         fs::write(destination.path().join("keep.txt"), b"keep")?;
 
         let events = run_extraction(ExtractRequest {
-            into_folder: false,
+            mode: crate::services::ExtractionMode::Automatic,
             id: OperationRequestId(6),
             entry: test_file_entry(&archive),
             destination: Location::local(destination.path()),
@@ -969,7 +969,7 @@ fn single_root_extraction_lands_verbatim() -> Result<(), Box<dyn Error>> {
     let archive = root.path().join("note.zip");
     write_zip_stored(&archive, &[("readme.txt", b"hi")])?;
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(2),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -989,7 +989,7 @@ fn single_root_extraction_lands_verbatim() -> Result<(), Box<dyn Error>> {
     let archive = root.path().join("foldered.zip");
     write_zip_stored(&archive, &[("folder/a.txt", b"a"), ("folder/b.txt", b"b")])?;
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(3),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -1008,7 +1008,7 @@ fn single_root_extraction_lands_verbatim() -> Result<(), Box<dyn Error>> {
 
     let archive = root.path().join("note.zip");
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(4),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -1042,7 +1042,7 @@ fn extraction_reports_published_locations_for_undo() -> Result<(), Box<dyn Error
     let archive = root.path().join("note.zip");
     write_zip_stored(&archive, &[("readme.txt", b"extracted")])?;
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(7),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -1077,7 +1077,7 @@ fn a_bundle_may_share_its_name_with_an_extracted_root() -> Result<(), Box<dyn Er
     )?;
 
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(4),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -1116,7 +1116,7 @@ fn bundled_extraction_reserves_a_fresh_name_against_existing_entries() -> Result
     write_zip_stored(&archive, &[("a.txt", b"a"), ("b.txt", b"b")])?;
 
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(5),
         entry: test_file_entry(&archive),
         destination: Location::local(&destination),
@@ -1160,7 +1160,7 @@ fn gzip_trailer_failure_is_reported_through_the_provider() -> Result<(), Box<dyn
     let destination = tempfile::tempdir()?;
 
     let events = run_extraction(ExtractRequest {
-        into_folder: false,
+        mode: crate::services::ExtractionMode::Automatic,
         id: OperationRequestId(7),
         entry: test_file_entry(&archive),
         destination: Location::local(destination.path()),
@@ -1209,7 +1209,7 @@ fn password_failures_reach_the_event_as_their_kind_and_leave_nothing_behind()
             let destination = tempfile::tempdir()?;
 
             let events = run_extraction(ExtractRequest {
-                into_folder: false,
+                mode: crate::services::ExtractionMode::Automatic,
                 id: OperationRequestId(8),
                 entry: test_file_entry(&archive),
                 destination: Location::local(destination.path()),

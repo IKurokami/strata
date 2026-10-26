@@ -3310,7 +3310,13 @@ impl Browser {
         created_destination: bool,
         password: Option<String>,
     ) {
-        self.extract_archive(entry, destination, created_destination, false, password);
+        self.extract_archive(
+            entry,
+            destination,
+            created_destination,
+            crate::services::ExtractionMode::Automatic,
+            password,
+        );
     }
 
     pub fn extract_into_folder(
@@ -3319,15 +3325,21 @@ impl Browser {
         destination: Location,
         password: Option<String>,
     ) {
-        self.extract_archive(entry, destination, false, true, password);
+        self.extract_archive(
+            entry,
+            destination,
+            false,
+            crate::services::ExtractionMode::Folder,
+            password,
+        );
     }
 
-    fn extract_archive(
+    pub(crate) fn extract_archive(
         self: &Rc<Self>,
         entry: FileEntry,
         destination: Location,
         created_destination: bool,
-        into_folder: bool,
+        mode: crate::services::ExtractionMode,
         password: Option<String>,
     ) {
         let Some(provider) = self.operation_provider.borrow().clone() else {
@@ -3343,7 +3355,7 @@ impl Browser {
         self.archive_operation.set(true);
         let load = provider.extract(
             ExtractRequest {
-                into_folder,
+                mode,
                 id: request_id,
                 entry,
                 destination,

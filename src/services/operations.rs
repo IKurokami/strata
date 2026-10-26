@@ -246,10 +246,18 @@ pub struct CompressRequest {
     pub password: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExtractionMode {
+    Automatic,
+    Folder,
+    /// Opt-in destructive extraction, preserving HatchZip's recovery journal.
+    #[cfg(windows)]
+    ReclaimSpace,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExtractRequest {
-    /// Always publish the contents inside a fresh folder named after the archive.
-    pub into_folder: bool,
+    pub mode: ExtractionMode,
     pub id: OperationRequestId,
     pub entry: FileEntry,
     pub destination: Location,

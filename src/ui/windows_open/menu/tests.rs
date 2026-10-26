@@ -1,5 +1,47 @@
 use super::*;
 
+#[test]
+fn native_print_is_hidden_only_when_strata_can_print_the_selection() {
+    for covered in [false, true] {
+        let mut print = leaf("Imprimer", 8, true, false);
+        print.verb = "print".into();
+        let mut print_to = leaf("Print to device", 9, true, false);
+        print_to.verb = "printto".into();
+        let mut nodes = vec![print, print_to];
+        retain_extra_commands(&mut nodes, covered);
+        assert_eq!(nodes.iter().any(|node| node.command == Some(8)), !covered);
+        assert!(nodes.iter().any(|node| node.command == Some(9)));
+    }
+}
+
+#[test]
+fn extra_shell_commands_remove_covered_verbs_without_matching_translated_labels() {
+    let mut duplicate = leaf("Copier", 11, true, false);
+    duplicate.verb = "Windows.Copy".into();
+    let mut extension = leaf("Copy", 35, true, false);
+    extension.verb = "vendor.copy-special".into();
+    let mut admin = leaf("Run as administrator", 40, true, false);
+    admin.verb = "runas".into();
+    let mut submenu = leaf("Tools", 0, true, false);
+    submenu.command = None;
+    submenu.submenu = true;
+    submenu.children = vec![duplicate, extension, admin];
+    let mut empty = leaf("Empty", 0, true, false);
+    empty.command = None;
+    empty.submenu = true;
+    let mut nodes = vec![submenu, empty];
+    retain_extra_commands(&mut nodes, false);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(
+        nodes[0]
+            .children
+            .iter()
+            .map(|child| child.command)
+            .collect::<Vec<_>>(),
+        [Some(35), Some(40)]
+    );
+}
+
 fn leaf(label: &str, command: u32, enabled: bool, checked: bool) -> Node {
     Node {
         label: label.into(),
@@ -133,12 +175,12 @@ fn retargeting_discards_stale_shell_snapshots_and_actions() {
             let popover = gtk::PopoverMenu::from_model(Some(&model));
             let owner = gtk::Box::new(gtk::Orientation::Vertical, 0);
             let controller = Controller::new(model.clone(), &popover, owner.upcast_ref(), || {});
-            controller.prepare(vec![PathBuf::from(r"C:\first.txt")]);
+            controller.prepare(vec![PathBuf::from(r"C:\first.txt")], false);
             let old = controller.generation.get();
             controller.accept(old, Ok(vec![leaf("First", 17, true, false)]));
             let old_action = format!("command-{old}-0");
             assert!(controller.group.has_action(&old_action));
-            controller.prepare(vec![PathBuf::from(r"C:\second.txt")]);
+            controller.prepare(vec![PathBuf::from(r"C:\second.txt")], false);
             let current = controller.generation.get();
             controller.accept(old, Ok(vec![leaf("Stale", 18, true, false)]));
             assert!(!controller.group.has_action(&old_action));

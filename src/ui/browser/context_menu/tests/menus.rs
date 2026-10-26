@@ -338,6 +338,11 @@ fn archive_extraction_actions_follow_build_support() {
             ] {
                 let menu = open_menu(&view, Some(name));
                 let labels = label_texts(&menu);
+                assert_eq!(
+                    labels.iter().any(|label| label == "Extract"),
+                    supported,
+                    "{name}: {labels:?}"
+                );
                 if name == "photos.zip" {
                     assert!(
                         labels
@@ -346,6 +351,11 @@ fn archive_extraction_actions_follow_build_support() {
                         "{labels:?}"
                     );
                 }
+                let labels = if supported {
+                    tree_label_texts(&menu)
+                } else {
+                    labels
+                };
                 for action in ["Extract here", "Extract to archive folder", "Extract to…"] {
                     assert_eq!(
                         labels.iter().any(|label| label == action),

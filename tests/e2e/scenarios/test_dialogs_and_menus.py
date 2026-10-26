@@ -643,12 +643,12 @@ def test_enter_submits_compress_then_floating_chooser_extracts(strata):
 
     strata.open_context_menu("bundle.zip")
     assert_menu_order(strata, [
-        "Open", "Open With…", "Extract here", "Extract to…", "Cut", "Copy",
+        "Open", "Open With…", "Extract", "Cut", "Copy",
         "Duplicate", "Rename", "Move to…", "Copy to…", "Compress…",
         "Customize…", "Copy path", "Copy name", "Properties", "Move to Trash",
         "Permanently delete",
     ])
-    strata.choose_menu_item("Extract to…")
+    strata.choose_submenu_item("Extract", "Extract to…")
     chooser = strata.destination_chooser("Extract to")
     strata.navigate_destination(chooser, destination)
     strata.confirm_destination(chooser, "Extract here")

@@ -48,7 +48,7 @@ fn native_shell_commands_are_linked_into_open_in() {
                 .as_ref()
                 .expect("Shell controller")
                 .clone();
-            shell.prepare(vec![PathBuf::from(r"C:\example.txt")]);
+            shell.prepare(vec![PathBuf::from(r"C:\example.txt")], false);
             assert_eq!(
                 commands
                     .item_attribute_value(0, "label", None)
@@ -57,7 +57,7 @@ fn native_shell_commands_are_linked_into_open_in() {
                     .as_deref(),
                 Some("Loading…")
             );
-            shell.prepare(Vec::new());
+            shell.prepare(Vec::new(), false);
             assert_eq!(
                 commands.n_items(),
                 0,

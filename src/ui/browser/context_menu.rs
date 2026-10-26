@@ -35,7 +35,7 @@ const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
 pub(super) const SUBMENU_ROW_CLASS: &str = "item-context-submenu";
 pub(super) const SUBMENU_ENTRIES_CLASS: &str = "item-context-submenu-entries";
 
-fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
+fn submenu_row<const N: usize>(header: &gtk::Button, entries: [&gtk::Button; N]) -> gtk::Box {
     let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
     wrapper.add_css_class(SUBMENU_ROW_CLASS);
     wrapper.append(header);
@@ -950,6 +950,27 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Extract to…",
         ContextHint::None,
     );
+    let extract_header = item_context_option(
+        crate::assets::icons::PACKAGE_OPEN,
+        "Extract",
+        ContextHint::None,
+    );
+    #[cfg(windows)]
+    let extract_reclaim = item_context_option(
+        crate::assets::icons::PACKAGE_OPEN,
+        "Extract and reclaim space…",
+        ContextHint::None,
+    );
+    let extract_group = submenu_row(
+        &extract_header,
+        [
+            &extract,
+            &extract_folder,
+            &extract_to,
+            #[cfg(windows)]
+            &extract_reclaim,
+        ],
+    );
     let group_separator = gtk::Separator::new(gtk::Orientation::Horizontal);
     single_open.append(&group);
     single_open.append(&group_separator);
@@ -965,9 +986,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&restore);
     single_open.append(&remove_from_recent);
     single_open.append(&print);
-    single_open.append(&extract);
-    single_open.append(&extract_folder);
-    single_open.append(&extract_to);
+    single_open.append(&extract_group);
     content.append(&single_open);
     single.append(&cut);
     single.append(&copy);
@@ -1532,6 +1551,14 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ExtractTarget::ArchiveFolder,
     );
     connect_context_extract(&extract_to, &popover, state, &target, ExtractTarget::Choose);
+    #[cfg(windows)]
+    connect_context_extract(
+        &extract_reclaim,
+        &popover,
+        state,
+        &target,
+        ExtractTarget::ReclaimSpace,
+    );
     let weak = Rc::downgrade(state);
     let properties_target = target.clone();
     let properties_popover = popover.downgrade();
@@ -1745,6 +1772,19 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             extract.set_visible(can_extract);
             extract_to.set_visible(can_extract);
             extract_folder.set_visible(can_extract);
+            #[cfg(windows)]
+            let can_reclaim = !entry.is_directory()
+                && entry.location.native_path().is_some()
+                && (matches!(
+                    ArchiveFormat::for_entry(&entry),
+                    Some(ArchiveFormat::Zip | ArchiveFormat::Tar | ArchiveFormat::SevenZ)
+                ) || entry.display_name.ends_with(".hatchzip"));
+            #[cfg(windows)]
+            extract_reclaim.set_visible(can_reclaim);
+            #[cfg(windows)]
+            extract_header.set_visible(can_extract || can_reclaim);
+            #[cfg(not(windows))]
+            extract_header.set_visible(can_extract);
             customize.set_visible(
                 !in_trash && entries.len() == 1 && entry.location.native_path().is_some(),
             );
@@ -2005,6 +2045,8 @@ enum ExtractTarget {
     Here,
     ArchiveFolder,
     Choose,
+    #[cfg(windows)]
+    ReclaimSpace,
 }
 
 fn connect_context_extract(
@@ -2029,6 +2071,8 @@ fn connect_context_extract(
                 ExtractTarget::Choose => state.show_extract_to_dialog(entry),
                 ExtractTarget::Here => state.extract_entry(entry),
                 ExtractTarget::ArchiveFolder => state.extract_entry_into_folder(entry),
+                #[cfg(windows)]
+                ExtractTarget::ReclaimSpace => state.show_reclaim_extract_dialog(entry),
             }
         }
     });
