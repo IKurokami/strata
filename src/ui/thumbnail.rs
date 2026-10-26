@@ -1318,6 +1318,34 @@ fn set_fallback_icon(
     ids
 }
 
+fn themed_path_icon<'a>(path: &Path, fallback: &'a str, folder: bool) -> &'a str {
+    if fallback == crate::assets::icons::X {
+        return fallback;
+    }
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return fallback;
+    };
+    if crate::assets::file_icon_theme() == super::preferences::FileIconTheme::Material {
+        return crate::material_icons::icon_for_name(path.to_str().unwrap_or(name), folder);
+    }
+    if fallback.starts_with(crate::assets::MATERIAL_ICON_PREFIX) {
+        return if folder {
+            crate::assets::icons::FOLDER
+        } else {
+            super::browser::icon_for_name(name)
+        };
+    }
+    fallback
+}
+
+fn folder_color_base_icon(fallback: &str) -> &str {
+    if fallback.starts_with(crate::assets::MATERIAL_ICON_PREFIX) {
+        crate::assets::icons::FOLDER
+    } else {
+        fallback
+    }
+}
+
 fn path_icon_texture(
     path: Option<&Path>,
     fallback_icon: &str,
@@ -1340,10 +1368,15 @@ fn path_icon_texture(
     let preference_manager = super::preferences::PreferenceManager::shared();
     let custom_icon = preference_manager.custom_icon(path);
     let color = preference_manager.folder_color(path);
+    let folder = fallback_icon == crate::assets::icons::FOLDER
+        || fallback_icon.starts_with("strata-material-folder");
+    let fallback_icon = if color.is_some() && folder {
+        folder_color_base_icon(fallback_icon)
+    } else {
+        themed_path_icon(path, fallback_icon, folder)
+    };
     let customized = custom_icon.is_some() || color.is_some();
-    let texture = if fallback_icon == crate::assets::icons::FOLDER
-        && let Some(decoration) = custom_icon.as_deref()
-    {
+    let texture = if folder && let Some(decoration) = custom_icon.as_deref() {
         let color = color
             .as_ref()
             .map_or_else(crate::assets::primary_icon_color, |color| {
@@ -1405,11 +1438,17 @@ fn apply_path_customization_image(
     let preference_manager = super::preferences::PreferenceManager::shared();
     let custom_icon = preference_manager.custom_icon(path);
     let color = preference_manager.folder_color(path);
+    let folder = matches!(kind, ImageIconKind::Folder)
+        || default_icon == crate::assets::icons::FOLDER
+        || default_icon.starts_with("strata-material-folder");
+    let default_icon = if color.is_some() && folder {
+        folder_color_base_icon(default_icon)
+    } else {
+        themed_path_icon(path, default_icon, folder)
+    };
     let customized = custom_icon.is_some() || color.is_some();
 
-    if (matches!(kind, ImageIconKind::Folder) || default_icon == crate::assets::icons::FOLDER)
-        && let Some(decoration) = custom_icon.as_deref()
-    {
+    if folder && let Some(decoration) = custom_icon.as_deref() {
         let color = color
             .as_ref()
             .map_or_else(crate::assets::primary_icon_color, |color| {

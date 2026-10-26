@@ -976,7 +976,9 @@ fn render_simple_dcraw(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     {
         fs::copy(path, &staging).map_err(|error| error.to_string())?;
     }
-    let status = Command::new("simple_dcraw")
+    let mut command = Command::new("simple_dcraw");
+    crate::background_process::configure(&mut command);
+    let status = command
         .arg("-e")
         .arg(&staging)
         .stdin(Stdio::null())
@@ -1243,6 +1245,7 @@ fn bounded_output_with_timeout(
     if timeout.is_zero() {
         return Ok(None);
     }
+    crate::background_process::configure(command);
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1330,6 +1333,7 @@ pub(crate) fn run_command_with_timeout(
     if timeout.is_zero() {
         return Ok(false);
     }
+    crate::background_process::configure(command);
     let mut child = command.spawn()?;
     let deadline = Instant::now() + timeout;
     loop {

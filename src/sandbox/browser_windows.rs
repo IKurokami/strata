@@ -61,6 +61,7 @@ type RgbaPreview = ((u32, u32), Vec<u8>);
 
 struct Worker {
     child: strata_win_shell::job::InteractiveSandboxedChild,
+    completed_requests: usize,
 }
 
 struct WorkerPool {
@@ -71,6 +72,8 @@ struct WorkerPool {
 }
 
 const WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_WORKER_REQUESTS: usize = 128;
+const MAX_REUSABLE_WORKER_BYTES: usize = 256 * 1024 * 1024;
 
 struct PoolState {
     idle: Vec<(Worker, Instant)>,
@@ -123,23 +126,33 @@ impl WorkerPool {
     }
 
     fn release(&'static self, worker: Worker, healthy: bool) {
+        // Recycling only after the response keeps active previews intact and
+        // releases large decoder heaps instead of merely paging them out.
+        let healthy = healthy
+            && worker.completed_requests < MAX_WORKER_REQUESTS
+            && worker
+                .child
+                .peak_process_memory()
+                .is_ok_and(|bytes| bytes < MAX_REUSABLE_WORKER_BYTES);
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let mut spawn_reaper = false;
-        if healthy {
+        let retired = if healthy {
             state.idle.push((worker, Instant::now()));
             if !state.reaper_running {
                 state.reaper_running = true;
                 spawn_reaper = true;
             }
+            None
         } else {
             state.count = state.count.saturating_sub(1);
-            drop(worker);
-        }
+            Some(worker)
+        };
         self.changed.notify_one();
         drop(state);
+        drop(retired);
         if spawn_reaper {
             let _ = std::thread::Builder::new()
                 .name("strata-worker-reaper".to_owned())
@@ -248,7 +261,10 @@ impl Worker {
         let args = [OsStr::new("--browser-worker")];
         let child = strata_win_shell::job::spawn_interactive_in_job(&executable, &args, limits)
             .map_err(|error| format!("Unable to start the persistent thumbnail worker: {error}"))?;
-        Ok(Self { child })
+        Ok(Self {
+            child,
+            completed_requests: 0,
+        })
     }
 
     fn execute(
@@ -301,6 +317,7 @@ impl Worker {
             if !super::valid_output(operation.clone(), &payload) {
                 return Err("Thumbnail worker returned invalid image data".to_owned());
             }
+            self.completed_requests = self.completed_requests.saturating_add(1);
             Ok(payload)
         } else {
             Err(String::from_utf8(payload)

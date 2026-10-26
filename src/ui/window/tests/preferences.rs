@@ -14,6 +14,7 @@ fn sidebar_folder_customization_loads_and_updates_across_windows() {
         || {
             use crate::assets::{self, icons};
             use crate::model::{FolderColorValue, Location};
+            use crate::ui::preferences::FileIconTheme;
 
             let directory = tempfile::tempdir().expect("pinned folder");
             let path = directory.path();
@@ -39,7 +40,7 @@ fn sidebar_folder_customization_loads_and_updates_across_windows() {
             ];
             super::super::save_pinned_places(&[(location.clone(), "Custom folder".into())])
                 .expect("save pin");
-            let mut settings = String::from("[folder_colors]\n");
+            let mut settings = String::from("file_icon_theme = \"catppuccin\"\n[folder_colors]\n");
             for (location, _) in &cases {
                 settings.push_str(&format!("\"{}\" = \"red\"\n", location.display_path()));
             }
@@ -160,6 +161,27 @@ fn sidebar_folder_customization_loads_and_updates_across_windows() {
                     location,
                     assets::folder_decoration_paintable(icons::KEY, &assets::primary_icon_color())
                         .expect("theme-colored folder"),
+                );
+            }
+            manager.set_file_icon_theme(FileIconTheme::Material);
+            wait_until(|| assets::file_icon_theme() == FileIconTheme::Material);
+            for (location, fallback) in &cases {
+                let path = location.native_path().expect("folder path");
+                manager.clear_item_customization(path);
+                manager.set_folder_color(path, Some(FolderColorValue::Custom("#123456".into())));
+                assert_icons(
+                    location,
+                    assets::custom_colored_icon_paintable(fallback, "#123456")
+                        .expect("material collection keeps color-only sidebar symbols"),
+                );
+                manager.clear_item_customization(path);
+                let material = crate::material_icons::icon_for_name(
+                    path.to_str().expect("fixture folder name"),
+                    true,
+                );
+                assert_icons(
+                    location,
+                    assets::primary_icon_paintable(material).expect("material folder restored"),
                 );
             }
             let row = first

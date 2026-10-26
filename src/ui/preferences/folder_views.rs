@@ -85,6 +85,10 @@ fn plain_names(mut components: Components<'_>) -> bool {
 
 fn local_path(path: &Path) -> Option<PathBuf> {
     let mut components = path.components();
+    #[cfg(windows)]
+    if matches!(components.clone().next(), Some(Component::Prefix(_))) {
+        components.next();
+    }
     (components.next() == Some(Component::RootDir) && plain_names(components))
         .then(|| path.components().collect())
 }
@@ -130,6 +134,21 @@ pub(in crate::ui) struct FolderViews {
 }
 
 impl FolderViews {
+    pub(in crate::ui) fn inherited_sort(
+        &self,
+        key: &FolderKey,
+    ) -> Option<(FolderKey, (SortKey, SortDirection))> {
+        let (uuid, path) = key.parts();
+        let mut parent = path.parent();
+        while let Some(path) = parent {
+            let parent_key = FolderKey::with_path(uuid, path.to_path_buf());
+            if let Some(sort) = self.view(&parent_key).sort {
+                return Some((parent_key, sort));
+            }
+            parent = path.parent();
+        }
+        None
+    }
     pub(in crate::ui) fn view(&self, key: &FolderKey) -> FolderView {
         self.entries
             .get(key)
@@ -570,3 +589,7 @@ pub(in crate::ui) fn folder_was_deleted(
 
 #[cfg(all(test, not(windows)))]
 mod tests;
+
+#[cfg(all(test, windows))]
+#[path = "folder_views/windows_tests.rs"]
+mod windows_tests;

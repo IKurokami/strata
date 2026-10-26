@@ -30,6 +30,8 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         reduce_motion: true,
         element_glow: false,
         file_icon_colors: FileIconColors::Theme,
+        file_icon_theme: FileIconTheme::Material,
+        interface_font_family: "Segoe UI".into(),
         browser_mode: "list".into(),
         browser_density: "airy".into(),
         group_by_type: true,
@@ -90,6 +92,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         show_console: true,
         replace_file_explorer: true,
         remember_folder_views: false,
+        inherit_folder_sorts: true,
         folder_colors: HashMap::from([("/fixture/folder".into(), "red".into())]),
         custom_icons: HashMap::from([(
             "/fixture/folder".into(),

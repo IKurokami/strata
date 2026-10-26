@@ -10,6 +10,116 @@ use super::*;
 use crate::services::{MediaPreviewSize, PreviewContent};
 
 #[test]
+fn cache_maintenance_releases_its_source_and_cached_data_with_the_last_provider() {
+    let _lock = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .expect("context lock");
+    let context = glib::MainContext::default();
+    let _owner = context.acquire().expect("context owner");
+    let first = LocalPreviewProvider::new(Rc::new(|| MediaPreviewBackend::Software));
+    let second = LocalPreviewProvider::new(Rc::new(|| MediaPreviewBackend::Software));
+    let source = context
+        .find_source_by_id(
+            first
+                ._cache_maintenance
+                .timer
+                .as_ref()
+                .expect("cache timer"),
+        )
+        .expect("registered maintenance source");
+    PREVIEW_CACHE.with_borrow_mut(|cache| {
+        cache.insert(
+            PreviewCacheKey {
+                path: "held.txt".into(),
+                modified: 1,
+                pdf_page: None,
+                model: None,
+            },
+            PreviewContent::Text {
+                content: "cached".into(),
+                truncated: false,
+            },
+        );
+    });
+    drop(first);
+    assert!(
+        !source.is_destroyed(),
+        "the remaining provider still uses maintenance"
+    );
+    assert!(PREVIEW_CACHE.with_borrow(|cache| !cache.entries.is_empty()));
+    drop(second);
+    assert!(
+        source.is_destroyed(),
+        "no callback may outlive all preview providers"
+    );
+    assert!(PREVIEW_CACHE.with_borrow(|cache| cache.entries.is_empty()));
+}
+
+#[test]
+fn unused_preview_cache_expires_without_invalidating_the_published_content() {
+    let mut cache = PreviewCache::default();
+    let key = PreviewCacheKey {
+        path: PathBuf::from("idle.txt"),
+        modified: 1,
+        pdf_page: None,
+        model: None,
+    };
+    cache.insert(
+        key.clone(),
+        PreviewContent::Text {
+            content: "still visible".into(),
+            truncated: false,
+        },
+    );
+    let published = cache.get(&key).expect("published preview");
+    let used = cache.last_used.expect("cache activity");
+    assert!(!cache.clear_if_idle(used + Duration::from_secs(30)));
+    assert!(cache.clear_if_idle(used + Duration::from_secs(91)));
+    assert!(cache.get(&key).is_none());
+    assert_eq!(
+        published,
+        PreviewContent::Text {
+            content: "still visible".into(),
+            truncated: false
+        }
+    );
+}
+
+#[test]
+fn rendered_documents_with_large_retained_buffers_do_not_bypass_the_cache_budget() {
+    use crate::services::{DocumentLayout, DocumentUnit, DocumentUnitKind};
+    let mut cache = PreviewCache::default();
+    let key = PreviewCacheKey {
+        path: PathBuf::from("large.md"),
+        modified: 1,
+        pdf_page: None,
+        model: None,
+    };
+    let document = DocumentLayout {
+        units: vec![DocumentUnit {
+            kind: DocumentUnitKind::Paragraph,
+            text: String::with_capacity(MAX_PREVIEW_CACHE_BYTES + 1),
+            copy_text: String::new(),
+            spans: Vec::new(),
+            wrap: true,
+            first: true,
+            last: true,
+        }],
+    };
+    cache.insert(
+        key.clone(),
+        PreviewContent::Rendered {
+            document,
+            warnings: Vec::new(),
+        },
+    );
+    assert!(
+        cache.get(&key).is_none(),
+        "oversized document allocations must be evicted"
+    );
+}
+
+#[test]
 fn renders_requested_pdf_pages_within_the_pixel_budget() {
     let path = std::env::temp_dir().join(format!(
         "strata-preview-{}-{}.pdf",
@@ -219,6 +329,7 @@ fn preview_cache_stores_and_retrieves_entries() {
         entries: HashMap::new(),
         recent: VecDeque::new(),
         byte_count: 0,
+        last_used: None,
     };
     let key1 = PreviewCacheKey {
         path: PathBuf::from("test1.png"),
@@ -529,6 +640,7 @@ fn preview_cache_evicts_the_least_recent_entry() {
         entries: HashMap::new(),
         recent: VecDeque::new(),
         byte_count: 0,
+        last_used: None,
     };
     let keys: Vec<_> = (0..=MAX_PREVIEW_CACHE_ENTRIES)
         .map(|index| PreviewCacheKey {
@@ -560,6 +672,7 @@ fn replacing_a_preview_cache_entry_updates_its_byte_count() {
         entries: HashMap::new(),
         recent: VecDeque::new(),
         byte_count: 0,
+        last_used: None,
     };
     let key = PreviewCacheKey {
         path: PathBuf::from("image.png"),
@@ -581,6 +694,7 @@ fn active_media_requests_are_never_retained_by_the_preview_cache() {
         entries: HashMap::new(),
         recent: VecDeque::new(),
         byte_count: 0,
+        last_used: None,
     };
     let key = PreviewCacheKey {
         path: PathBuf::from("clip.mp4"),

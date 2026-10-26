@@ -283,6 +283,24 @@ const TARGETS: &[Target] = &[
         aliases: "appearance file type icons brand palette accent theme monochrome catppuccin",
     },
     Target {
+        id: "file-icon-theme",
+        page: "theme",
+        title: "File icon theme",
+        aliases: "appearance icons material catppuccin files folders colors",
+    },
+    Target {
+        id: "interface-font",
+        page: "theme",
+        title: "Interface font",
+        aliases: "appearance typography system windows fonts proportional monospace family",
+    },
+    Target {
+        id: "inherit-folder-sorts",
+        page: "general",
+        title: "Apply folder sorting to subfolders",
+        aliases: "sort sorting folder subfolders parent inherit recursive order remember",
+    },
+    Target {
         id: "glow",
         page: "theme",
         title: "Element glow",

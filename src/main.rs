@@ -11,9 +11,11 @@ rust_i18n::i18n!(
 mod adapters;
 mod app;
 mod assets;
+mod background_process;
 mod build_info;
 mod i18n;
 mod logging;
+mod material_icons;
 mod media;
 mod metrics;
 mod model;

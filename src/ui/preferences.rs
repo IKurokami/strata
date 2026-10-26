@@ -65,6 +65,18 @@ pub(crate) enum FileIconColors {
     Theme,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FileIconTheme {
+    #[default]
+    Catppuccin,
+    Material,
+}
+
+fn default_interface_font_family() -> String {
+    "JetBrains Mono".to_owned()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub(in crate::ui) struct Preferences {
     mode: String,
@@ -111,6 +123,10 @@ pub(in crate::ui) struct Preferences {
     element_glow: bool,
     #[serde(default)]
     file_icon_colors: FileIconColors,
+    #[serde(default)]
+    file_icon_theme: FileIconTheme,
+    #[serde(default = "default_interface_font_family")]
+    interface_font_family: String,
     #[serde(default = "default_browser_mode")]
     browser_mode: String,
     #[serde(default = "default_browser_density")]
@@ -209,6 +225,8 @@ pub(in crate::ui) struct Preferences {
     replace_file_explorer: bool,
     #[serde(default = "default_enabled")]
     remember_folder_views: bool,
+    #[serde(default)]
+    inherit_folder_sorts: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     folder_colors: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -270,6 +288,8 @@ impl Default for Preferences {
             reduce_motion: false,
             element_glow: true,
             file_icon_colors: FileIconColors::default(),
+            file_icon_theme: FileIconTheme::default(),
+            interface_font_family: default_interface_font_family(),
             browser_mode: default_browser_mode(),
             browser_density: default_browser_density(),
             group_by_type: false,
@@ -319,6 +339,7 @@ impl Default for Preferences {
             show_console: false,
             replace_file_explorer: false,
             remember_folder_views: true,
+            inherit_folder_sorts: false,
             folder_colors: HashMap::new(),
             custom_icons: HashMap::new(),
             send_to_recent_destinations: HashMap::new(),
@@ -695,6 +716,28 @@ impl PreferenceManager {
         }
         self.save_preferences();
         super::thumbnail::refresh_customized_icons(&[path.to_path_buf()]);
+    }
+
+    pub(crate) fn file_icon_theme(&self) -> FileIconTheme {
+        self.preferences.borrow().file_icon_theme
+    }
+
+    pub(crate) fn set_file_icon_theme(&self, theme: FileIconTheme) {
+        self.preferences.borrow_mut().file_icon_theme = theme;
+        self.save_preferences();
+    }
+
+    pub(crate) fn interface_font_family(&self) -> String {
+        self.preferences.borrow().interface_font_family.clone()
+    }
+
+    pub(crate) fn set_interface_font_family(&self, family: String) {
+        let family = family.trim();
+        if family.is_empty() || family.len() > 256 || family.chars().any(char::is_control) {
+            return;
+        }
+        self.preferences.borrow_mut().interface_font_family = family.to_owned();
+        self.save_preferences();
     }
 
     pub fn single_click_previews(&self) -> bool {

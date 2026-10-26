@@ -455,6 +455,16 @@ fn append_folder_view_options(content: &gtk::Box, manager: &Rc<PreferenceManager
         content,
         manager,
         PreferenceSwitch {
+            title: "Apply folder sorting to subfolders",
+            description: "Subfolders without their own saved sort follow the nearest parent folder's sort.",
+            read: PreferenceManager::inherit_folder_sorts,
+            write: PreferenceManager::set_inherit_folder_sorts,
+        },
+    );
+    append_preference_switch(
+        content,
+        manager,
+        PreferenceSwitch {
             title: "Remember sort and icon size per folder",
             description: "Each folder keeps the sort and thumbnail size you choose there. Other folders use the defaults.",
             read: PreferenceManager::remember_folder_views,
@@ -539,6 +549,15 @@ fn append_preference_switch(
     }
     if switch.title == "Include subfolders" {
         super::indent_row(&row);
+    }
+    if switch.title == "Apply folder sorting to subfolders" {
+        manager.bind_preference(
+            &row,
+            PreferenceManager::remember_folder_views,
+            |widget, enabled| {
+                widget.set_sensitive(enabled);
+            },
+        );
     }
     if switch.title == "10xer mode" {
         append_experimental_label(&row, manager);

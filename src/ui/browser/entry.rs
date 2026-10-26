@@ -125,6 +125,14 @@ pub(in crate::ui) fn entry_icon(entry: &FileEntry) -> &'static str {
     if entry.is_broken_symbolic_link() {
         return crate::assets::icons::X;
     }
+    if crate::assets::file_icon_theme() == crate::ui::preferences::FileIconTheme::Material {
+        let path = entry
+            .location
+            .native_path()
+            .and_then(|path| path.to_str())
+            .unwrap_or(&entry.display_name);
+        return crate::material_icons::icon_for_name(path, entry.is_directory());
+    }
     if entry.is_directory() {
         return crate::assets::icons::FOLDER;
     }

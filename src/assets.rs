@@ -154,6 +154,7 @@ const ICON_TEXTURE_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// File icons from catppuccin/vscode-icons keep their own palette instead of the theme accent.
 pub const CATPPUCCIN_ICON_PREFIX: &str = "strata-ctp-";
+pub(crate) const MATERIAL_ICON_PREFIX: &str = "strata-material-";
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum CatppuccinFlavor {
@@ -247,6 +248,15 @@ thread_local! {
     static ICON_TEXTURES: RefCell<IconTextureCache> = RefCell::new(IconTextureCache::default());
     static CATPPUCCIN_FLAVOR: Cell<CatppuccinFlavor> = const { Cell::new(CatppuccinFlavor::Mocha) };
     static CATPPUCCIN_THEME_COLORS: Cell<bool> = const { Cell::new(false) };
+    static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Catppuccin) };
+}
+
+pub(crate) fn file_icon_theme() -> crate::ui::preferences::FileIconTheme {
+    FILE_ICON_THEME.get()
+}
+
+pub(crate) fn set_file_icon_theme(theme: crate::ui::preferences::FileIconTheme) {
+    FILE_ICON_THEME.set(theme);
 }
 
 /// Call before the icon colors so the accent refresh re-renders file icons in the new flavor.
@@ -547,6 +557,9 @@ fn primary_icon_texture_at(
     logical_px: i32,
     context: IconContext,
 ) -> Option<gdk::Texture> {
+    if name.starts_with(MATERIAL_ICON_PREFIX) {
+        return material_icon_texture(name, color, texture_px);
+    }
     if name.starts_with(CATPPUCCIN_ICON_PREFIX) {
         return catppuccin_icon_texture_at(name, color, texture_px, logical_px, context);
     }
@@ -571,6 +584,46 @@ fn primary_icon_texture_at(
     }
     let source = compensate_icon_strokes(source, logical_px, context);
     texture_from_svg(key, svg_at_texture_size(source, texture_px))
+}
+
+fn material_icon_texture(name: &str, color: &str, texture_px: i32) -> Option<gdk::Texture> {
+    let flavor = CATPPUCCIN_FLAVOR.get();
+    let themed = CATPPUCCIN_THEME_COLORS.get();
+    let palette = if themed {
+        format!("accent:{color}")
+    } else {
+        format!("material:{}", flavor.name())
+    };
+    let key = (name.to_owned(), palette, texture_px);
+    if let Some(texture) = cached_icon_texture(&key) {
+        return Some(texture);
+    }
+    let resource = |name: &str| format!("/io/github/lgse/Strata/icons/material/{name}.svg");
+    let data = if flavor == CatppuccinFlavor::Latte {
+        gio::resources_lookup_data(
+            &resource(&format!("{name}_light")),
+            gio::ResourceLookupFlags::NONE,
+        )
+        .ok()
+    } else {
+        None
+    }
+    .or_else(|| gio::resources_lookup_data(&resource(name), gio::ResourceLookupFlags::NONE).ok())?;
+    let source = std::str::from_utf8(data.as_ref()).ok()?;
+    let surface = vector::surface(source, texture_px)?;
+    if themed {
+        let color = gdk::RGBA::parse(color).ok()?;
+        let context = cairo::Context::new(&surface).ok()?;
+        context.set_operator(cairo::Operator::In);
+        context.set_source_rgba(
+            f64::from(color.red()),
+            f64::from(color.green()),
+            f64::from(color.blue()),
+            f64::from(color.alpha()),
+        );
+        context.paint().ok()?;
+    }
+    Some(cache_icon_texture(key, texture_from_surface(&surface)?))
 }
 
 fn catppuccin_icon_texture_at(

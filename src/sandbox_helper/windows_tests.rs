@@ -3,6 +3,29 @@
 use super::render_raw;
 
 #[test]
+fn background_probe_capture_preserves_output_and_failure_status() {
+    use std::{process::Command, time::Duration};
+    for code in [0, 7] {
+        let mut command = Command::new("cmd.exe");
+        command.args([
+            "/d",
+            "/q",
+            "/c",
+            &format!("echo probe-output&exit /b {code}"),
+        ]);
+        let output =
+            super::bounded_output_with_timeout(&mut command, 1024, Duration::from_secs(10))
+                .expect("hidden probe")
+                .expect("probe completed");
+        assert_eq!(output.status.code(), Some(code));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "probe-output"
+        );
+    }
+}
+
+#[test]
 fn image_fallback_decodes_webp_and_gif_on_windows() {
     let directory = tempfile::tempdir().expect("image fixture");
     let webp = directory.path().join("image.webp");

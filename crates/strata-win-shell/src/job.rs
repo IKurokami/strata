@@ -38,7 +38,7 @@ use windows::{
                 JOB_OBJECT_UILIMIT_WRITECLIPBOARD, JOBOBJECT_BASIC_LIMIT_INFORMATION,
                 JOBOBJECT_BASIC_UI_RESTRICTIONS, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
                 JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation,
-                SetInformationJobObject, TerminateJobObject,
+                QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
             },
             Pipes::{CreatePipe, PeekNamedPipe},
             Threading::{
@@ -118,6 +118,23 @@ pub struct JobObject {
 }
 
 impl JobObject {
+    /// Peak committed process memory, including decoder allocations retained by its allocator.
+    pub fn peak_process_memory(&self) -> io::Result<usize> {
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        // SAFETY: The live owned job handle and correctly sized writable structure
+        // remain valid for the synchronous query. No returned pointers escape.
+        unsafe {
+            QueryInformationJobObject(
+                Some(self.handle.handle()),
+                JobObjectExtendedLimitInformation,
+                (&mut information as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&information) as u32,
+                None,
+            )
+        }
+        .map_err(|error| io::Error::other(format!("QueryInformationJobObject failed: {error}")))?;
+        Ok(information.PeakProcessMemoryUsed)
+    }
     /// Create a new Job Object and apply the requested limits.
     pub fn create(limits: &JobLimits) -> io::Result<Self> {
         // SAFETY: Standard anonymous Job Object creation.
@@ -593,6 +610,10 @@ pub struct InteractiveSandboxedChild {
 }
 
 impl InteractiveSandboxedChild {
+    /// Report the decoder's committed-memory peak without sampling the desktop.
+    pub fn peak_process_memory(&self) -> io::Result<usize> {
+        self.job.peak_process_memory()
+    }
     /// Write one complete request to the child's stdin pipe.
     pub fn write_stdin(&self, data: &[u8]) -> io::Result<()> {
         let mut offset = 0;
@@ -1052,3 +1073,7 @@ mod tests {
         assert!(String::from_utf8_lossy(&output).contains("streamed"));
     }
 }
+
+#[cfg(test)]
+#[path = "job/memory_tests.rs"]
+mod memory_tests;
