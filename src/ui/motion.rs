@@ -4,7 +4,7 @@ use gtk::{glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub(super) const CONTENT: Duration = Duration::from_millis(220);
@@ -18,25 +18,6 @@ thread_local! {
     static REDUCE_MOTION: Cell<bool> = const { Cell::new(false) };
     static ACTIVE: RefCell<Vec<ActiveMotion>> = const { RefCell::new(Vec::new()) };
     static REDUCED_CSS: RefCell<Option<(gtk::gdk::Display, gtk::CssProvider)>> = const { RefCell::new(None) };
-}
-
-#[derive(Default)]
-pub(super) struct FrameProgress {
-    previous: Option<i64>,
-    elapsed: Duration,
-}
-
-impl FrameProgress {
-    pub(super) fn elapsed(&mut self, time: i64) -> Duration {
-        if let Some(previous) = self.previous {
-            // A blocked UI must not consume the entire animation before its
-            // first paint, or jump to the endpoint after one delayed frame.
-            self.elapsed +=
-                Duration::from_micros(time.saturating_sub(previous).clamp(0, 48_000) as u64);
-        }
-        self.previous = Some(time);
-        self.elapsed
-    }
 }
 
 pub(super) fn cancel(widget: &impl IsA<gtk::Widget>, channel: &'static str) {
@@ -87,17 +68,18 @@ pub(super) fn animate(
     let tick_running = running.clone();
     let tick_done = done.clone();
     let tick_handle = tick_id.clone();
-    let progress = RefCell::new(FrameProgress::default());
-    let id = widget.add_tick_callback(move |widget, clock| {
+    let started = Instant::now();
+    frame(widget, Duration::ZERO);
+    if !running.get() {
+        return;
+    }
+    let id = widget.add_tick_callback(move |widget, _| {
         if !tick_running.get() {
             tick_handle.take();
             return glib::ControlFlow::Break;
         }
         let elapsed = if animations_enabled() {
-            progress
-                .borrow_mut()
-                .elapsed(clock.frame_time())
-                .min(duration)
+            started.elapsed().min(duration)
         } else {
             duration
         };
@@ -115,10 +97,14 @@ pub(super) fn animate(
     });
     tick_id.replace(Some(id));
     let weak = widget.downgrade();
-    // Unmapped widgets do not tick. Cleanup and confirmed file operations must
-    // still complete, while cancelled generations must never fire old callbacks.
-    glib::timeout_add_local(Duration::from_millis(100), move || {
-        if running.get() && weak.upgrade().is_some_and(|widget| widget.is_mapped()) {
+    // A saturated GPU may stop frame callbacks while the main loop still accepts
+    // input. Completion and cancellation cannot depend on another rendered frame.
+    glib::timeout_add_local(Duration::from_millis(16), move || {
+        if running.get()
+            && animations_enabled()
+            && started.elapsed() < duration
+            && weak.upgrade().is_some_and(|widget| widget.is_mapped())
+        {
             return glib::ControlFlow::Continue;
         }
         if let Some(id) = tick_id.take() {

@@ -857,6 +857,7 @@ fn animate_column_exit(state: &Rc<ViewState>, column: ColumnView, animation_id: 
         shell.remove_css_class(class);
     }
     shell.add_css_class("column-exiting");
+    shell.set_overflow(gtk::Overflow::Hidden);
     // Its depth may already belong to a new column, so it must not take clicks or drops.
     shell.set_can_target(false);
     let weak = Rc::downgrade(state);

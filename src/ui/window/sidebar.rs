@@ -269,6 +269,9 @@ impl SidebarState {
                 select_sidebar_row(&sidebar, row);
             }
             if let Some(browser) = browser.upgrade() {
+                if !select_first && browser.active_location().as_ref() == Some(&location) {
+                    return;
+                }
                 match navigation {
                     PlaceNavigation::Direct => {
                         browser.navigate_with_selection(location.clone(), select_first);

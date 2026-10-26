@@ -18,17 +18,6 @@ fn wait_until(done: impl Fn() -> bool) {
 }
 
 #[test]
-fn delayed_first_frame_and_stalls_do_not_skip_the_transition() {
-    let mut progress = FrameProgress::default();
-    assert!(progress.elapsed(9_000_000).is_zero());
-    let before_stall = progress.elapsed(9_016_000);
-    assert_eq!(before_stall, Duration::from_millis(16));
-    let after_stall = progress.elapsed(19_000_000);
-    assert!(after_stall > before_stall && after_stall < CONTENT);
-    assert_eq!(progress.elapsed(18_000_000), after_stall);
-}
-
-#[test]
 fn replacement_cancels_stale_callbacks_but_independent_operations_all_complete() {
     crate::test_support::gtk_test(
         "ui::motion::tests::replacement_cancels_stale_callbacks_but_independent_operations_all_complete",
@@ -76,9 +65,9 @@ fn replacement_cancels_stale_callbacks_but_independent_operations_all_complete()
 }
 
 #[test]
-fn mapped_animation_starts_at_first_paint_and_completes_once() {
+fn mapped_animation_applies_feedback_immediately_and_settles_after_stalls_once() {
     crate::test_support::gtk_test(
-        "ui::motion::tests::mapped_animation_starts_at_first_paint_and_completes_once",
+        "ui::motion::tests::mapped_animation_applies_feedback_immediately_and_settles_after_stalls_once",
         || {
             set_reduce_motion(false);
             gtk::Settings::default()
@@ -99,6 +88,7 @@ fn mapped_animation_starts_at_first_paint_and_completes_once() {
                 move |_, elapsed| seen.borrow_mut().push(elapsed),
                 move || done.set(done.get() + 1),
             );
+            assert_eq!(frames.borrow().as_slice(), &[Duration::ZERO]);
             std::thread::sleep(Duration::from_millis(150));
             wait_until(|| completed.get() > 0);
             assert_eq!(frames.borrow().first(), Some(&Duration::ZERO));

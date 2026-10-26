@@ -19,6 +19,56 @@ use crate::ui::{
 
 use super::{TabWindow, layout};
 
+fn animate_indicator(
+    overlay: &gtk::Overlay,
+    headers: &Rc<RefCell<Vec<Header>>>,
+    indicator: &Rc<Indicator>,
+    line: &gtk::DrawingArea,
+) {
+    indicator.from.set(indicator.position.get());
+    let headers = headers.clone();
+    let indicator = indicator.clone();
+    let line = line.downgrade();
+    motion::animate(
+        overlay,
+        Some("tab-indicator"),
+        motion::PANEL,
+        move |overlay, elapsed| {
+            let headers = headers.borrow();
+            let Some(header) = headers
+                .iter()
+                .find(|header| header.id == indicator.active.get())
+            else {
+                return;
+            };
+            let Some(bounds) = header.widget.compute_bounds(overlay) else {
+                return;
+            };
+            let target = (
+                f64::from(bounds.x()).round(),
+                f64::from(bounds.width()).round(),
+            );
+            let from = indicator.from.get();
+            let progress = if from.1 == 0.0 {
+                1.0
+            } else {
+                (elapsed.as_secs_f64() / motion::PANEL.as_secs_f64()).clamp(0.0, 1.0)
+            };
+            let eased = motion::smooth(progress);
+            let position = (
+                from.0 + (target.0 - from.0) * eased,
+                from.1 + (target.1 - from.1) * eased,
+            );
+            if indicator.position.replace(position) != position
+                && let Some(line) = line.upgrade()
+            {
+                line.queue_draw();
+            }
+        },
+        || {},
+    );
+}
+
 struct Header {
     id: u64,
     widget: gtk::Box,
@@ -31,8 +81,6 @@ struct Header {
 struct Indicator {
     position: Cell<(f64, f64)>,
     from: Cell<(f64, f64)>,
-    target: Cell<(f64, f64)>,
-    progress: RefCell<motion::FrameProgress>,
     active: Cell<u64>,
 }
 
@@ -42,6 +90,8 @@ pub(super) struct TabStrip {
     scroller: gtk::ScrolledWindow,
     headers: Rc<RefCell<Vec<Header>>>,
     indicator: Rc<Indicator>,
+    overlay: gtk::Overlay,
+    line: gtk::DrawingArea,
     pub(super) actions: gtk::Box,
     pub(super) end: gtk::Box,
 }
@@ -97,53 +147,13 @@ impl TabStrip {
             context.rectangle(x, height as f64 - 3.0, width, 3.0);
             let _ = context.fill();
         });
-        let ticking_headers = headers.clone();
-        let ticking_indicator = indicator.clone();
-        let ticking_line = line.downgrade();
-        overlay.add_tick_callback(move |overlay, clock| {
-            let Some(line) = ticking_line.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            let headers = ticking_headers.borrow();
-            let Some(header) = headers
-                .iter()
-                .find(|header| header.id == ticking_indicator.active.get())
-            else {
-                return glib::ControlFlow::Continue;
-            };
-            let Some(bounds) = header.widget.compute_bounds(overlay) else {
-                return glib::ControlFlow::Continue;
-            };
-            let target = ((bounds.x() as f64).round(), (bounds.width() as f64).round());
-            if ticking_indicator.target.get() != target {
-                ticking_indicator.from.set(ticking_indicator.position.get());
-                ticking_indicator.target.set(target);
-                ticking_indicator
-                    .progress
-                    .replace(motion::FrameProgress::default());
+        let resizing_headers = headers.clone();
+        let resizing_indicator = indicator.clone();
+        let resizing_overlay = overlay.downgrade();
+        line.connect_resize(move |line, _, _| {
+            if let Some(overlay) = resizing_overlay.upgrade() {
+                animate_indicator(&overlay, &resizing_headers, &resizing_indicator, line);
             }
-            let progress = if !motion::animations_enabled() || ticking_indicator.from.get().1 == 0.0
-            {
-                1.0
-            } else {
-                (ticking_indicator
-                    .progress
-                    .borrow_mut()
-                    .elapsed(clock.frame_time())
-                    .as_secs_f64()
-                    / motion::PANEL.as_secs_f64())
-                .clamp(0.0, 1.0)
-            };
-            let eased = motion::smooth(progress);
-            let from = ticking_indicator.from.get();
-            let position = (
-                from.0 + (target.0 - from.0) * eased,
-                from.1 + (target.1 - from.1) * eased,
-            );
-            if ticking_indicator.position.replace(position) != position {
-                line.queue_draw();
-            }
-            glib::ControlFlow::Continue
         });
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
         let adjustment = scroller.hadjustment();
@@ -165,6 +175,8 @@ impl TabStrip {
             scroller,
             headers,
             indicator,
+            overlay,
+            line,
             actions,
             end,
         }
@@ -293,6 +305,7 @@ impl TabStrip {
             });
             header.label.set_text(name);
             accessibility::set_label(&header.select, name);
+            animate_indicator(&self.overlay, &self.headers, &self.indicator, &self.line);
         }
     }
 
@@ -300,12 +313,16 @@ impl TabStrip {
         self.indicator.active.set(id);
         for header in self.headers.borrow().iter() {
             let active = header.id == id;
+            header
+                .select
+                .update_state(&[gtk::accessible::State::Selected(Some(active))]);
             if active {
                 header.widget.add_css_class("active");
             } else {
                 header.widget.remove_css_class("active");
             }
         }
+        animate_indicator(&self.overlay, &self.headers, &self.indicator, &self.line);
         let selected_headers = Rc::downgrade(&self.headers);
         let selected_indicator = self.indicator.clone();
         let row = self.row.downgrade();
@@ -315,11 +332,6 @@ impl TabStrip {
             if selected_indicator.active.get() == id
                 && let Some(headers) = selected_headers.upgrade()
             {
-                for header in headers.borrow().iter() {
-                    header
-                        .select
-                        .update_state(&[gtk::accessible::State::Selected(Some(header.id == id))]);
-                }
                 if let (Some(row), Some(scroller)) = (row.upgrade(), scroller.upgrade())
                     && let Some(header) = headers.borrow().iter().find(|header| header.id == id)
                     && let Some(bounds) = header.widget.compute_bounds(&row)

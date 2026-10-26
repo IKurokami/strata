@@ -9,6 +9,19 @@ geometry manually with captures; do not add layout assertions.
 
 ## Preview input
 
+Rendering follows actual invalidations. The preview split observes completed
+frames and coalesces its follow-up work outside GTK layout; it does not request
+continuous frames while idle. The tab indicator animates only after tab selection,
+labels or allocation change. Input and accessible tab selection are published
+immediately. A deferred new tab initializes its location before the first command
+that needs it, while a burst of Ctrl+T still avoids loading discarded tabs.
+
+Animation progress follows monotonic elapsed time. Feedback starts during input
+dispatch, and cleanup has a main-loop deadline even if the GPU stops delivering
+frames. Replacement transitions cancel obsolete callbacks. Folder entry fades
+start with readable content and do not translate the text; retiring columns clip
+their contents while shrinking.
+
 Secondary clicks choose a context-menu target without opening, replacing, or
 closing the current preview. Restoring keyboard focus after the popup closes
 must preserve that preview too. Primary selection and keyboard navigation keep

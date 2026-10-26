@@ -2924,20 +2924,23 @@ fn select_sidebar_row(sidebar: &gtk::Box, selected: &gtk::Button) {
     let mut child = sidebar.first_child();
     while let Some(widget) = child {
         if let Some(row) = sidebar_row_button(&widget) {
-            set_sidebar_row_active(&row, false);
+            set_sidebar_row_active(&row, row == *selected);
         }
         child = widget.next_sibling();
     }
-    set_sidebar_row_active(selected, true);
 }
 
 fn set_sidebar_row_active(row: &gtk::Button, active: bool) {
-    if active {
-        row.add_css_class("active");
-    } else {
-        row.remove_css_class("active");
+    if row.has_css_class("active") != active {
+        if active {
+            row.add_css_class("active");
+        } else {
+            row.remove_css_class("active");
+        }
     }
-    if let Some(shell) = sidebar_device_shell(row) {
+    if let Some(shell) = sidebar_device_shell(row)
+        && shell.has_css_class("active") != active
+    {
         if active {
             shell.add_css_class("active");
         } else {

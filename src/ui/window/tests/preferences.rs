@@ -8,6 +8,96 @@ use crate::ui::preferences::PreferenceManager;
 use crate::ui::tenxer_mode::UNUSED_SUBTITLE;
 
 #[test]
+fn rapid_sidebar_navigation_with_classic_light_material_and_motion_keeps_latest_input() {
+    gtk_test(
+        "ui::window::tests::preferences::rapid_sidebar_navigation_with_classic_light_material_and_motion_keeps_latest_input",
+        || {
+            use crate::{
+                model::Location,
+                ui::{preferences::FileIconTheme, theme::ThemeManager},
+            };
+            let fixture = tempfile::tempdir().expect("places fixture");
+            let desktop = fixture.path().join("Desktop");
+            let documents = fixture.path().join("Documents");
+            for path in [&desktop, &documents] {
+                std::fs::create_dir(path).expect("place");
+            }
+            std::fs::write(desktop.join("desktop.json"), "{}").expect("desktop file");
+            std::fs::write(documents.join("document.json"), "{}").expect("document file");
+            std::fs::create_dir_all(gtk::glib::user_config_dir()).expect("config");
+            std::fs::write(
+                gtk::glib::user_config_dir().join("user-dirs.dirs"),
+                format!(
+                    "XDG_DESKTOP_DIR=\"{}\"\nXDG_DOCUMENTS_DIR=\"{}\"\n",
+                    desktop.display(),
+                    documents.display()
+                ),
+            )
+            .expect("places configuration");
+            gtk::glib::reload_user_special_dirs_cache();
+            let manager = PreferenceManager::shared();
+            manager.set_reduce_motion(false);
+            manager.set_file_icon_theme(FileIconTheme::Material);
+            ThemeManager::shared().select_theme("macos-classic-light");
+            for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
+                let open = OpenWindow::open();
+                open.content.browser.set_view_mode(mode);
+                let row = |path: &std::path::Path| {
+                    open.content
+                        .sidebar
+                        .state
+                        .place_rows
+                        .borrow()
+                        .iter()
+                        .find(|(location, _)| location == &Location::local(path))
+                        .expect("place row")
+                        .1
+                        .clone()
+                };
+                let desktop_row = row(&desktop);
+                let documents_row = row(&documents);
+                for _ in 0..20 {
+                    desktop_row.emit_clicked();
+                    documents_row.emit_clicked();
+                }
+                assert_eq!(
+                    open.content.browser.browser().active_location(),
+                    Some(Location::local(&documents))
+                );
+                std::thread::sleep(std::time::Duration::from_millis(180));
+                wait_until(|| {
+                    open.content
+                        .browser
+                        .browser()
+                        .column_snapshot(0)
+                        .is_some_and(|snapshot| !snapshot.loading)
+                });
+                assert_eq!(
+                    open.content
+                        .browser
+                        .browser()
+                        .entry_at(0, 0)
+                        .expect("latest file")
+                        .display_name,
+                    "document.json"
+                );
+                desktop_row.emit_clicked();
+                wait_until(|| {
+                    open.content
+                        .browser
+                        .browser()
+                        .entry_at(0, 0)
+                        .is_some_and(|entry| entry.display_name == "desktop.json")
+                });
+                open.content.browser.begin_location_edit();
+                assert!(open.content.browser.location_has_focus());
+                open.window.close();
+            }
+        },
+    );
+}
+
+#[test]
 fn sidebar_folder_customization_loads_and_updates_across_windows() {
     gtk_test(
         "ui::window::tests::preferences::sidebar_folder_customization_loads_and_updates_across_windows",

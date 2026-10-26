@@ -20,6 +20,8 @@ pub(super) const RESIZE_GRIP_WIDTH: i32 = 6;
 
 #[derive(Default)]
 pub(super) struct SplitSizing {
+    sync_queued: Cell<bool>,
+    layout_frame: RefCell<Option<(gtk::gdk::FrameClock, glib::SignalHandlerId)>>,
     binding: RefCell<Option<BrowserBinding>>,
     manual_width: Cell<Option<i32>>,
     resizing: Cell<bool>,
@@ -33,6 +35,14 @@ pub(super) struct SplitSizing {
     resume_media: Cell<bool>,
     reload_on_resume: Cell<bool>,
     sidebar_saved_width: Cell<i32>,
+}
+
+impl Drop for SplitSizing {
+    fn drop(&mut self) {
+        if let Some((clock, handler)) = self.layout_frame.get_mut().take() {
+            clock.disconnect(handler);
+        }
+    }
 }
 
 impl SplitSizing {
@@ -245,25 +255,21 @@ impl PreviewDrawer {
             .slot
             .set_visible(self.state.is_enabled() || self.state.reserves_column_space());
         let weak = Rc::downgrade(&self.state);
-        split.add_tick_callback(move |split, _| {
-            let Some(state) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            state.publish_column_width_limit(split);
-            if state.is_enabled() || state.reserves_column_space() {
-                state.sync_split(split);
+        split.connect_map(move |split| {
+            if let Some(state) = weak.upgrade() {
+                state.observe_layout_frames(split);
+                state.queue_split_sync(split);
             }
-            if !state.preview_present() {
-                state.sync_sidebar_without_preview();
-            }
-            glib::ControlFlow::Continue
         });
         let weak = Rc::downgrade(&self.state);
         split.connect_unmap(move |_| {
-            if let Some(state) = weak.upgrade()
-                && state.is_enabled()
-            {
-                state.suspend_panel();
+            if let Some(state) = weak.upgrade() {
+                if let Some((clock, handler)) = state.sizing.layout_frame.take() {
+                    clock.disconnect(handler);
+                }
+                if state.is_enabled() {
+                    state.suspend_panel();
+                }
             }
         });
         let weak = Rc::downgrade(&self.state);
@@ -277,10 +283,56 @@ impl PreviewDrawer {
         }
         install_resize(split, &self.state);
         install_resize_grip(split, &self.state);
+        if split.is_mapped() {
+            self.state.observe_layout_frames(split);
+            self.state.queue_split_sync(split);
+        }
     }
 }
 
 impl PreviewState {
+    fn observe_layout_frames(self: &Rc<Self>, split: &gtk::Paned) {
+        if self.sizing.layout_frame.borrow().is_some() {
+            return;
+        }
+        let Some(clock) = split.frame_clock() else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        let split = split.downgrade();
+        // Observe frames requested by actual changes. A permanent tick callback
+        // would keep the frame clock running even when the entire window is idle.
+        let handler = clock.connect_after_paint(move |_| {
+            if let (Some(state), Some(split)) = (weak.upgrade(), split.upgrade()) {
+                state.queue_split_sync(&split);
+            }
+        });
+        self.sizing.layout_frame.replace(Some((clock, handler)));
+    }
+
+    fn queue_split_sync(self: &Rc<Self>, split: &gtk::Paned) {
+        if self.sizing.sync_queued.replace(true) {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let split = split.downgrade();
+        glib::idle_add_local_once(move || {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            state.sizing.sync_queued.set(false);
+            let Some(split) = split.upgrade().filter(|split| split.is_mapped()) else {
+                return;
+            };
+            state.publish_column_width_limit(&split);
+            if state.is_enabled() || state.reserves_column_space() {
+                state.sync_split(&split);
+            }
+            if !state.preview_present() {
+                state.sync_sidebar_without_preview();
+            }
+        });
+    }
     pub(super) fn selected_entry(&self) -> (Option<FileEntry>, Option<usize>) {
         if let Some(binding) = self.sizing.binding.borrow().as_ref()
             && let Some(browser) = binding.browser.upgrade()
