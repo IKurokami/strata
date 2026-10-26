@@ -5240,7 +5240,7 @@ async fn run_deletion(
     emit: Rc<dyn Fn(OperationEvent)>,
     cancellable: gio::Cancellable,
 ) {
-    crate::services::file_mutations::release(
+    let _preview_guard = crate::services::file_mutations::release(
         &targets
             .iter()
             .map(|target| target.location.clone())
@@ -5450,8 +5450,10 @@ impl OperationProvider for LocalOperationProvider {
                 });
                 return;
             }
-            crate::services::file_mutations::release(std::slice::from_ref(&request.entry.location))
-                .await;
+            let _preview_guard = crate::services::file_mutations::release(std::slice::from_ref(
+                &request.entry.location,
+            ))
+            .await;
             let file = request
                 .entry
                 .location
@@ -5547,16 +5549,20 @@ impl OperationProvider for LocalOperationProvider {
         let cancellable = gio::Cancellable::new();
         let operation_cancellable = cancellable.clone();
         let _task = glib::MainContext::default().spawn_local(async move {
-            if request.move_sources {
-                crate::services::file_mutations::release(
-                    &request
-                        .items
-                        .iter()
-                        .map(|item| item.source.clone())
-                        .collect::<Vec<_>>(),
+            let _preview_guard = if request.move_sources {
+                Some(
+                    crate::services::file_mutations::release(
+                        &request
+                            .items
+                            .iter()
+                            .map(|item| item.source.clone())
+                            .collect::<Vec<_>>(),
+                    )
+                    .await,
                 )
-                .await;
-            }
+            } else {
+                None
+            };
             let destination = gio_file_for_location(&request.destination);
             let mounts = MountTable::current();
             let fat_family = target_is_fat_family(&destination, &mounts);

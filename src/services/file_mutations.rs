@@ -2,7 +2,10 @@
 
 use super::listeners::{ListenerGuard, Listeners};
 use crate::model::Location;
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak as RcWeak},
+};
 
 #[cfg(any(windows, test))]
 use std::{
@@ -19,6 +22,7 @@ pub(crate) type MutationWatch = ListenerGuard<Callback>;
 
 thread_local! {
     static WATCHERS: Rc<Listeners<Callback>> = Rc::new(Listeners::new());
+    static ACTIVE: RefCell<Vec<RcWeak<Vec<Location>>>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(crate) fn watch(callback: impl Fn(&[Location]) + 'static) -> MutationWatch {
@@ -29,9 +33,35 @@ pub(crate) fn prepare(locations: &[Location]) {
     WATCHERS.with(|watchers| watchers.notify(|callback| callback(locations)));
 }
 
-pub(crate) async fn release(locations: &[Location]) {
+#[must_use = "keep the preview exclusion alive until the file operation finishes"]
+pub(crate) struct MutationGuard {
+    _roots: Rc<Vec<Location>>,
+}
+
+pub(crate) async fn release(locations: &[Location]) -> MutationGuard {
+    let roots = Rc::new(locations.to_vec());
+    ACTIVE.with_borrow_mut(|active| {
+        active.retain(|roots| roots.strong_count() > 0);
+        active.push(Rc::downgrade(&roots));
+    });
+    let guard = MutationGuard { _roots: roots };
     prepare(locations);
     wait_for_workers(locations).await;
+    guard
+}
+
+pub(crate) fn blocks(location: &Location) -> bool {
+    ACTIVE.with_borrow_mut(|active| {
+        let mut blocked = false;
+        active.retain(|roots| {
+            let Some(roots) = roots.upgrade() else {
+                return false;
+            };
+            blocked |= contains(&roots, location);
+            true
+        });
+        blocked
+    })
 }
 
 pub(crate) fn contains(roots: &[Location], location: &Location) -> bool {

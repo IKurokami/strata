@@ -865,6 +865,10 @@ impl PreviewState {
     }
 
     fn show_after_focus_change(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         self.cancel_pending_show();
         self.retain_pending_playback(&entry);
         if self.current.borrow().as_ref() == Some(&entry) && self.current_request.get().is_some() {
@@ -917,6 +921,10 @@ impl PreviewState {
     }
 
     fn show(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         if self
             .current
             .borrow()
@@ -1320,6 +1328,10 @@ impl PreviewState {
     }
 
     fn load(self: &Rc<Self>, entry: FileEntry, pdf_page: i32) {
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         self.load_with_password(entry, pdf_page, None);
     }
 

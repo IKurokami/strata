@@ -38,7 +38,9 @@ only during playback, not while the filesystem operation is pending.
 
 Before destructive mutations, matching previews in all tabs are closed, including
 debounced selections and previews of descendants of a removed folder. Windows
-waits asynchronously for its own preview helpers to release their input handles;
+waits asynchronously for its own preview helpers to release their input handles
+and blocks focus/resize/theme callbacks from reopening those inputs until the
+operation finishes;
 locks owned by other applications remain ordinary filesystem errors. Shared GTK
 bookmark cleanup uses a worker rather than synchronous I/O on the UI thread.
 
