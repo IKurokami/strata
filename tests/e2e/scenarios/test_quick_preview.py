@@ -34,11 +34,11 @@ def test_secondary_click_preserves_preview_and_primary_click_changes_it(strata, 
         strata.keyboard.press("space")
         strata.wait(lambda: strata.preview() is None, "closed preview")
     strata.pointer.right_click(strata.entry("third.txt"))
-    strata.wait(lambda: strata.window.find(role="menu item", name="Preview"), "context menu")
+    strata.wait(strata.context_menu, "context menu")
     strata.settle(strata.window)
     assert strata.preview_shows("the quick brown fox") if preview_open else strata.preview() is None
     strata.keyboard.press("Escape")
-    strata.wait(lambda: strata.window.find(role="menu item", name="Preview") is None, "closed menu")
+    strata.wait_for_menu_closed()
     strata.settle(strata.window)
     assert strata.preview_shows("the quick brown fox") if preview_open else strata.preview() is None
     strata.pointer.click(strata.entry("third.txt"))
@@ -347,11 +347,11 @@ def test_preview_follows_the_selection(strata, mode, selection):
         strata.keyboard.press(NEXT_ENTRY_KEY[mode])
     else:
         strata.pointer.right_click(strata.entry("page.md"))
-        strata.wait(lambda: strata.window.find(role="menu item", name="Preview"), "context menu")
+        strata.wait(strata.context_menu, "context menu")
         strata.settle(strata.window)
         assert strata.preview_shows("the quick brown fox")
         strata.keyboard.press("Escape")
-        strata.wait(lambda: strata.window.find(role="menu item", name="Preview") is None, "closed context menu")
+        strata.wait_for_menu_closed()
         strata.settle(strata.window)
         assert strata.preview_shows("the quick brown fox")
         strata.select_entry("page.md")
