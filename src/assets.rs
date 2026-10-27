@@ -246,6 +246,7 @@ thread_local! {
     static DANGER_ICON_COLOR: RefCell<String> = RefCell::new("#e5484d".to_owned());
     static DANGER_ICONS: RefCell<Vec<PrimaryIcon>> = const { RefCell::new(Vec::new()) };
     static ICON_TEXTURES: RefCell<IconTextureCache> = RefCell::new(IconTextureCache::default());
+    static ICON_INK_HEIGHTS: RefCell<HashMap<usize, (glib::WeakRef<gdk::Texture>, f64)>> = RefCell::new(HashMap::new());
     static CATPPUCCIN_FLAVOR: Cell<CatppuccinFlavor> = const { Cell::new(CatppuccinFlavor::Mocha) };
     static CATPPUCCIN_THEME_COLORS: Cell<bool> = const { Cell::new(false) };
     static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Catppuccin) };
@@ -933,16 +934,41 @@ fn texture_from_surface(surface: &cairo::ImageSurface) -> Option<gdk::Texture> {
     } else {
         gdk::MemoryFormat::A8r8g8b8Premultiplied
     };
-    Some(
-        gdk::MemoryTexture::new(
-            surface.width(),
-            surface.height(),
-            format,
-            &bytes?,
-            surface.stride() as usize,
-        )
-        .upcast(),
+    let bytes = bytes?;
+    let texture: gdk::Texture = gdk::MemoryTexture::new(
+        surface.width(),
+        surface.height(),
+        format,
+        &bytes,
+        surface.stride() as usize,
     )
+    .upcast();
+    let stride = surface.stride() as usize;
+    let alpha = if cfg!(target_endian = "little") { 3 } else { 0 };
+    let visible = |row: usize| {
+        bytes[row * stride..row * stride + surface.width() as usize * 4]
+            .chunks_exact(4)
+            .any(|pixel| pixel[alpha] > 0)
+    };
+    let height = surface.height() as usize;
+    let scale = (0..height).find(|row| visible(*row)).map_or(1.0, |first| {
+        let last = (first..height).rfind(|row| visible(*row)).unwrap_or(first);
+        (19.0 / 24.0 * height as f64 / (last - first + 1) as f64).min(1.0)
+    });
+    ICON_INK_HEIGHTS.with_borrow_mut(|heights| {
+        heights.retain(|_, (texture, _)| texture.upgrade().is_some());
+        heights.insert(texture.as_ptr() as usize, (texture.downgrade(), scale));
+    });
+    Some(texture)
+}
+
+pub(crate) fn icon_folder_height_scale(texture: &gdk::Texture) -> f64 {
+    ICON_INK_HEIGHTS.with_borrow(|heights| {
+        heights
+            .get(&(texture.as_ptr() as usize))
+            .filter(|(owner, _)| owner.upgrade().as_ref() == Some(texture))
+            .map_or(1.0, |(_, scale)| *scale)
+    })
 }
 
 type IconTextureKey = (String, String, i32);

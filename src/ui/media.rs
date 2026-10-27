@@ -768,7 +768,14 @@ impl DecodedMedia {
                 Err(error) => return Err(error),
             }
         }
+        let drain_started = Instant::now();
+        let mut drained = 0;
         while imp.end.get().is_none() && self.can_queue_more() {
+            if drained >= 8 || (drained > 0 && drain_started.elapsed() >= Duration::from_millis(2))
+            {
+                break;
+            }
+            drained += 1;
             let event = imp.session.borrow().as_ref().and_then(Session::receive);
             match event {
                 Some(Event::Prepared(header)) => {

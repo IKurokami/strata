@@ -136,18 +136,7 @@ fn snapshot_texture(snapshot: &gtk::Snapshot, texture: &gdk::Texture, width: f64
 }
 
 fn folder_height_scale(texture: &gdk::Texture) -> f64 {
-    let mut downloader = gdk::TextureDownloader::new(texture);
-    downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
-    let (pixels, stride) = downloader.download_bytes();
-    let width = texture.width() as usize;
-    let visible = |row: usize| (0..width).any(|column| pixels[row * stride + column * 4 + 3] > 0);
-    let height = texture.height() as usize;
-    let Some(first) = (0..height).find(|row| visible(*row)) else {
-        return 1.0;
-    };
-    let last = (first..height).rfind(|row| visible(*row)).unwrap_or(first);
-    // Lucide's folder ink spans y=2..21, including its stroke, in a 24-unit viewBox.
-    (19.0 / 24.0 * height as f64 / (last - first + 1) as f64).min(1.0)
+    crate::assets::icon_folder_height_scale(texture)
 }
 
 fn same_texture(left: Option<&gdk::Texture>, right: Option<&gdk::Texture>) -> bool {

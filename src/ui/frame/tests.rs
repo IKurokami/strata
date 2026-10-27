@@ -11,7 +11,7 @@ fn frame_work_runs_outside_dispatch_and_cancelled_work_never_runs() {
         || {
             let window = gtk::Window::new();
             window.present();
-            let done = Rc::new(Cell::new(false));
+            let done = Rc::new(Cell::new(0));
             let cancelled = Rc::new(Cell::new(false));
             let cancelled_for_task = cancelled.clone();
             let task = FrameTask::new(Some(window.upcast_ref()), move || {
@@ -19,14 +19,23 @@ fn frame_work_runs_outside_dispatch_and_cancelled_work_never_runs() {
             });
             drop(task);
             let done_for_task = done.clone();
-            let _task = FrameTask::new(Some(window.upcast_ref()), move || done_for_task.set(true));
-            assert!(!done.get());
+            let _task = FrameTask::new(Some(window.upcast_ref()), move || {
+                done_for_task.set(done_for_task.get() + 1)
+            });
+            // Removing the mapped producer before its next frame must not strand work.
+            window.set_visible(false);
+            assert_eq!(done.get(), 0);
             let deadline = Instant::now() + Duration::from_secs(5);
-            while !done.get() {
+            while done.get() == 0 {
                 assert!(Instant::now() < deadline, "frame work was not dispatched");
                 glib::MainContext::default().iteration(false);
             }
             assert!(!cancelled.get());
+            window.present();
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            assert_eq!(done.get(), 1);
             window.destroy();
         },
     );

@@ -17,6 +17,9 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub(super) struct CollectionBehavior {
     pub(super) multiple_selection: Rc<Cell<bool>>,
@@ -196,7 +199,7 @@ impl ResultCollection {
     pub(super) fn update(&self, items: &[SearchItem], recursive: bool) {
         self.reconciling.set(true);
         self.gesture_selection.borrow_mut().take();
-        let selected_paths: Vec<_> = self
+        let selected_paths: HashSet<_> = self
             .selected_positions()
             .into_iter()
             .filter_map(|position| self.item(position as u32).map(|item| item.path))
@@ -214,57 +217,74 @@ impl ResultCollection {
             .and_then(|focus| self.position_at(&focus))
             .and_then(|position| self.item(position).map(|item| item.path));
 
-        self.positions.replace(
+        let old_positions = self.positions.replace(
             items
                 .iter()
                 .enumerate()
                 .map(|(position, item)| (item.path.clone(), position))
                 .collect(),
         );
-        let wanted: HashSet<_> = items.iter().map(|item| item.path.clone()).collect();
-        for position in (0..self.model.n_items()).rev() {
-            let remove = self
-                .model
-                .item(position)
-                .and_downcast::<glib::BoxedAnyObject>()
-                .is_none_or(|object| !wanted.contains(&object.borrow::<SearchItem>().path));
-            if remove {
-                self.model.remove(position);
-            }
-        }
-        let mut existing = HashMap::new();
-        for position in 0..self.model.n_items() {
-            if let Some(object) = self
-                .model
-                .item(position)
-                .and_downcast::<glib::BoxedAnyObject>()
-            {
-                let path = object.borrow::<SearchItem>().path.clone();
-                existing.insert(path, object);
-            }
-        }
-        for item in items {
-            let unchanged = existing.get(&item.path).is_some_and(|object| {
-                let old = object.borrow::<SearchItem>();
-                old.name == item.name && old.is_directory == item.is_directory
+        let mut previous_rank = None;
+        let reordered = items
+            .iter()
+            .filter_map(|item| old_positions.get(&item.path))
+            .any(|rank| {
+                previous_rank
+                    .replace(rank)
+                    .is_some_and(|previous| previous > rank)
             });
-            if !unchanged {
-                if let Some(object) = existing.remove(&item.path)
-                    && let Some(position) = self.model.find(&object)
-                {
-                    self.model.remove(position);
-                }
-                self.model.append(&glib::BoxedAnyObject::new(item.clone()));
-            }
+        let previous: Vec<_> = (0..self.model.n_items())
+            .filter_map(|position| {
+                self.model
+                    .item(position)
+                    .and_downcast::<glib::BoxedAnyObject>()
+            })
+            .collect();
+        let mut existing = HashMap::new();
+        for object in &previous {
+            let path = object.borrow::<SearchItem>().path.clone();
+            existing.insert(path, object.clone());
         }
-        self.sorter.changed(gtk::SorterChange::Different);
+        let next: Vec<_> = items
+            .iter()
+            .map(|item| {
+                existing
+                    .remove(&item.path)
+                    .filter(|object| {
+                        let old = object.borrow::<SearchItem>();
+                        old.name == item.name && old.is_directory == item.is_directory
+                    })
+                    .unwrap_or_else(|| glib::BoxedAnyObject::new(item.clone()))
+            })
+            .collect();
+        let prefix = previous
+            .iter()
+            .zip(&next)
+            .take_while(|(old, new)| old == new)
+            .count();
+        let suffix = previous[prefix..]
+            .iter()
+            .rev()
+            .zip(next[prefix..].iter().rev())
+            .take_while(|(old, new)| old == new)
+            .count();
+        let removed = previous.len() - prefix - suffix;
+        let added = next.len() - prefix - suffix;
+        if removed > 0 || added > 0 {
+            self.model
+                .splice(prefix as u32, removed as u32, &next[prefix..prefix + added]);
+        }
+        if reordered {
+            self.sorter.changed(gtk::SorterChange::Different);
+        }
         let selected = gtk::Bitset::new_empty();
+        let mut visible_positions = HashMap::new();
         for position in 0..self.selection.n_items() {
-            if self
-                .item(position)
-                .is_some_and(|item| selected_paths.contains(&item.path))
-            {
-                selected.add(position);
+            if let Some(item) = self.item(position) {
+                if selected_paths.contains(&item.path) {
+                    selected.add(position);
+                }
+                visible_positions.insert(item.path, position);
             }
         }
         if selected.is_empty()
@@ -277,14 +297,12 @@ impl ResultCollection {
             &gtk::Bitset::new_range(0, self.selection.n_items()),
         );
         self.gesture_selection.replace(Some(selected));
-        self.anchor.set(anchor_path.and_then(|path| {
-            (0..self.selection.n_items())
-                .find(|position| self.item(*position).is_some_and(|item| item.path == path))
-        }));
-        if let Some(position) = focused_path.as_ref().and_then(|path| {
-            (0..self.selection.n_items())
-                .find(|position| self.item(*position).is_some_and(|item| &item.path == path))
-        }) {
+        self.anchor
+            .set(anchor_path.and_then(|path| visible_positions.get(&path).copied()));
+        if let Some(position) = focused_path
+            .as_ref()
+            .and_then(|path| visible_positions.get(path).copied())
+        {
             self.restore_focus(position);
         }
         self.refresh_bindings(recursive);

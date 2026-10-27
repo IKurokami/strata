@@ -2,6 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::BTreeMap,
     rc::Rc,
 };
 
@@ -19,6 +20,7 @@ mod imp {
         pub count: Cell<u32>,
         pub resolve: RefCell<Option<ResolveFn>>,
         pub is_hidden: RefCell<Option<IsHiddenFn>>,
+        pub objects: RefCell<BTreeMap<u32, glib::WeakRef<gtk::StringObject>>>,
     }
 
     #[glib::object_subclass]
@@ -43,8 +45,20 @@ mod imp {
             if position >= self.count.get() {
                 return None;
             }
+            if let Some(object) = self
+                .objects
+                .borrow()
+                .get(&position)
+                .and_then(glib::WeakRef::upgrade)
+            {
+                return Some(object.upcast());
+            }
             let resolve = self.resolve.borrow().clone()?;
-            resolve(position).map(|text| gtk::StringObject::new(&text).upcast())
+            let object = gtk::StringObject::new(&resolve(position)?);
+            self.objects
+                .borrow_mut()
+                .insert(position, object.downgrade());
+            Some(object.upcast())
         }
     }
 }
@@ -82,6 +96,7 @@ impl EntryListModel {
     }
 
     pub(crate) fn replace(&self, count: u32) {
+        self.imp().objects.borrow_mut().clear();
         let removed = self.imp().count.replace(count);
         // The authoritative entries may have been reordered or replaced
         // without changing their count, so every non-empty replacement must
@@ -95,9 +110,22 @@ impl EntryListModel {
         let count = self.imp().count.get();
         let position = position.min(count);
         let removed = removed.min(count - position);
-        self.imp()
-            .count
-            .set((count - removed).saturating_add(added));
+        let new_count = (count - removed).saturating_add(added);
+        if removed > 0 || added > 0 {
+            let mut objects = self.imp().objects.borrow_mut();
+            let tail = objects.split_off(&position);
+            for (index, object) in tail {
+                if index >= position + removed
+                    && object.upgrade().is_some()
+                    && let Some(index) = (index - removed)
+                        .checked_add(added)
+                        .filter(|index| *index < new_count)
+                {
+                    objects.insert(index, object);
+                }
+            }
+        }
+        self.imp().count.set(new_count);
         if removed > 0 || added > 0 {
             self.items_changed(position, removed, added);
         }
