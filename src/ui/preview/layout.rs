@@ -591,6 +591,8 @@ impl PreviewState {
     }
 
     fn finish_hide(&self, restore_browser_focus: bool) {
+        super::super::motion::cancel(&self.pane, "preview-content-arriving");
+        self.pane.remove_css_class("preview-content-arriving");
         if self.slot.is_visible()
             && let Some(browser) = self.sizing.browser()
         {
@@ -617,8 +619,22 @@ impl PreviewState {
                 .as_ref()
                 .and_then(|binding| binding.browser.upgrade())
         {
-            split.add_tick_callback(move |_, _| {
-                browser.focus_file_view();
+            let browser = browser.downgrade();
+            let revealer = self.revealer.downgrade();
+            split.add_tick_callback(move |split, _| {
+                let still_hidden = revealer
+                    .upgrade()
+                    .is_some_and(|revealer| !revealer.reveals_child());
+                let needs_focus = split
+                    .root()
+                    .and_then(|root| root.focus())
+                    .is_none_or(|focused| focused == *split || !focused.is_mapped());
+                if still_hidden
+                    && needs_focus
+                    && let Some(browser) = browser.upgrade()
+                {
+                    browser.focus_file_view();
+                }
                 glib::ControlFlow::Break
             });
         }
@@ -761,8 +777,7 @@ impl PreviewState {
             })
     }
 
-    /// A slot that Columns reserves never slides: content appears in it and leaves
-    /// it. `on_settled` runs once, when the panel has finished opening or closing.
+    /// Allocate the slot once, then animate its content without resizing Columns.
     pub(super) fn animate_reveal(
         self: &Rc<Self>,
         split: &gtk::Paned,

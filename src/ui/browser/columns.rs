@@ -962,7 +962,7 @@ pub(in crate::ui) fn max_child_natural_width(widget: &gtk::Widget) -> i32 {
     max_natural
 }
 
-fn animate_horizontal_scroll(
+pub(super) fn animate_horizontal_scroll(
     scroller: &gtk::ScrolledWindow,
     adjustment: &gtk::Adjustment,
     target: f64,

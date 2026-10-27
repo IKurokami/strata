@@ -45,6 +45,7 @@ pub(in crate::ui) mod media_layout;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod scrolling;
 mod selection;
 mod session;
 pub(in crate::ui) use selection::{selection_preview_suppressed, suppress_selection_preview};
@@ -514,6 +515,7 @@ impl PreviewDrawer {
                 state.toggle_panel(entry, depth);
             }
         });
+        scrolling::install(&state.pane);
         install_preview_drag(&header_handle, &state);
         state.install_keyboard_ownership();
         state.install_find();
@@ -2430,6 +2432,16 @@ impl PreviewState {
             let Some(scroll) = weak_scroll.upgrade() else {
                 return;
             };
+            if scroll
+                .pick(x, y, gtk::PickFlags::DEFAULT)
+                .is_some_and(|target| {
+                    target.is::<gtk::Scrollbar>()
+                        || target.ancestor(gtk::Scrollbar::static_type()).is_some()
+                })
+            {
+                gesture.set_state(gtk::EventSequenceState::Denied);
+                return;
+            }
             let hit = pdf_page_at(
                 &scroll,
                 &pages_for_begin.borrow(),
