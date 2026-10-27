@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "高速（並列）",
   "Windows (standard)": "Windows（標準）",
   "settings_keywords.permanent-delete-method": "windows 削除 完全 高速 並列 標準 システム ごみ箱",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "ファイルを完全に削除する方法を選択します。通常の削除では引き続きごみ箱を使用します。"
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "ファイルを完全に削除する方法を選択します。通常の削除では引き続きごみ箱を使用します。",
+  "Use Windows properties": "Windows のプロパティを使う",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Strata 独自のプロパティ画面の代わりに Windows のプロパティダイアログを開きます。",
+  "Unable to open Windows properties": "Windows のプロパティを開けません",
+  "Delete using Windows": "Windows で削除",
+  "Permanently delete using Windows…": "Windows で完全に削除…",
+  "settings_keywords.windows-properties": "windows プロパティ 詳細 ダイアログ システム エクスプローラー"
 }

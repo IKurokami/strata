@@ -114,6 +114,17 @@ pub(super) fn general_page(
             &desktop,
             &manager,
             PreferenceSwitch {
+                title: "Use Windows properties",
+                description: "Open the Windows Properties dialog instead of Strata's custom properties.",
+                read: PreferenceManager::windows_properties,
+                write: PreferenceManager::set_windows_properties,
+            },
+        );
+
+        append_preference_switch(
+            &desktop,
+            &manager,
+            PreferenceSwitch {
                 title: "Show application console",
                 description: "Show a separate console for diagnostic logs. Changes apply immediately.",
                 read: PreferenceManager::show_console,

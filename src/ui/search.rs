@@ -747,7 +747,7 @@ fn close_result_menu(state: &SearchState) {
     }
 }
 
-fn reveal_result(state: &SearchState, item: SearchItem) {
+fn reveal_result(state: &Rc<SearchState>, item: SearchItem) {
     skip_focus_restore(state);
     let reveal = state.reveal.clone();
     hide_then(state, move || reveal(item));
@@ -890,32 +890,43 @@ fn skip_focus_restore(state: &SearchState) {
     state.focus_restore.set(false);
 }
 
-fn hide(state: &SearchState) {
+fn hide(state: &Rc<SearchState>) {
     hide_then(state, || {});
 }
 
-fn hide_then(state: &SearchState, after_dismiss: impl FnOnce() + 'static) {
-    close_result_menu(state);
-    state.generation.set(state.generation.get() + 1);
-    record_interaction(state);
-    state.search.borrow_mut().take();
-    clear_results(state);
-    state.truncated_hint.set_visible(false);
-    state.indexing_spinner.stop();
-    state.indexing_spinner.set_visible(false);
+fn hide_then(state: &Rc<SearchState>, after_dismiss: impl FnOnce() + 'static) {
     if state.layer.has_css_class("dismissing") {
         return;
     }
+    close_result_menu(state);
+    state.generation.set(state.generation.get() + 1);
+    let generation = state.generation.get();
+    record_interaction(state);
+    state.search.borrow_mut().take();
+    state.indexing_spinner.stop();
     state.layer.add_css_class("dismissing");
     state.layer.set_sensitive(false);
     let layer = state.layer.clone();
     let dismiss = state.dismiss.clone();
+    let weak = Rc::downgrade(state);
     super::browser::animate_out(&state.layer, move || {
         layer.set_visible(false);
         layer.remove_css_class("dismissing");
         layer.set_sensitive(true);
         dismiss();
         after_dismiss();
+        // Keep the outgoing result rows stable while the panel moves. Drop them
+        // after hiding, unless another show has already taken ownership.
+        glib::idle_add_local_once(move || {
+            if let Some(state) = weak.upgrade()
+                && state.generation.get() == generation
+                && !state.layer.is_visible()
+            {
+                clear_results(&state);
+                state.truncated_hint.set_visible(false);
+                state.indexing_spinner.set_visible(false);
+            }
+        });
     });
 }
 

@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "빠르게 (병렬)",
   "Windows (standard)": "Windows (표준)",
   "settings_keywords.permanent-delete-method": "windows 삭제 영구 빠르게 병렬 표준 시스템 휴지통",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "파일을 영구 삭제하는 방식을 선택합니다. 일반 삭제는 계속 휴지통을 사용합니다."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "파일을 영구 삭제하는 방식을 선택합니다. 일반 삭제는 계속 휴지통을 사용합니다.",
+  "Use Windows properties": "Windows 속성 사용",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Strata 자체 속성 창 대신 Windows 속성 대화 상자를 엽니다.",
+  "Unable to open Windows properties": "Windows 속성을 열 수 없습니다",
+  "Delete using Windows": "Windows로 삭제",
+  "Permanently delete using Windows…": "Windows로 영구 삭제…",
+  "settings_keywords.windows-properties": "windows 속성 세부 정보 대화 상자 시스템 탐색기"
 }

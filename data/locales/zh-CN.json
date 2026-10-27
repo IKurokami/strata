@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "快速（并行）",
   "Windows (standard)": "Windows（标准）",
   "settings_keywords.permanent-delete-method": "windows 删除 永久 快速 并行 标准 系统 回收站",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "选择永久删除文件的方式。普通删除仍会使用回收站。"
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "选择永久删除文件的方式。普通删除仍会使用回收站。",
+  "Use Windows properties": "使用 Windows 属性窗口",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "打开 Windows 属性对话框，替代 Strata 自带的属性面板。",
+  "Unable to open Windows properties": "无法打开 Windows 属性窗口",
+  "Delete using Windows": "使用 Windows 删除",
+  "Permanently delete using Windows…": "使用 Windows 永久删除…",
+  "settings_keywords.windows-properties": "windows 属性 详细信息 对话框 系统 资源管理器"
 }

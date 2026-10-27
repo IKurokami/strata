@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Rapide (parallèle)",
   "Windows (standard)": "Windows (standard)",
   "settings_keywords.permanent-delete-method": "windows suppression définitive rapide parallèle standard système corbeille",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Choisissez comment supprimer définitivement les fichiers. La suppression ordinaire utilise toujours la Corbeille."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Choisissez comment supprimer définitivement les fichiers. La suppression ordinaire utilise toujours la Corbeille.",
+  "Use Windows properties": "Utiliser les propriétés de Windows",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Ouvrir la boîte de dialogue Propriétés de Windows à la place de celle de Strata.",
+  "Unable to open Windows properties": "Impossible d’ouvrir les propriétés de Windows",
+  "Delete using Windows": "Supprimer avec Windows",
+  "Permanently delete using Windows…": "Supprimer définitivement avec Windows…",
+  "settings_keywords.windows-properties": "windows propriétés détails boîte dialogue système explorateur"
 }

@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Rápido (paralelo)",
   "Windows (standard)": "Windows (padrão)",
   "settings_keywords.permanent-delete-method": "windows exclusão permanente rápido paralelo padrão sistema lixeira",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Escolha como excluir arquivos permanentemente. A exclusão normal continua usando a Lixeira."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Escolha como excluir arquivos permanentemente. A exclusão normal continua usando a Lixeira.",
+  "Use Windows properties": "Usar as propriedades do Windows",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Abrir a caixa de diálogo Propriedades do Windows em vez do painel de propriedades do Strata.",
+  "Unable to open Windows properties": "Não foi possível abrir as propriedades do Windows",
+  "Delete using Windows": "Excluir pelo Windows",
+  "Permanently delete using Windows…": "Excluir permanentemente pelo Windows…",
+  "settings_keywords.windows-properties": "windows propriedades detalhes diálogo sistema explorador"
 }

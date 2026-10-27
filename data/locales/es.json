@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Rápido (en paralelo)",
   "Windows (standard)": "Windows (estándar)",
   "settings_keywords.permanent-delete-method": "windows eliminar permanente rápido paralelo estándar sistema papelera reciclaje",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Elige cómo eliminar archivos permanentemente. La eliminación normal sigue usando la Papelera de reciclaje."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Elige cómo eliminar archivos permanentemente. La eliminación normal sigue usando la Papelera de reciclaje.",
+  "Use Windows properties": "Usar las propiedades de Windows",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Abrir el cuadro de diálogo Propiedades de Windows en lugar del panel de propiedades de Strata.",
+  "Unable to open Windows properties": "No se pudieron abrir las propiedades de Windows",
+  "Delete using Windows": "Eliminar con Windows",
+  "Permanently delete using Windows…": "Eliminar permanentemente con Windows…",
+  "settings_keywords.windows-properties": "windows propiedades detalles diálogo sistema explorador"
 }

@@ -9,6 +9,41 @@ use windows::Win32::{
     },
 };
 
+/// Work area of the monitor containing a client point, in client pixel coordinates.
+pub fn popup_vertical_bounds(handle: isize, point: [i32; 2]) -> windows_core::Result<[i32; 2]> {
+    use windows::Win32::{
+        Foundation::POINT,
+        Graphics::Gdi::{
+            ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+            MonitorFromPoint,
+        },
+    };
+    let window = HWND(handle as *mut _);
+    let mut origin = POINT::default();
+    // SAFETY: Windows validates this borrowed HWND; both output points are live.
+    unsafe { ClientToScreen(window, &mut origin) }.ok()?;
+    let pointer = POINT {
+        x: origin.x.saturating_add(point[0]),
+        y: origin.y.saturating_add(point[1]),
+    };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: The monitor is borrowed and the initialized output has the API's size.
+    unsafe {
+        GetMonitorInfoW(
+            MonitorFromPoint(pointer, MONITOR_DEFAULTTONEAREST),
+            &mut info,
+        )
+    }
+    .ok()?;
+    Ok([
+        info.rcWork.top.saturating_sub(origin.y),
+        info.rcWork.bottom.saturating_sub(origin.y),
+    ])
+}
+
 /// Activate the existing browser after a user-initiated external open request.
 pub fn foreground(handle: isize) {
     let window = HWND(handle as *mut _);

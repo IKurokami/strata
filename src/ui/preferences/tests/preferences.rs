@@ -95,6 +95,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
     saved.remove("filter_include_subfolders");
     saved.remove("open_folder_after_drop");
     saved.remove("permanent_delete_method");
+    saved.remove("windows_properties");
     saved.remove("date_format");
     saved.remove("send_to_recent_destinations");
     saved.remove("tenxer_mode");
@@ -111,6 +112,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
             filter_include_subfolders: true,
             open_folder_after_drop: false,
             permanent_delete_method: crate::services::PermanentDeleteMethod::Fast,
+            windows_properties: false,
             date_format: "relative".into(),
             send_to_recent_destinations: HashMap::new(),
             tenxer_mode: false,
@@ -1237,6 +1239,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 },
                 |m| m.set_open_folder_after_drop(false),
                 |m| m.set_permanent_delete_method(crate::services::PermanentDeleteMethod::Fast),
+                |m| m.set_windows_properties(false),
                 |m| m.set_folder_color(Path::new("/fixture/folder"), None),
                 |m| m.set_custom_icon(Path::new("/fixture/folder"), None),
             ];

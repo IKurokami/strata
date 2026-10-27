@@ -9,11 +9,20 @@ use std::{
 use gtk::{gio, glib, prelude::*};
 
 pub(super) async fn launch(path: PathBuf, choose: bool) -> io::Result<()> {
-    run_helper(vec![path], if choose { "--choose" } else { "--launch" }).await
+    run_helper(
+        vec![path],
+        if choose { "--choose" } else { "--launch" },
+        "Unable to open file",
+    )
+    .await
 }
 
-async fn run_helper(paths: Vec<PathBuf>, mode: &'static str) -> io::Result<()> {
-    let fallback = crate::i18n::tr("Unable to open file");
+async fn run_helper(
+    paths: Vec<PathBuf>,
+    mode: &'static str,
+    error_label: &'static str,
+) -> io::Result<()> {
+    let fallback = crate::i18n::tr(error_label);
     gio::spawn_blocking(move || {
         let mut command = helper_command()?;
         command.arg(mode).args(paths);
@@ -26,7 +35,7 @@ async fn run_helper(paths: Vec<PathBuf>, mode: &'static str) -> io::Result<()> {
         helper_result(child.wait_with_output()?, &fallback)
     })
     .await
-    .unwrap_or_else(|_| Err(io::Error::other(crate::i18n::tr("Unable to open file"))))
+    .unwrap_or_else(|_| Err(io::Error::other(crate::i18n::tr(error_label))))
 }
 
 mod menu;
@@ -105,6 +114,46 @@ pub(super) fn open(path: PathBuf, parent: &impl IsA<gtk::Widget>) {
             report(&parent, result);
         }
     });
+}
+
+pub(super) fn properties(paths: Vec<PathBuf>, parent: &impl IsA<gtk::Widget>) {
+    #[cfg(test)]
+    if PROPERTIES_CAPTURE.with_borrow_mut(|capture| {
+        if let Some(requests) = capture {
+            requests.push(paths.clone());
+            true
+        } else {
+            false
+        }
+    }) {
+        return;
+    }
+    let parent = parent.as_ref().downgrade();
+    glib::spawn_future_local(async move {
+        let result = run_helper(paths, "--properties", "Unable to open Windows properties").await;
+        if let Err(error) = result {
+            tracing::warn!(%error, "Windows properties helper failed");
+            if let Some(parent) = parent.upgrade() {
+                super::modal::show_error_dialog(
+                    &parent,
+                    &crate::i18n::tr("Unable to open Windows properties"),
+                    &crate::services::io_error_detail(&error),
+                );
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    static PROPERTIES_CAPTURE: std::cell::RefCell<Option<Vec<Vec<PathBuf>>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(in crate::ui) fn capture_properties_for_test(
+    capture: Option<Vec<Vec<PathBuf>>>,
+) -> Option<Vec<Vec<PathBuf>>> {
+    PROPERTIES_CAPTURE.replace(capture)
 }
 
 pub(super) fn report(parent: &impl IsA<gtk::Widget>, result: io::Result<()>) {

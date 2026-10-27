@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Fast (parallel)",
   "Windows (standard)": "Windows (standard)",
   "settings_keywords.permanent-delete-method": "windows delete removal permanent fast parallel standard shell recycle bin",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.",
+  "Use Windows properties": "Use Windows properties",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Open the Windows Properties dialog instead of Strata's custom properties.",
+  "Unable to open Windows properties": "Unable to open Windows properties",
+  "Delete using Windows": "Delete using Windows",
+  "Permanently delete using Windows…": "Permanently delete using Windows…",
+  "settings_keywords.windows-properties": "windows native shell properties details dialog explorer"
 }

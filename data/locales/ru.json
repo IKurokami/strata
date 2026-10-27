@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Быстрый (параллельный)",
   "Windows (standard)": "Windows (стандартный)",
   "settings_keywords.permanent-delete-method": "windows удаление безвозвратно быстро параллельно стандарт система корзина",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Выберите способ безвозвратного удаления файлов. Обычное удаление по-прежнему использует Корзину."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Выберите способ безвозвратного удаления файлов. Обычное удаление по-прежнему использует Корзину.",
+  "Use Windows properties": "Использовать свойства Windows",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Открывать диалог свойств Windows вместо собственной панели свойств Strata.",
+  "Unable to open Windows properties": "Не удалось открыть свойства Windows",
+  "Delete using Windows": "Удалить средствами Windows",
+  "Permanently delete using Windows…": "Удалить безвозвратно средствами Windows…",
+  "settings_keywords.windows-properties": "windows свойства сведения диалог система проводник"
 }

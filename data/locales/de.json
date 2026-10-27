@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Schnell (parallel)",
   "Windows (standard)": "Windows (Standard)",
   "settings_keywords.permanent-delete-method": "windows löschen endgültig schnell parallel standard system papierkorb",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Wählen Sie, wie Dateien endgültig gelöscht werden. Normales Löschen verwendet weiterhin den Papierkorb."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Wählen Sie, wie Dateien endgültig gelöscht werden. Normales Löschen verwendet weiterhin den Papierkorb.",
+  "Use Windows properties": "Windows-Eigenschaften verwenden",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Den Windows-Eigenschaftendialog anstelle der eigenen Eigenschaftenansicht von Strata öffnen.",
+  "Unable to open Windows properties": "Windows-Eigenschaften konnten nicht geöffnet werden",
+  "Delete using Windows": "Mit Windows löschen",
+  "Permanently delete using Windows…": "Mit Windows endgültig löschen…",
+  "settings_keywords.windows-properties": "windows eigenschaften details dialog system explorer"
 }

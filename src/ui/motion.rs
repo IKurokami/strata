@@ -9,7 +9,8 @@ use std::{
 
 pub(super) const CONTENT: Duration = Duration::from_millis(120);
 pub(super) const PANEL: Duration = Duration::from_millis(180);
-pub(super) const MODAL: Duration = Duration::from_millis(180);
+// Exit CSS lasts 140 ms; keep one frame of headroom before removing the layer.
+pub(super) const MODAL: Duration = Duration::from_millis(160);
 pub(super) const FEEDBACK: Duration = Duration::from_millis(180);
 
 type ActiveMotion = (glib::WeakRef<gtk::Widget>, &'static str, Rc<Cell<bool>>);

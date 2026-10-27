@@ -32,6 +32,9 @@ fn main() -> std::process::ExitCode {
             });
             strata_win_shell::file_manager::open_with_request(folder, request.as_deref())
         }
+        [mode, files @ ..] if mode == "--properties" && !files.is_empty() => {
+            strata_win_shell::context_menu::properties(files)
+        }
         [mode, file] if mode == "--launch" || mode == "--choose" => {
             match strata_win_shell::launch::open(std::path::Path::new(file), mode == "--choose") {
                 Ok(()) => Ok(()),

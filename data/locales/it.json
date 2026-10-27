@@ -1308,5 +1308,11 @@
   "Fast (parallel)": "Rapido (parallelo)",
   "Windows (standard)": "Windows (standard)",
   "settings_keywords.permanent-delete-method": "windows eliminazione definitiva rapido parallelo standard sistema cestino",
-  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Scegli come eliminare definitivamente i file. L’eliminazione normale continua a usare il Cestino."
+  "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.": "Scegli come eliminare definitivamente i file. L’eliminazione normale continua a usare il Cestino.",
+  "Use Windows properties": "Usa le proprietà di Windows",
+  "Open the Windows Properties dialog instead of Strata's custom properties.": "Apri la finestra Proprietà di Windows al posto del pannello delle proprietà di Strata.",
+  "Unable to open Windows properties": "Impossibile aprire le proprietà di Windows",
+  "Delete using Windows": "Elimina con Windows",
+  "Permanently delete using Windows…": "Elimina definitivamente con Windows…",
+  "settings_keywords.windows-properties": "windows proprietà dettagli finestra sistema esplora file"
 }

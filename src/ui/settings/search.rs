@@ -15,6 +15,13 @@ struct Target {
 const TARGETS: &[Target] = &[
     #[cfg(windows)]
     Target {
+        id: "windows-properties",
+        page: "general",
+        title: "Use Windows properties",
+        aliases: "windows native shell properties details dialog explorer",
+    },
+    #[cfg(windows)]
+    Target {
         id: "permanent-delete-method",
         page: "general",
         title: "Permanent deletion method",

@@ -42,6 +42,21 @@ tag status-only content with its section's target (the managed-install row uses
 
 ## One initialization and update path
 
+On Windows, **Settings → General → Desktop integration → Use Windows properties**
+is off by default. Enable it to use the Windows property sheet for native files,
+folders and selections, including the Properties shortcut. The preference is read
+when the command is dispatched, before Settings opens and after view rebuilds.
+Unsupported virtual locations retain Strata's property panel. Shell extensions
+run in the separate helper process rather than entering GTK. A launch failure
+is reported instead of silently opening a different properties dialog.
+
+Windows item context menus also expose **Delete using Windows** (normal deletion
+to the Recycle Bin) and **Permanently delete using Windows…** (the standard Shell
+permanent-deletion method, after confirmation). The permanent action overrides
+the method for that operation without changing the saved deletion preference.
+Normal deletion never silently falls back to permanent deletion. Non-native or
+read-only selections do not expose these actions.
+
 On Windows, **Show application console** is off by default. It applies immediately
 from Settings or the tray menu, is saved across launches, and controls only a
 console allocated by Strata. A terminal used to launch Strata remains owned by

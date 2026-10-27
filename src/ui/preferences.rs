@@ -213,6 +213,8 @@ pub(in crate::ui) struct Preferences {
     open_folder_after_drop: bool,
     #[serde(default)]
     permanent_delete_method: PermanentDeleteMethod,
+    #[serde(default)]
+    windows_properties: bool,
     #[serde(default = "default_date_format")]
     date_format: String,
     #[serde(default = "default_release_channel")]
@@ -336,6 +338,7 @@ impl Default for Preferences {
             cross_volume_drop_strategy: default_cross_volume_drop_strategy(),
             open_folder_after_drop: false,
             permanent_delete_method: PermanentDeleteMethod::Fast,
+            windows_properties: false,
             date_format: default_date_format(),
             release_channel: default_release_channel(),
             default_directory: None,
@@ -1248,6 +1251,17 @@ impl PreferenceManager {
 
     pub fn cross_volume_drop_strategy(&self) -> CrossVolumeDropStrategy {
         CrossVolumeDropStrategy::parse(&self.preferences.borrow().cross_volume_drop_strategy)
+    }
+
+    #[cfg(windows)]
+    pub fn windows_properties(&self) -> bool {
+        self.preferences.borrow().windows_properties
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_windows_properties(&self, enabled: bool) {
+        self.preferences.borrow_mut().windows_properties = enabled;
+        self.save_preferences();
     }
 
     pub fn permanent_delete_method(&self) -> PermanentDeleteMethod {
