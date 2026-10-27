@@ -608,10 +608,13 @@ impl PreviewDrawer {
         }
         let media = state.media.borrow().clone()?;
         media.set_playing(false);
-        media
-            .downcast_ref::<super::media::DecodedMedia>()?
-            .video_size()?;
-        let position = media.timestamp().max(0) as u64;
+        let decoded = media.downcast_ref::<super::media::DecodedMedia>()?;
+        if decoded.video_size().is_none() && state.video.borrow().is_none() {
+            return None;
+        }
+        // A replacement stream may still be restoring its saved position before
+        // GTK publishes a timestamp or the decoder has delivered its header.
+        let position = decoded.playback_position();
         let duration = media.duration().max(0) as u64;
         let inside = position > HANDOFF_MARGIN_US
             && (duration == 0 || position.saturating_add(HANDOFF_MARGIN_US) < duration);

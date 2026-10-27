@@ -199,6 +199,10 @@ fn enter_on_a_video_preview_opens_it_where_it_stopped() {
 
             std::fs::remove_file(&output).expect("reset recorder");
             preferences.set_tenxer_mode(false);
+            let media = fixture
+                .preview
+                .media_for_test()
+                .expect("current video stream");
             media.play();
             assert!(fixture.preview.take_keyboard());
             settle("preview focus", || preview_has_focus(&fixture));

@@ -652,6 +652,30 @@ fn handoffs_pause_the_shown_video_and_report_positions_away_from_the_ends() {
                 Some(std::time::Duration::from_secs(5))
             );
             assert!(!media.is_playing());
+            drawer.show(entry("other.mp4"), None);
+            ready(&provider, 1, "video/mp4");
+            drawer.show(clip.clone(), None);
+            ready(&provider, 2, "video/mp4");
+            let media = drawer
+                .state
+                .media
+                .borrow()
+                .clone()
+                .and_downcast::<crate::ui::media::DecodedMedia>()
+                .expect("restoring stream");
+            assert!(!media.is_prepared());
+            assert_eq!(
+                drawer.prepare_handoff(&clip.location),
+                Some(std::time::Duration::from_secs(5)),
+                "the saved position survives handoff before decoder preparation"
+            );
+            media.present_test_frame(64, 36);
+            media.seek(0);
+            assert_eq!(
+                drawer.prepare_handoff(&clip.location),
+                None,
+                "an explicit seek supersedes the pending saved position"
+            );
             media.seek(9_500_000);
             assert_eq!(
                 drawer.prepare_handoff(&clip.location),
@@ -660,7 +684,7 @@ fn handoffs_pause_the_shown_video_and_report_positions_away_from_the_ends() {
             );
 
             drawer.show(entry("song.mp3"), None);
-            ready(&provider, 1, "audio/mpeg");
+            ready(&provider, 3, "audio/mpeg");
             assert_eq!(
                 drawer.prepare_handoff(&entry("song.mp3").location),
                 None,
