@@ -1,6 +1,22 @@
 # Themes
 
-Strata styles the interface with nine semantic color tokens. Bundled themes are the fallback on any Linux desktop; Azure Glow is the default. Settings presents all 95 bundled themes in one searchable, light/dark-filterable scrolling catalog.
+Strata styles the interface with nine semantic color tokens. Bundled themes are available across supported desktops; Tokyo Night is the default. Settings presents the bundled themes in one searchable, light/dark-filterable scrolling catalog.
+
+The library includes macOS Classic Light and macOS Classic Dark, adapted from
+huacnlee's Zed themes. Their interface and syntax colors map to Strata's semantic
+tokens; the dark danger color is adjusted for readability.
+
+Under Settings → Appearance, **File icon theme** switches between Catppuccin and
+Material Icons. Material includes the upstream filename, extension and named
+directory associations. **File icon colors** retains the collection's original
+colors by default, including its light variants, or applies the theme accent.
+Custom folder colors and user-selected icons continue to take precedence.
+
+**Interface font** opens the system font chooser without a monospace or Nerd Font
+filter. On Windows this includes installed system and per-user font families.
+The saved family applies immediately across existing windows and rebuilt views;
+the text-size preference continues to control size. Font enumeration happens when
+the chooser opens rather than during startup.
 
 Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. A few bundled entries override the mapped foreground values so body text stays readable: text is at least 4.5:1 on background and 3:1 on surface. Where the upstream dim text is also unreadable, it is adjusted to stay legible while remaining dimmer than text. The catalog comments each override next to the value. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
 
@@ -47,9 +63,9 @@ Theme files may be symlinks into a dotfiles repository. The configurator never r
 
 ## Syntax colors
 
-All 95 bundled themes include explicit code-preview palettes. Tinted Base16 palettes map `base0E` to keywords, `base0B` to strings, `base09` to constants, `base0A` to types, and `base0C` to preprocessor directives. Catppuccin and Tokyo Night use the pinned `catppuccin-mocha` and `tokyo-night-dark` syntax palettes; Azure Glow and Omarchy Light have original curated palettes.
+All bundled themes include explicit code-preview palettes. Tinted Base16 palettes map `base0E` to keywords, `base0B` to strings, `base09` to constants, `base0A` to types, and `base0C` to preprocessor directives. Catppuccin and Tokyo Night use the pinned `catppuccin-mocha` and `tokyo-night-dark` syntax palettes; Azure Glow and Omarchy Light have original curated palettes.
 
-Under **Settings → Theme & appearance → Add a theme**, the syntax color pickers start with the selected theme's colors. Each picker previews changes immediately in open code previews; Cancel restores the selected theme, and Add theme saves all five syntax colors with the interface palette. Closing Settings by any route (Escape, Close settings, a click outside it, or closing the window) discards an unsaved preview the same way. Opening the editor again starts from the selected theme's colors. Changing text size or glow while previewing keeps the preview until it is cancelled or saved. **Dim text / comments** controls comments as well as dim interface text. Markdown headings continue to use the accent color.
+Under **Settings → Appearance → Add a theme**, the syntax color pickers start with the selected theme's colors. Each picker previews changes immediately in open code previews; Cancel restores the selected theme, and Add theme saves all five syntax colors with the interface palette. Closing Settings by any route (Escape, Close settings, a click outside it, or closing the window) discards an unsaved preview the same way. Opening the editor again starts from the selected theme's colors. Changing text size or glow while previewing keeps the preview until it is cancelled or saved. **Dim text / comments** controls comments as well as dim interface text. Markdown headings continue to use the accent color.
 
 Each color swatch in the editor opens GTK's color chooser. Its Cancel and Select buttons and its custom color editor (hex entry, hue slider, and the value popups) follow the active theme and update live, as does the same chooser in the custom folder color dialog.
 

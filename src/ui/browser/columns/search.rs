@@ -8,6 +8,9 @@ use std::{
     collections::HashSet,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub(super) fn update_results(
     model: &gtk::StringList,
     results: &RefCell<Vec<SearchItem>>,
@@ -25,27 +28,36 @@ pub(super) fn update_results(
         })
         .collect();
     let was_syncing = syncing.replace(true);
-    for (position, item) in items.iter().enumerate() {
-        let existing = results.borrow()[position..].iter().position(|old| {
-            old.path == item.path && old.name == item.name && old.is_directory == item.is_directory
-        });
-        match existing {
-            Some(0) => {}
-            Some(offset) => {
-                // Row binding reads results synchronously during each model notification.
-                results.borrow_mut().drain(position..position + offset);
-                model.splice(position as u32, offset as u32, &[]);
-            }
-            None => {
-                results.borrow_mut().insert(position, item.clone());
-                model.splice(position as u32, 0, &[item.name.as_str()]);
-            }
-        }
-    }
-    let removed = results.borrow().len() - items.len();
-    if removed > 0 {
-        results.borrow_mut().truncate(items.len());
-        model.splice(items.len() as u32, removed as u32, &[]);
+    let same = |old: &SearchItem, new: &SearchItem| {
+        old.path == new.path && old.name == new.name && old.is_directory == new.is_directory
+    };
+    let (prefix, removed, added) = {
+        let old = results.borrow();
+        let prefix = old
+            .iter()
+            .zip(&items)
+            .take_while(|(old, new)| same(old, new))
+            .count();
+        let suffix = old[prefix..]
+            .iter()
+            .rev()
+            .zip(items[prefix..].iter().rev())
+            .take_while(|(old, new)| same(old, new))
+            .count();
+        (
+            prefix,
+            old.len() - prefix - suffix,
+            items.len() - prefix - suffix,
+        )
+    };
+    // Row binding reads the authoritative results synchronously during notification.
+    results.replace(items.clone());
+    if removed > 0 || added > 0 {
+        let names: Vec<_> = items[prefix..prefix + added]
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect();
+        model.splice(prefix as u32, removed as u32, &names);
     }
     let selected = gtk::Bitset::new_empty();
     for (position, item) in items.iter().enumerate() {

@@ -28,6 +28,10 @@ fn values_model(count: u32) -> (EntryListModel, Rc<Cell<u32>>) {
 fn lazy_model_counts_items_splices_and_types() {
     if std::env::var_os(GTK_CHILD).is_some() {
         if gtk::init().is_err() {
+            assert!(
+                std::env::var_os("STRATA_REQUIRE_GTK_TESTS").is_none(),
+                "isolated GTK display is required"
+            );
             return;
         }
         let (items, calls) = values_model(8);
@@ -36,11 +40,20 @@ fn lazy_model_counts_items_splices_and_types() {
             .and_downcast::<gtk::StringObject>()
             .expect("position 3 should resolve to a string object");
         assert_eq!(item.string(), "f\tfile-0003");
+        assert_eq!(items.item(3).as_ref(), Some(item.upcast_ref()));
+        assert_eq!(calls.get(), 1, "repeated lookup retains the live object");
+        items.splice(1, 0, 2);
+        assert_eq!(items.item(5).as_ref(), Some(item.upcast_ref()));
+        items.splice(1, 2, 0);
+        assert_eq!(items.item(3).as_ref(), Some(item.upcast_ref()));
+        items.splice(3, 1, 1);
+        assert_ne!(items.item(3).as_ref(), Some(item.upcast_ref()));
+        assert_eq!(calls.get(), 2, "a replaced entry must resolve again");
         let list = items.upcast::<gio::ListModel>();
         list.item(0)
             .and_downcast::<gtk::StringObject>()
             .expect("items should stay string objects");
-        assert_eq!(calls.get(), 2);
+        assert_eq!(calls.get(), 3);
         return;
     }
 

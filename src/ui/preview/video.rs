@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use gtk::{gdk, glib, gsk, prelude::*};
+use gtk::{glib, gsk, prelude::*};
 
 use crate::{
     model::FileEntry,
@@ -386,31 +386,6 @@ impl VideoView {
         }
     }
 
-    fn light_from_poster(&self, poster: &gdk::Texture) {
-        if !self.glow_allowed() || poster.width() <= 0 || poster.height() <= 0 {
-            return;
-        }
-        let (width, height) = (poster.width() as usize, poster.height() as usize);
-        let mut downloader = gdk::TextureDownloader::new(poster);
-        downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
-        let (bytes, stride) = downloader.download_bytes();
-        let row = width * 4;
-        let packed: Vec<u8>;
-        let pixels: &[u8] = if stride == row {
-            &bytes
-        } else {
-            packed = bytes
-                .chunks(stride)
-                .take(height)
-                .flat_map(|line| line[..row.min(line.len())].iter().copied())
-                .collect();
-            &packed
-        };
-        if let Some(grid) = crate::ui::media::ambient::sample(pixels, width as u32, height as u32) {
-            self.glow.update(&grid);
-        }
-    }
-
     pub(super) fn detach(&self) {
         if let Some(media) = self.media.borrow_mut().take() {
             for handler in self.handlers.borrow_mut().drain(..) {
@@ -734,9 +709,7 @@ impl VideoView {
                 .as_ref()
                 .map(|poster| poster.intrinsic_aspect_ratio()),
         );
-        if let Some(poster) = &poster {
-            self.light_from_poster(poster);
-        }
+        // Ambient colors arrive with decoded CPU frames; never read the poster back from the GPU.
         self.placeholder.set_poster_with_opacity(poster, opacity);
         self.placeholder.set_aspect(None);
         self.placeholder.reveal();

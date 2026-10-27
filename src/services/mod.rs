@@ -5,6 +5,7 @@ pub(crate) mod camera_preview;
 mod document;
 pub(crate) mod document_media;
 pub(crate) mod docx;
+pub(crate) mod file_mutations;
 #[cfg(not(windows))]
 pub(crate) mod file_providers;
 #[cfg(windows)]
@@ -84,11 +85,11 @@ pub(crate) use native_fs::{is_hidden_name, native_hidden_names, native_kind};
 pub(crate) use navigation_history::NavigationHistory;
 pub use operations::{
     ArchiveFormat, CancelledOperation, CompressRequest, CreateDirectoryRequest, CreateFileRequest,
-    DeleteRequest, ExtractRequest, MoveRecord, OperationEvent, OperationProvider,
-    OperationRequestId, PasswordFailure, PasteItem, PasteRequest, RenameRecord, RenameRequest,
-    RestoreRequest, RestoreSource, RestoreTrashItem, TransferConflict, TrashedOriginal,
-    UndoCopyRequest, UndoMergeRequest, UndoMoveItem, UndoMoveRequest, UndoRenameRequest,
-    validate_basename,
+    DeleteRequest, ExtractRequest, ExtractionMode, MoveRecord, OperationEvent, OperationProvider,
+    OperationRequestId, PasswordFailure, PasteItem, PasteRequest, PermanentDeleteMethod,
+    RenameRecord, RenameRequest, RestoreRequest, RestoreSource, RestoreTrashItem, TransferConflict,
+    TrashedOriginal, UndoCopyRequest, UndoMergeRequest, UndoMoveItem, UndoMoveRequest,
+    UndoRenameRequest, validate_basename,
 };
 pub(crate) use path_match::{PathMatcher, PathQuery};
 pub use preview::{
@@ -97,10 +98,10 @@ pub use preview::{
     PreviewRequest, PreviewRequestId, SandboxedMedia, SecretString, archive_preview_tree,
 };
 pub(crate) use preview::{
-    INCORRECT_ARCHIVE_PASSWORD, archive_preview_format, content_family, has_plain_text_extension,
-    is_audio_path, is_extensionless_dotfile, is_gif_path, is_image_path, is_media_path, is_model,
-    is_non_executable_extensionless_dotfile, normalize_preview_text, split_archive_name,
-    supports_remote_video,
+    INCORRECT_ARCHIVE_PASSWORD, archive_preview_format, content_family_for_file,
+    has_plain_text_extension, is_audio_path, is_extensionless_dotfile, is_gif_path, is_image_path,
+    is_media_path, is_model, is_non_executable_extensionless_dotfile, normalize_preview_text,
+    split_archive_name, supports_remote_video,
 };
 pub(crate) use transfer_action::{
     CrossVolumeDropStrategy, DropActionInput, DropCommit, DropOverride, TransferKind,

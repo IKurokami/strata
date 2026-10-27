@@ -251,7 +251,7 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let format = ArchiveFormat::from_extension(&request.entry.display_name);
         let password = request.password.clone();
         let display_name = request.entry.display_name.clone();
-        let into_folder = request.into_folder;
+        let into_folder = request.mode == crate::services::ExtractionMode::Folder;
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
         emit(OperationEvent::ArchiveStarted {

@@ -407,3 +407,54 @@ fn only_a_docked_preview_offers_its_divider_for_resizing() {
         },
     );
 }
+
+#[test]
+fn mutations_release_matching_drawers_and_cancel_debounced_targets_across_tabs() {
+    crate::test_support::gtk_test(
+        "ui::preview::tests::mutations_release_matching_drawers_and_cancel_debounced_targets_across_tabs",
+        || {
+            let provider = Rc::new(Provider::default());
+            let first = PreviewDrawer::new(provider.clone(), false);
+            let second = PreviewDrawer::new(provider.clone(), false);
+            let unrelated = PreviewDrawer::new(provider.clone(), false);
+            first.show(entry("folder/video.mp4"), None);
+            second.show(entry("folder/file.json"), None);
+            unrelated.show(entry("folder-other/file.json"), None);
+            let guard =
+                glib::MainContext::default().block_on(crate::services::file_mutations::release(&[
+                    Location::local("folder"),
+                ]));
+            assert!(first.state.current.borrow().is_none());
+            assert!(second.state.current.borrow().is_none());
+            assert!(first.state.current_request.get().is_none());
+            assert!(second.state.load.borrow().is_none());
+            assert!(unrelated.state.current.borrow().is_some());
+            let requests = provider.0.borrow().len();
+            first.show(entry("folder/video.mp4"), None);
+            second.show_after_focus_change(entry("folder/file.json"), None);
+            assert!(first.state.current.borrow().is_none());
+            assert!(second.state.pending_show.borrow().is_none());
+            assert_eq!(
+                provider.0.borrow().len(),
+                requests,
+                "focus must not reopen an input during a mutation"
+            );
+            drop(guard);
+            first.show(entry("folder/video.mp4"), None);
+            assert_eq!(
+                provider.0.borrow().len(),
+                requests + 1,
+                "the preview can open after mutation completion"
+            );
+            first.show(entry("keep.txt"), None);
+            first
+                .state
+                .show_after_focus_change(entry("folder/pending.json"), None);
+            assert!(first.state.pending_show.borrow().is_some());
+            crate::services::file_mutations::prepare(&[Location::local("folder")]);
+            assert!(first.state.pending_show.borrow().is_none());
+            assert!(first.state.pending_show_location.borrow().is_none());
+            assert!(first.state.current.borrow().is_none());
+        },
+    );
+}

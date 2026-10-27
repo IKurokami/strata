@@ -38,6 +38,9 @@ use crate::{
 
 #[path = "local_operations/archive/listing.rs"]
 mod listing;
+#[cfg(test)]
+#[path = "local_operations_windows/preview_release_tests.rs"]
+mod preview_release_tests;
 
 #[cfg(test)]
 pub(crate) use listing::ArchiveListing;
@@ -442,13 +445,25 @@ impl OperationProvider for LocalOperationProvider {
         run_undo_merge(self.state.clone(), request, emit)
     }
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+        self.delete_with_method(
+            request,
+            crate::services::PermanentDeleteMethod::Native,
+            emit,
+        )
+    }
+    fn delete_with_method(
+        &self,
+        request: DeleteRequest,
+        method: crate::services::PermanentDeleteMethod,
+        emit: Rc<dyn Fn(OperationEvent)>,
+    ) -> LoadHandle {
         if request.permanent {
             let locations = request
                 .entries
                 .into_iter()
                 .map(|entry| entry.location)
                 .collect();
-            return permanently_delete_locations(request.id, locations, emit);
+            return permanently_delete_locations(request.id, locations, method, emit);
         }
         let locations = request.entries.into_iter().map(|e| e.location).collect();
         recycle_locations(request.id, locations, emit)
@@ -477,6 +492,7 @@ impl OperationProvider for LocalOperationProvider {
 fn permanently_delete_locations(
     id: OperationRequestId,
     locations: Vec<Location>,
+    method: crate::services::PermanentDeleteMethod,
     emit: Rc<dyn Fn(OperationEvent)>,
 ) -> LoadHandle {
     let mut paths = Vec::with_capacity(locations.len());
@@ -494,6 +510,10 @@ fn permanently_delete_locations(
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = cancelled.clone();
     glib::MainContext::default().spawn_local(async move {
+        let mut roots = locations;
+        roots.extend(paths.iter().map(|item| Location::local(&item.1)));
+        let _preview_guard = crate::services::file_mutations::release(&roots).await;
+
         let outcome = gio::spawn_blocking(move || {
             let mut deleted = Vec::new();
             let mut failed = Vec::new();
@@ -505,6 +525,8 @@ fn permanently_delete_locations(
                 }
                 let outcome = if super::recycle_bin::is_item(&location) {
                     strata_win_shell::delete_recycled(&path)
+                } else if method == crate::services::PermanentDeleteMethod::Fast {
+                    strata_native_io::deletion::remove(&path, &worker_cancelled)
                 } else {
                     strata_win_shell::permanently_delete(&[path])
                 };
@@ -666,6 +688,20 @@ fn async_copy_items(
     let cancel = gio::Cancellable::new();
     let task_cancel = cancel.clone();
     glib::MainContext::default().spawn_local(async move {
+        let _preview_guard = crate::services::file_mutations::release(
+            &operations
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        item.3,
+                        TransferConflict::ReplaceExisting | TransferConflict::Merge
+                    )
+                })
+                .map(|item| Location::local(&item.2))
+                .collect::<Vec<_>>(),
+        )
+        .await;
+
         let mut completed = Vec::new();
         let not_attempted_items = operations.clone();
         for (index, (source_loc, source_path, destination_path, conflict)) in
@@ -906,6 +942,20 @@ fn async_move_items(
     }
 
     glib::MainContext::default().spawn_local(async move {
+        let mut roots = items.iter().map(|item| item.0.clone()).collect::<Vec<_>>();
+        roots.extend(
+            items
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        item.3,
+                        TransferConflict::ReplaceExisting | TransferConflict::Merge
+                    )
+                })
+                .map(|item| Location::local(&item.2)),
+        );
+        let _preview_guard = crate::services::file_mutations::release(&roots).await;
+
         let mut completed = Vec::new();
         let not_attempted_items = items.clone();
         for (index, (location, source, mut target, conflict)) in items.into_iter().enumerate() {
@@ -1144,6 +1194,14 @@ fn async_move_paths(
     let cancel = gio::Cancellable::new();
     let task_cancel = cancel.clone();
     let _task = glib::MainContext::default().spawn_local(async move {
+        let _preview_guard = crate::services::file_mutations::release(
+            &operations
+                .iter()
+                .map(|item| item.0.clone())
+                .collect::<Vec<_>>(),
+        )
+        .await;
+
         let mut completed = Vec::new();
         let mut affected = std::collections::HashSet::new();
         for (_, source, target) in &operations {
@@ -1282,6 +1340,8 @@ fn recycle_locations(
         })
         .collect();
     glib::MainContext::default().spawn_local(async move {
+        let _preview_guard = crate::services::file_mutations::release(&locations).await;
+
         let outcome = gio::spawn_blocking(move || {
             let mut deleted = Vec::new();
             let mut failed = Vec::new();
@@ -1383,6 +1443,12 @@ fn restore_selected_locations(
     let worker_cancelled = cancelled.clone();
     let total = paths.len();
     glib::MainContext::default().spawn_local(async move {
+        let roots = paths
+            .iter()
+            .flat_map(|item| [item.0.clone(), Location::local(&item.1)])
+            .collect::<Vec<_>>();
+        let _preview_guard = crate::services::file_mutations::release(&roots).await;
+
         let outcome = gio::spawn_blocking(move || {
             let mut restored = Vec::new();
             let mut failed = Vec::new();
@@ -1502,6 +1568,14 @@ fn run_undo_merge(
             .collect::<HashMap<_, _>>()
     };
     glib::MainContext::default().spawn_local(async move {
+        let roots = request
+            .created
+            .iter()
+            .chain(&request.overwritten)
+            .cloned()
+            .collect::<Vec<_>>();
+        let _preview_guard = crate::services::file_mutations::release(&roots).await;
+
         let outcome = gio::spawn_blocking(move || {
             let mut completed_count = 0usize;
             let mut failed = Vec::new();
@@ -1732,6 +1806,9 @@ fn async_rename_no_replace(
     let cancel = gio::Cancellable::new();
     let task_cancel = cancel.clone();
     let _task = glib::MainContext::default().spawn_local(async move {
+        let _preview_guard =
+            crate::services::file_mutations::release(&[Location::local(&source)]).await;
+
         let result = move_no_replace(&source, &target, task_cancel).await;
         match result {
             Ok(()) => emit(OperationEvent::Renamed { request_id }),

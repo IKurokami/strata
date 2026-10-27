@@ -69,6 +69,7 @@ unrar_sys = { version = "0.5.8", optional = true }
 frizbee = "0.13"
 
 [target.'cfg(windows)'.dependencies]
+hatchzip-core = "=0.1.4"
 strata-win-shell = { version = "0.1.0", path = "crates/strata-win-shell" }
 
 [target.'cfg(target_os = "linux")'.dependencies]

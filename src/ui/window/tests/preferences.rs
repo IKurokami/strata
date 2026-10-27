@@ -8,12 +8,103 @@ use crate::ui::preferences::PreferenceManager;
 use crate::ui::tenxer_mode::UNUSED_SUBTITLE;
 
 #[test]
+fn rapid_sidebar_navigation_with_classic_light_material_and_motion_keeps_latest_input() {
+    gtk_test(
+        "ui::window::tests::preferences::rapid_sidebar_navigation_with_classic_light_material_and_motion_keeps_latest_input",
+        || {
+            use crate::{
+                model::Location,
+                ui::{preferences::FileIconTheme, theme::ThemeManager},
+            };
+            let fixture = tempfile::tempdir().expect("places fixture");
+            let desktop = fixture.path().join("Desktop");
+            let documents = fixture.path().join("Documents");
+            for path in [&desktop, &documents] {
+                std::fs::create_dir(path).expect("place");
+            }
+            std::fs::write(desktop.join("desktop.json"), "{}").expect("desktop file");
+            std::fs::write(documents.join("document.json"), "{}").expect("document file");
+            std::fs::create_dir_all(gtk::glib::user_config_dir()).expect("config");
+            std::fs::write(
+                gtk::glib::user_config_dir().join("user-dirs.dirs"),
+                format!(
+                    "XDG_DESKTOP_DIR=\"{}\"\nXDG_DOCUMENTS_DIR=\"{}\"\n",
+                    desktop.display(),
+                    documents.display()
+                ),
+            )
+            .expect("places configuration");
+            gtk::glib::reload_user_special_dirs_cache();
+            let manager = PreferenceManager::shared();
+            manager.set_reduce_motion(false);
+            manager.set_file_icon_theme(FileIconTheme::Material);
+            ThemeManager::shared().select_theme("macos-classic-light");
+            for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
+                let open = OpenWindow::open();
+                open.content.browser.set_view_mode(mode);
+                let row = |path: &std::path::Path| {
+                    open.content
+                        .sidebar
+                        .state
+                        .place_rows
+                        .borrow()
+                        .iter()
+                        .find(|(location, _)| location == &Location::local(path))
+                        .expect("place row")
+                        .1
+                        .clone()
+                };
+                let desktop_row = row(&desktop);
+                let documents_row = row(&documents);
+                for _ in 0..20 {
+                    desktop_row.emit_clicked();
+                    documents_row.emit_clicked();
+                }
+                assert_eq!(
+                    open.content.browser.browser().active_location(),
+                    Some(Location::local(&documents))
+                );
+                std::thread::sleep(std::time::Duration::from_millis(180));
+                wait_until(|| {
+                    open.content
+                        .browser
+                        .browser()
+                        .column_snapshot(0)
+                        .is_some_and(|snapshot| !snapshot.loading)
+                });
+                assert_eq!(
+                    open.content
+                        .browser
+                        .browser()
+                        .entry_at(0, 0)
+                        .expect("latest file")
+                        .display_name,
+                    "document.json"
+                );
+                desktop_row.emit_clicked();
+                wait_until(|| {
+                    open.content
+                        .browser
+                        .browser()
+                        .entry_at(0, 0)
+                        .is_some_and(|entry| entry.display_name == "desktop.json")
+                });
+                open.content.browser.begin_location_edit();
+                assert!(open.content.browser.location_has_focus());
+                open.window.close();
+            }
+        },
+    );
+}
+
+#[test]
 fn sidebar_folder_customization_loads_and_updates_across_windows() {
     gtk_test(
         "ui::window::tests::preferences::sidebar_folder_customization_loads_and_updates_across_windows",
         || {
             use crate::assets::{self, icons};
             use crate::model::{FolderColorValue, Location};
+            use crate::ui::preferences::FileIconTheme;
 
             let directory = tempfile::tempdir().expect("pinned folder");
             let path = directory.path();
@@ -39,7 +130,7 @@ fn sidebar_folder_customization_loads_and_updates_across_windows() {
             ];
             super::super::save_pinned_places(&[(location.clone(), "Custom folder".into())])
                 .expect("save pin");
-            let mut settings = String::from("[folder_colors]\n");
+            let mut settings = String::from("file_icon_theme = \"catppuccin\"\n[folder_colors]\n");
             for (location, _) in &cases {
                 settings.push_str(&format!("\"{}\" = \"red\"\n", location.display_path()));
             }
@@ -160,6 +251,27 @@ fn sidebar_folder_customization_loads_and_updates_across_windows() {
                     location,
                     assets::folder_decoration_paintable(icons::KEY, &assets::primary_icon_color())
                         .expect("theme-colored folder"),
+                );
+            }
+            manager.set_file_icon_theme(FileIconTheme::Material);
+            wait_until(|| assets::file_icon_theme() == FileIconTheme::Material);
+            for (location, fallback) in &cases {
+                let path = location.native_path().expect("folder path");
+                manager.clear_item_customization(path);
+                manager.set_folder_color(path, Some(FolderColorValue::Custom("#123456".into())));
+                assert_icons(
+                    location,
+                    assets::custom_colored_icon_paintable(fallback, "#123456")
+                        .expect("material collection keeps color-only sidebar symbols"),
+                );
+                manager.clear_item_customization(path);
+                let material = crate::material_icons::icon_for_name(
+                    path.to_str().expect("fixture folder name"),
+                    true,
+                );
+                assert_icons(
+                    location,
+                    assets::primary_icon_paintable(material).expect("material folder restored"),
                 );
             }
             let row = first
@@ -559,6 +671,7 @@ fn window_buttons_load_and_follow_settings_across_open_and_later_windows() {
             for open in [&first, &second, &third] {
                 assert_buttons(open, [false, false, true]);
             }
+            manager.flush_preferences();
             let persisted: toml::Value = toml::from_str(
                 &std::fs::read_to_string(settings_file()).expect("persisted preferences"),
             )
@@ -680,6 +793,7 @@ fn browsing_control_and_shortcut_update_both_windows() {
             assert_controls(&first, true);
             assert_controls(&second, true);
             assert!(!second.content.footer().tag_visible());
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("tenxer_mode = false"));
         },
@@ -737,6 +851,7 @@ fn saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows() {
                 );
                 assert!(open.content.sidebar_visible());
             }
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_compact = true"), "{saved}");
         },
@@ -860,6 +975,7 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
                     || sidebar_report(&[&first, &second], &manager),
                 );
             }
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_expanded = false"), "{saved}");
         },
@@ -1945,6 +2061,7 @@ fn customize_items(root: &std::path::Path, items: &[ItemCustomization]) {
 
 fn assert_item_customizations(root: &std::path::Path, expected: &[ItemCustomization], case: &str) {
     let manager = PreferenceManager::shared();
+    manager.flush_preferences();
     let saved = std::fs::read_to_string(settings_file()).unwrap_or_default();
     for (relative, color, icon) in expected {
         let path = root.join(relative);

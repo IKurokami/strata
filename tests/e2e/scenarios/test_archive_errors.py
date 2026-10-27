@@ -115,7 +115,7 @@ def test_invalid_archive_reports_damage_and_allows_another_extraction(
         archive.writestr("extracted.txt", "harmless contents")
     strata.keyboard.press("ctrl+r")
     strata.pointer.right_click(strata.entry(name))
-    strata.choose_menu_item("Extract here")
+    strata.choose_submenu_item("Extract", "Extract here")
     dialog = strata.wait(
         lambda: (
             dialog
@@ -137,7 +137,7 @@ def test_invalid_archive_reports_damage_and_allows_another_extraction(
     strata.pointer.click(strata.dialog_button("Close"))
     strata.wait(lambda: strata.dialog() is None, "error dismissal")
     strata.pointer.right_click(strata.entry("valid.zip"))
-    strata.choose_menu_item("Extract here")
+    strata.choose_submenu_item("Extract", "Extract here")
     strata.wait(lambda: fixture.path("extracted.txt").exists(), "valid archive extraction")
     assert fixture.path("extracted.txt").read_text() == "harmless contents"
     strata.wait(lambda: strata.dialog() is None, "extraction progress dismissal")
@@ -148,7 +148,7 @@ def test_folder_named_like_an_archive_offers_no_extract_actions(strata):
     strata.keyboard.press("ctrl+r")
     strata.open_context_menu("photos.zip")
     items = strata.menu_items()
-    assert "Extract here" not in items and "Extract to…" not in items, items
+    assert "Extract" not in items, items
     assert "Open in Terminal" in items or "Pin to sidebar" in items, items
     strata.dismiss_menu()
 
@@ -164,7 +164,7 @@ def test_wrong_extract_password_reopens_dialog_until_password_is_correct(strata,
     shutil.copyfile(source, fixture.path(archive_name))
     strata.keyboard.press("ctrl+r")
     strata.pointer.right_click(strata.entry(archive_name))
-    strata.choose_menu_item("Extract here")
+    strata.choose_submenu_item("Extract", "Extract here")
 
     dialog = strata.wait(
         lambda: (
@@ -215,7 +215,7 @@ def test_cancelled_extract_to_does_not_hijack_later_extract_here(strata):
         archive.writestr("later.txt", "later extraction\n")
     strata.keyboard.press("ctrl+r")
     strata.open_context_menu(archive_name)
-    strata.choose_menu_item("Extract to…")
+    strata.choose_submenu_item("Extract", "Extract to…")
     destination = fixture.path("documents")
     chooser = strata.destination_chooser("Extract to")
     strata.navigate_destination(chooser, destination)
@@ -228,7 +228,7 @@ def test_cancelled_extract_to_does_not_hijack_later_extract_here(strata):
     strata.wait(lambda: strata.dialog() is None, "password prompt cancellation")
     assert not (destination / "later.txt").exists()
     strata.open_context_menu("later.zip")
-    strata.choose_menu_item("Extract here")
+    strata.choose_submenu_item("Extract", "Extract here")
     strata.wait(lambda: fixture.path("later.txt").exists(), "later extraction")
     strata.wait(lambda: strata.dialog() is None, "extraction progress dismissal")
     assert strata.current_directory() == fixture.root.name
@@ -369,7 +369,7 @@ def test_zipcrypto_collision_reopens_extract_dialog(strata, deflated, contents):
     collision = _zipcrypto_crc_collision(archive_path)
     strata.keyboard.press("ctrl+r")
     strata.pointer.right_click(strata.entry(archive_name))
-    strata.choose_menu_item("Extract here")
+    strata.choose_submenu_item("Extract", "Extract here")
 
     dialog = strata.wait(
         lambda: (

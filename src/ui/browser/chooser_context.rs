@@ -141,6 +141,7 @@ pub(super) fn install_item(
     let weak = Rc::downgrade(state);
     let widget_for_trigger = widget.downgrade();
     let open_at_resolved: Rc<dyn Fn(f64, f64) -> bool> = Rc::new(move |x: f64, y: f64| {
+        let _preview_guard = crate::ui::preview::suppress_selection_preview();
         let Some(widget) = widget_for_trigger.upgrade() else {
             return false;
         };

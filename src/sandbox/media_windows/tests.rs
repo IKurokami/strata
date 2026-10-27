@@ -24,6 +24,39 @@ fn cancellation_does_not_wait_for_the_child_registry() {
 }
 
 #[test]
+fn auxiliary_preview_cancellation_does_not_wait_for_child_registry() {
+    for storyboard in [false, true] {
+        let children = Arc::new(Mutex::new(Vec::new()));
+        let guard = children.lock().expect("child registry");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = cancelled.clone();
+        let registry = children.clone();
+        let (sender, receiver) = mpsc::channel();
+        let caller = thread::spawn(move || {
+            if storyboard {
+                drop(StoryboardSession {
+                    cancelled: stop,
+                    children: registry,
+                    receiver: mpsc::channel().1,
+                });
+            } else {
+                drop(PeaksSession {
+                    cancelled: stop,
+                    children: registry,
+                    receiver: mpsc::channel().1,
+                });
+            }
+            sender.send(()).expect("cancellation result");
+        });
+        let returned = receiver.recv_timeout(Duration::from_secs(1));
+        drop(guard);
+        caller.join().expect("cancellation caller");
+        assert!(returned.is_ok(), "auxiliary preview cancellation blocked");
+        assert!(cancelled.load(Ordering::Acquire));
+    }
+}
+
+#[test]
 fn windows_video_seek_resumes_at_the_requested_frame() {
     let (_dir, path) = generated_media(
         "mp4",
@@ -82,10 +115,19 @@ fn cached_probe_is_invalidated_when_media_is_replaced() {
             "2",
         ],
     );
-    assert_eq!(probe_duration(&path), Some(1_000_000));
-    assert_eq!(probe_duration(&path), Some(1_000_000));
+    assert_eq!(
+        probe_duration(&path, &AtomicBool::new(false)),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        probe_duration(&path, &AtomicBool::new(false)),
+        Some(1_000_000)
+    );
     std::fs::copy(replacement, &path).unwrap();
-    assert_eq!(probe_duration(&path), Some(2_000_000));
+    assert_eq!(
+        probe_duration(&path, &AtomicBool::new(false)),
+        Some(2_000_000)
+    );
 }
 
 #[test]

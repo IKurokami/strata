@@ -35,7 +35,7 @@ const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
 pub(super) const SUBMENU_ROW_CLASS: &str = "item-context-submenu";
 pub(super) const SUBMENU_ENTRIES_CLASS: &str = "item-context-submenu-entries";
 
-fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
+fn submenu_row<const N: usize>(header: &gtk::Button, entries: [&gtk::Button; N]) -> gtk::Box {
     let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
     wrapper.add_css_class(SUBMENU_ROW_CLASS);
     wrapper.append(header);
@@ -90,6 +90,7 @@ pub(super) fn bind_column_context_owner(
 ) {
     let weak = Rc::downgrade(state);
     popover.connect_closed(move |popover| {
+        let _preview_guard = crate::ui::preview::suppress_selection_preview();
         if let Some(state) = weak.upgrade()
             && state.context_menu_column.get() == Some(depth)
         {
@@ -151,6 +152,7 @@ pub(super) fn bind_column_context_owner(
 }
 
 fn restore_context_focus(state: &ViewState, depth: usize) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if state.browser.active_depth() != Some(depth) {
         return;
     }
@@ -196,6 +198,7 @@ fn context_filter_or_search_active(state: &ViewState, depth: usize) -> bool {
 }
 
 pub(super) fn focus_context_column(state: &Rc<ViewState>, depth: usize) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     state
         .context_menu_generation
         .set(state.context_menu_generation.get().wrapping_add(1));
@@ -221,6 +224,10 @@ pub(super) fn focus_context_entry(
     position: Option<usize>,
     entry: &FileEntry,
 ) {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
+    state
+        .context_selected_entry
+        .replace(Some(entry.location.clone()));
     if let Some(position) = current_context_position(state, depth, position, entry) {
         let positions = state.browser.selected_positions(depth);
         state.browser.commit_selection();
@@ -231,6 +238,17 @@ pub(super) fn focus_context_entry(
         focus_search_result(state, depth, entry);
     }
     focus_context_column(state, depth);
+}
+
+pub(in crate::ui) fn resume_primary_selection(state: &ViewState, entry: &FileEntry) -> bool {
+    let selected_by_context = state.context_selected_entry.take();
+    if selected_by_context.as_ref() != Some(&entry.location) {
+        return false;
+    }
+    // The context menu already changed selection without previewing it. A primary
+    // click must announce that selection even when GTK has no selection change.
+    state.browser.focus_active();
+    true
 }
 
 pub(in crate::ui) fn show_context_popover(
@@ -950,6 +968,27 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Extract to…",
         ContextHint::None,
     );
+    let extract_header = item_context_option(
+        crate::assets::icons::PACKAGE_OPEN,
+        "Extract",
+        ContextHint::None,
+    );
+    #[cfg(windows)]
+    let extract_reclaim = item_context_option(
+        crate::assets::icons::PACKAGE_OPEN,
+        "Extract and reclaim space…",
+        ContextHint::None,
+    );
+    let extract_group = submenu_row(
+        &extract_header,
+        [
+            &extract,
+            &extract_folder,
+            &extract_to,
+            #[cfg(windows)]
+            &extract_reclaim,
+        ],
+    );
     let group_separator = gtk::Separator::new(gtk::Orientation::Horizontal);
     single_open.append(&group);
     single_open.append(&group_separator);
@@ -965,9 +1004,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&restore);
     single_open.append(&remove_from_recent);
     single_open.append(&print);
-    single_open.append(&extract);
-    single_open.append(&extract_folder);
-    single_open.append(&extract_to);
+    single_open.append(&extract_group);
     content.append(&single_open);
     single.append(&cut);
     single.append(&copy);
@@ -1532,6 +1569,14 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ExtractTarget::ArchiveFolder,
     );
     connect_context_extract(&extract_to, &popover, state, &target, ExtractTarget::Choose);
+    #[cfg(windows)]
+    connect_context_extract(
+        &extract_reclaim,
+        &popover,
+        state,
+        &target,
+        ExtractTarget::ReclaimSpace,
+    );
     let weak = Rc::downgrade(state);
     let properties_target = target.clone();
     let properties_popover = popover.downgrade();
@@ -1619,6 +1664,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
 
     let open_at_resolved: ResolvedContextTrigger =
         Rc::new(move |x: f64, y: f64, gesture: Option<&gtk::GestureClick>| {
+            let _preview_guard = crate::ui::preview::suppress_selection_preview();
             let Some(widget) = widget_for_trigger.upgrade() else {
                 return false;
             };
@@ -1745,6 +1791,19 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             extract.set_visible(can_extract);
             extract_to.set_visible(can_extract);
             extract_folder.set_visible(can_extract);
+            #[cfg(windows)]
+            let can_reclaim = !entry.is_directory()
+                && entry.location.native_path().is_some()
+                && (matches!(
+                    ArchiveFormat::for_entry(&entry),
+                    Some(ArchiveFormat::Zip | ArchiveFormat::Tar | ArchiveFormat::SevenZ)
+                ) || entry.display_name.ends_with(".hatchzip"));
+            #[cfg(windows)]
+            extract_reclaim.set_visible(can_reclaim);
+            #[cfg(windows)]
+            extract_header.set_visible(can_extract || can_reclaim);
+            #[cfg(not(windows))]
+            extract_header.set_visible(can_extract);
             customize.set_visible(
                 !in_trash && entries.len() == 1 && entry.location.native_path().is_some(),
             );
@@ -1945,6 +2004,7 @@ pub(super) fn context_entries(
     state: &Rc<ViewState>,
     target: &RefCell<Option<ContextTarget>>,
 ) -> Vec<FileEntry> {
+    let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if let Some((_, entry)) = target.borrow().as_ref()
         && let Some(entries) = (super::BrowserView {
             state: state.clone(),
@@ -2005,6 +2065,8 @@ enum ExtractTarget {
     Here,
     ArchiveFolder,
     Choose,
+    #[cfg(windows)]
+    ReclaimSpace,
 }
 
 fn connect_context_extract(
@@ -2029,6 +2091,8 @@ fn connect_context_extract(
                 ExtractTarget::Choose => state.show_extract_to_dialog(entry),
                 ExtractTarget::Here => state.extract_entry(entry),
                 ExtractTarget::ArchiveFolder => state.extract_entry_into_folder(entry),
+                #[cfg(windows)]
+                ExtractTarget::ReclaimSpace => state.show_reclaim_extract_dialog(entry),
             }
         }
     });

@@ -22,6 +22,7 @@ use std::{
 #[cfg(not(windows))]
 use std::fs::File;
 
+pub mod deletion;
 #[cfg(windows)]
 pub mod windows_file_stamp;
 #[cfg(windows)]
@@ -585,10 +586,10 @@ mod tests {
 
     static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
 
-    struct Fixture(PathBuf);
+    pub(crate) struct Fixture(pub(crate) PathBuf);
 
     impl Fixture {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "strata-native-io-{}-{}",
                 std::process::id(),

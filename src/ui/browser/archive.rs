@@ -16,7 +16,9 @@
 
 use crate::adapters::gio_file_for_location;
 use crate::model::{FileEntry, Location};
-use crate::services::{ArchiveFormat, PasswordFailure, TransferConflict, validate_basename};
+use crate::services::{
+    ArchiveFormat, ExtractionMode, PasswordFailure, TransferConflict, validate_basename,
+};
 use crate::ui::browser::ViewState;
 use crate::ui::browser::entry::{entry_kind_summary, item_count_label};
 use crate::ui::browser::paths::compact_display_path;
@@ -39,6 +41,35 @@ use gtk::{gio, glib};
 use std::cell::Cell;
 use std::path::Path;
 use std::rc::Rc;
+
+fn is_reclaim_mode(mode: ExtractionMode) -> bool {
+    #[cfg(windows)]
+    {
+        mode == ExtractionMode::ReclaimSpace
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = mode;
+        false
+    }
+}
+
+fn start_extraction(
+    browser: &Rc<crate::app::Browser>,
+    entry: FileEntry,
+    destination: Location,
+    mode: ExtractionMode,
+    password: Option<String>,
+) {
+    match mode {
+        ExtractionMode::Automatic => browser.extract(entry, destination, false, password),
+        ExtractionMode::Folder => browser.extract_into_folder(entry, destination, password),
+        #[cfg(windows)]
+        ExtractionMode::ReclaimSpace => {
+            browser.extract_archive(entry, destination, false, mode, password)
+        }
+    }
+}
 
 /// Error text may contain arbitrary filenames; only the structured kind permits retry.
 pub(super) fn extract_password_retry(password_failure: Option<PasswordFailure>) -> Option<bool> {
@@ -467,33 +498,52 @@ impl ViewState {
         let Some(parent) = entry.location.parent() else {
             return;
         };
-        self.extract_entry_with_mode(entry, parent, true);
+        self.extract_entry_with_mode(entry, parent, ExtractionMode::Folder);
+    }
+
+    #[cfg(windows)]
+    pub(super) fn show_reclaim_extract_dialog(self: &Rc<Self>, entry: FileEntry) {
+        let Some(destination) = entry.location.parent() else {
+            return;
+        };
+        let (body, confirm, dismiss) = self.build_archive_modal(
+            crate::assets::icons::PACKAGE_OPEN,
+            &crate::i18n::tr("Extract and reclaim space…"),
+            &entry.display_name,
+            &crate::i18n::tr("Extract and consume archive"),
+            None,
+        );
+        body.append(&message_dialog_description(&crate::i18n::tr(
+            "Extract from the end and free archive space as files are saved. This consumes the original archive. If interrupted, keep the output folder and .hatchzip recovery files, then choose this command again to resume. Existing files are never overwritten.",
+        )));
+        let state = self.clone();
+        confirm.connect_clicked(move |_| {
+            dismiss();
+            state.extract_entry_with_mode(
+                entry.clone(),
+                destination.clone(),
+                ExtractionMode::ReclaimSpace,
+            );
+        });
     }
 
     pub(super) fn extract_entry_to(self: &Rc<Self>, entry: FileEntry, destination: Location) {
-        self.extract_entry_with_mode(entry, destination, false);
+        self.extract_entry_with_mode(entry, destination, ExtractionMode::Automatic);
     }
 
     fn extract_entry_with_mode(
         self: &Rc<Self>,
         entry: FileEntry,
         destination: Location,
-        into_folder: bool,
+        mode: ExtractionMode,
     ) {
         self.extract_destination.replace(Some(destination.clone()));
         let format = ArchiveFormat::from_extension(&entry.display_name);
-        if format.map(|f| f.supports_password()).unwrap_or(false) {
-            self.pending_extract_retry.replace(Some((
-                entry.clone(),
-                destination.clone(),
-                into_folder,
-            )));
+        if format.map(|f| f.supports_password()).unwrap_or(false) || is_reclaim_mode(mode) {
+            self.pending_extract_retry
+                .replace(Some((entry.clone(), destination.clone(), mode)));
         }
-        if into_folder {
-            self.browser.extract_into_folder(entry, destination, None);
-        } else {
-            self.browser.extract(entry, destination, false, None);
-        }
+        start_extraction(&self.browser, entry, destination, mode, None);
     }
 
     /// Opens the "Extract to" folder picker for `entry`.
@@ -544,7 +594,7 @@ impl ViewState {
         entry: FileEntry,
         destination: Location,
         invalid_password: bool,
-        into_folder: bool,
+        mode: ExtractionMode,
         navigate_after_extract: Option<Location>,
     ) {
         let password_entry = form_password_entry();
@@ -589,22 +639,18 @@ impl ViewState {
                 return;
             }
             let format = ArchiveFormat::from_extension(&entry.display_name);
-            if format.map(|f| f.supports_password()).unwrap_or(false) {
+            if format.map(|f| f.supports_password()).unwrap_or(false) || is_reclaim_mode(mode) {
                 extract_state.pending_extract_retry.replace(Some((
                     entry.clone(),
                     destination.clone(),
-                    into_folder,
+                    mode,
                 )));
             }
             extract_state
                 .pending_navigate
                 .replace(navigate_after_extract.clone());
             dismiss_for_confirm();
-            if into_folder {
-                browser.extract_into_folder(entry.clone(), destination.clone(), Some(pw));
-            } else {
-                browser.extract(entry.clone(), destination.clone(), false, Some(pw));
-            }
+            start_extraction(&browser, entry.clone(), destination.clone(), mode, Some(pw));
         });
         submit_on_enter(&body, &confirm);
         password_entry.grab_focus();

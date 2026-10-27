@@ -2418,6 +2418,7 @@ impl Browser {
             }
             emit(event);
         });
+        crate::services::file_mutations::prepare(std::slice::from_ref(&entry.location));
         let load = provider.rename(
             RenameRequest {
                 id: request_id,
@@ -2587,6 +2588,14 @@ impl Browser {
                 refresh_locations.insert(parent);
             }
         }
+        if move_sources {
+            crate::services::file_mutations::prepare(
+                &items
+                    .iter()
+                    .map(|item| item.source.clone())
+                    .collect::<Vec<_>>(),
+            );
+        }
         let load = provider.paste(
             PasteRequest {
                 id: request_id,
@@ -2600,6 +2609,19 @@ impl Browser {
     }
 
     pub fn delete(self: &Rc<Self>, entries: Vec<FileEntry>, permanent: bool) {
+        self.delete_with_method(
+            entries,
+            permanent,
+            crate::services::PermanentDeleteMethod::Native,
+        );
+    }
+
+    pub fn delete_with_method(
+        self: &Rc<Self>,
+        entries: Vec<FileEntry>,
+        permanent: bool,
+        method: crate::services::PermanentDeleteMethod,
+    ) {
         if entries.is_empty() {
             return;
         }
@@ -2628,13 +2650,20 @@ impl Browser {
                 .map(|entry| entry.display_name.clone())
                 .unwrap_or_default(),
         );
+        crate::services::file_mutations::prepare(
+            &entries
+                .iter()
+                .map(|entry| entry.location.clone())
+                .collect::<Vec<_>>(),
+        );
         self.emit(BrowserEvent::DeletionStarted { total });
-        let load = provider.delete(
+        let load = provider.delete_with_method(
             DeleteRequest {
                 id: request_id,
                 entries,
                 permanent,
             },
+            method,
             self.operation_callback(request_id, false, HashSet::new()),
         );
         self.install_operation_load(request_id, load);
@@ -3161,6 +3190,7 @@ impl Browser {
         self.deletion_operation.set(true);
         self.replay_claim(redo).replace(Some((generation, entry)));
         self.emit(BrowserEvent::DeletionStarted { total });
+        crate::services::file_mutations::prepare(&locations);
         let load = provider.undo_copy(
             UndoCopyRequest {
                 id: request_id,
@@ -3310,7 +3340,13 @@ impl Browser {
         created_destination: bool,
         password: Option<String>,
     ) {
-        self.extract_archive(entry, destination, created_destination, false, password);
+        self.extract_archive(
+            entry,
+            destination,
+            created_destination,
+            crate::services::ExtractionMode::Automatic,
+            password,
+        );
     }
 
     pub fn extract_into_folder(
@@ -3319,15 +3355,21 @@ impl Browser {
         destination: Location,
         password: Option<String>,
     ) {
-        self.extract_archive(entry, destination, false, true, password);
+        self.extract_archive(
+            entry,
+            destination,
+            false,
+            crate::services::ExtractionMode::Folder,
+            password,
+        );
     }
 
-    fn extract_archive(
+    pub(crate) fn extract_archive(
         self: &Rc<Self>,
         entry: FileEntry,
         destination: Location,
         created_destination: bool,
-        into_folder: bool,
+        mode: crate::services::ExtractionMode,
         password: Option<String>,
     ) {
         let Some(provider) = self.operation_provider.borrow().clone() else {
@@ -3343,7 +3385,7 @@ impl Browser {
         self.archive_operation.set(true);
         let load = provider.extract(
             ExtractRequest {
-                into_folder,
+                mode,
                 id: request_id,
                 entry,
                 destination,

@@ -457,6 +457,7 @@ fn parse_sandboxed(
     if operation.is_media() {
         return Err("Media previews require a decoded-frame session".into());
     }
+    let _lease = crate::services::file_mutations::worker(input, cancellation.0.clone());
     let metadata = fs::metadata(input).map_err(|error| error.to_string())?;
     if !metadata.is_file() {
         return Err("Preview input is not a regular file".to_owned());

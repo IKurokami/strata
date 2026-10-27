@@ -16,7 +16,7 @@ use std::os::unix::fs::MetadataExt;
 use crate::{
     model::{FolderColorValue, SortDirection, SortKey, ViewPreferences},
     sandbox::MediaPreviewBackend,
-    services::{Channel, CrossVolumeDropStrategy},
+    services::{Channel, CrossVolumeDropStrategy, PermanentDeleteMethod},
 };
 
 use super::icons_cell::{MAX_ICONS_THUMBNAIL_SIZE, MIN_ICONS_THUMBNAIL_SIZE};
@@ -32,12 +32,14 @@ mod item_customizations;
 mod save_notice;
 mod text_size;
 mod trashed;
+mod writer;
 pub(in crate::ui) use bindings::notify_live;
 pub(crate) use folder_view_settings::flush_pending_folder_views;
 pub use text_size::TextSize;
 
 thread_local! {
     static SHARED_MANAGER: RefCell<std::rc::Weak<PreferenceManager>> = const { RefCell::new(std::rc::Weak::new()) };
+    static MANAGERS: RefCell<Vec<std::rc::Weak<PreferenceManager>>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -63,6 +65,18 @@ pub(crate) enum FileIconColors {
     #[default]
     Brand,
     Theme,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FileIconTheme {
+    #[default]
+    Catppuccin,
+    Material,
+}
+
+fn default_interface_font_family() -> String {
+    "JetBrains Mono".to_owned()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -111,6 +125,10 @@ pub(in crate::ui) struct Preferences {
     element_glow: bool,
     #[serde(default)]
     file_icon_colors: FileIconColors,
+    #[serde(default)]
+    file_icon_theme: FileIconTheme,
+    #[serde(default = "default_interface_font_family")]
+    interface_font_family: String,
     #[serde(default = "default_browser_mode")]
     browser_mode: String,
     #[serde(default = "default_browser_density")]
@@ -193,6 +211,8 @@ pub(in crate::ui) struct Preferences {
     cross_volume_drop_strategy: String,
     #[serde(default)]
     open_folder_after_drop: bool,
+    #[serde(default)]
+    permanent_delete_method: PermanentDeleteMethod,
     #[serde(default = "default_date_format")]
     date_format: String,
     #[serde(default = "default_release_channel")]
@@ -209,6 +229,8 @@ pub(in crate::ui) struct Preferences {
     replace_file_explorer: bool,
     #[serde(default = "default_enabled")]
     remember_folder_views: bool,
+    #[serde(default)]
+    inherit_folder_sorts: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     folder_colors: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -270,6 +292,8 @@ impl Default for Preferences {
             reduce_motion: false,
             element_glow: true,
             file_icon_colors: FileIconColors::default(),
+            file_icon_theme: FileIconTheme::default(),
+            interface_font_family: default_interface_font_family(),
             browser_mode: default_browser_mode(),
             browser_density: default_browser_density(),
             group_by_type: false,
@@ -311,6 +335,7 @@ impl Default for Preferences {
             browser_column_width: None,
             cross_volume_drop_strategy: default_cross_volume_drop_strategy(),
             open_folder_after_drop: false,
+            permanent_delete_method: PermanentDeleteMethod::Fast,
             date_format: default_date_format(),
             release_channel: default_release_channel(),
             default_directory: None,
@@ -319,6 +344,7 @@ impl Default for Preferences {
             show_console: false,
             replace_file_explorer: false,
             remember_folder_views: true,
+            inherit_folder_sorts: false,
             folder_colors: HashMap::new(),
             custom_icons: HashMap::new(),
             send_to_recent_destinations: HashMap::new(),
@@ -454,11 +480,15 @@ pub(in crate::ui) fn is_valid_send_to_relative_path(path: &Path) -> bool {
 }
 
 pub struct PreferenceManager {
+    weak: std::rc::Weak<Self>,
     preferences: RefCell<Preferences>,
     startup_interface_renderer: InterfaceRenderer,
     startup_locale: &'static str,
     changes: bindings::PreferenceChanges,
     persistence_dirty: Cell<bool>,
+    persistence_revision: Cell<u64>,
+    persistence_completed: Cell<u64>,
+    writer: RefCell<Option<writer::Writer>>,
     /// The settings file as this process last wrote or read it.
     settings_synced: Cell<Option<FileStamp>>,
     /// Why saving is off for this session: the file existed but could not be read.
@@ -516,11 +546,15 @@ impl PreferenceManager {
 
         let startup_locale = preferences.language.locale();
         rust_i18n::set_locale(startup_locale);
-        Rc::new(Self {
+        let manager = Rc::new_cyclic(|weak| Self {
+            weak: weak.clone(),
             startup_locale,
             startup_interface_renderer: preferences.interface_renderer,
             changes: bindings::PreferenceChanges::new(preferences.clone()),
             persistence_dirty: Cell::new(false),
+            persistence_revision: Cell::new(0),
+            persistence_completed: Cell::new(0),
+            writer: RefCell::new(None),
             settings_synced: Cell::new(settings_synced),
             load_failure,
             save_notices: save_notice::SaveNotices::default(),
@@ -529,7 +563,12 @@ impl PreferenceManager {
             folder_save_notices: save_notice::SaveNotices::for_folder_views(),
             item_customizations: Default::default(),
             preferences: RefCell::new(preferences),
-        })
+        });
+        MANAGERS.with_borrow_mut(|managers| {
+            managers.retain(|manager| manager.strong_count() > 0);
+            managers.push(Rc::downgrade(&manager));
+        });
+        manager
     }
 
     /// Repairs loaded values whose validity depends on data the preference store
@@ -695,6 +734,28 @@ impl PreferenceManager {
         }
         self.save_preferences();
         super::thumbnail::refresh_customized_icons(&[path.to_path_buf()]);
+    }
+
+    pub(crate) fn file_icon_theme(&self) -> FileIconTheme {
+        self.preferences.borrow().file_icon_theme
+    }
+
+    pub(crate) fn set_file_icon_theme(&self, theme: FileIconTheme) {
+        self.preferences.borrow_mut().file_icon_theme = theme;
+        self.save_preferences();
+    }
+
+    pub(crate) fn interface_font_family(&self) -> String {
+        self.preferences.borrow().interface_font_family.clone()
+    }
+
+    pub(crate) fn set_interface_font_family(&self, family: String) {
+        let family = family.trim();
+        if family.is_empty() || family.len() > 256 || family.chars().any(char::is_control) {
+            return;
+        }
+        self.preferences.borrow_mut().interface_font_family = family.to_owned();
+        self.save_preferences();
     }
 
     pub fn single_click_previews(&self) -> bool {
@@ -1189,6 +1250,16 @@ impl PreferenceManager {
         CrossVolumeDropStrategy::parse(&self.preferences.borrow().cross_volume_drop_strategy)
     }
 
+    pub fn permanent_delete_method(&self) -> PermanentDeleteMethod {
+        self.preferences.borrow().permanent_delete_method
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_permanent_delete_method(&self, method: PermanentDeleteMethod) {
+        self.preferences.borrow_mut().permanent_delete_method = method;
+        self.save_preferences();
+    }
+
     pub fn set_cross_volume_drop_strategy(&self, strategy: CrossVolumeDropStrategy) {
         if self.cross_volume_drop_strategy() == strategy {
             return;
@@ -1550,23 +1621,78 @@ impl PreferenceManager {
             return;
         }
         self.persistence_dirty.set(true);
-        let contents =
-            toml::to_string_pretty(&*self.preferences.borrow()).map_err(io::Error::other);
-        let result = contents.and_then(|contents| {
-            self.save_notices
-                .write(&path, &contents, crate::storage::atomic_write_config)
-        });
-        if result.is_ok() {
-            self.persistence_dirty.set(false);
-            self.settings_synced.set(file_stamp(&path));
-        }
+        let revision = self.persistence_revision.get().wrapping_add(1);
+        self.persistence_revision.set(revision);
+        let result = (|| {
+            let mut writer = self.writer.borrow_mut();
+            if writer.is_none() {
+                *writer = Some(writer::Writer::new()?);
+            }
+            writer.as_ref().expect("writer initialized").save(
+                revision,
+                path.clone(),
+                self.preferences.borrow().clone(),
+            )
+        })();
         if changed {
             self.changes.notify(self);
         }
-        // Reported after bindings apply, and whether or not anything changed,
-        // because a retry with an unchanged value can fail too.
-        if let Err(error) = result {
-            self.save_notices.write_failed(&path, &error);
+        match result {
+            Ok(done) => {
+                let weak = self.weak.clone();
+                glib::MainContext::default().spawn_local(async move {
+                    if let Ok(completion) = done.await
+                        && let Some(manager) = weak.upgrade()
+                    {
+                        manager.complete_save(completion);
+                    }
+                });
+            }
+            Err(error) => {
+                self.writer.take();
+                self.save_notices.write_failed(&path, &error);
+            }
+        }
+    }
+
+    fn complete_save(&self, completion: writer::Completion) {
+        if completion.revision != self.persistence_revision.get()
+            || self.persistence_completed.get() == completion.revision
+        {
+            return;
+        }
+        self.persistence_completed.set(completion.revision);
+        match completion.result {
+            Ok(stamp) => {
+                self.persistence_dirty.set(false);
+                self.settings_synced.set(stamp);
+                self.save_notices.write_succeeded();
+            }
+            Err(error) => self.save_notices.write_failed(&completion.path, &error),
+        }
+    }
+
+    pub(in crate::ui) fn flush_preferences(&self) {
+        let result = self.writer.borrow().as_ref().map(writer::Writer::flush);
+        match result {
+            Some(Ok(Some(completion))) => self.complete_save(completion),
+            Some(Err(error)) => self.save_notices.write_failed(&settings_path(), &error),
+            _ => {}
+        }
+    }
+}
+
+impl Drop for PreferenceManager {
+    fn drop(&mut self) {
+        self.flush_preferences();
+    }
+}
+
+pub(crate) fn flush_pending_preferences() {
+    let managers = MANAGERS.with_borrow(|managers| managers.clone());
+    for manager in managers {
+        if let Some(manager) = manager.upgrade() {
+            manager.flush_preferences();
         }
     }
 }

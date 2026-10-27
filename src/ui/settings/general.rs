@@ -43,6 +43,8 @@ pub(super) fn general_page(
     let responsive_activation_rows = append_click_activation(&preferences, &manager);
 
     let transfers = super::settings_group(&preferences, "FILE TRANSFERS");
+    #[cfg(windows)]
+    append_permanent_delete_option(&transfers, &manager);
     append_cross_volume_drop_option(&transfers, &manager);
     append_preference_switch(
         &transfers,
@@ -62,6 +64,7 @@ pub(super) fn general_page(
     append_auto_refresh_option(&performance, &manager);
     append_thumbnail_workers_option(&performance, &manager);
     append_video_preview_option(&performance, &manager);
+    append_clear_cache(&performance);
 
     let window_buttons = super::settings_group(&preferences, "WINDOW BUTTONS");
     for switch in [
@@ -173,6 +176,44 @@ pub(super) fn general_page(
         desktop_rows,
         responsive_activation_rows,
     )
+}
+
+fn append_clear_cache(content: &gtk::Box) {
+    let button = gtk::Button::with_label(&crate::i18n::tr("Clear"));
+    button.add_css_class("form-control");
+    button.set_valign(gtk::Align::Center);
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Clear preview cache"));
+    let status = gtk::Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    status.add_css_class("settings-section-description");
+    let weak_status = status.downgrade();
+    button.connect_clicked(move |button| {
+        button.set_sensitive(false);
+        let button = button.downgrade();
+        let status = weak_status.clone();
+        crate::ui::cache_control::clear(move |result| {
+            if let Some(button) = button.upgrade() {
+                button.set_sensitive(true);
+            }
+            if let Some(status) = status.upgrade() {
+                status.set_text(&match result {
+                    Ok(()) => crate::i18n::tr("Preview cache cleared"),
+                    Err(error) => rust_i18n::t!(
+                        "Unable to clear preview cache: %{error}",
+                        error = error.to_string()
+                    )
+                    .into_owned(),
+                });
+            }
+        });
+    });
+    content.append(&super::control_row(
+        "Clear preview cache",
+        "Release unused preview data and thumbnails. Open previews stay available.",
+        &button,
+    ));
+    content.append(&status);
 }
 
 fn append_language_option(content: &gtk::Box, manager: &Rc<PreferenceManager>) {
@@ -455,6 +496,16 @@ fn append_folder_view_options(content: &gtk::Box, manager: &Rc<PreferenceManager
         content,
         manager,
         PreferenceSwitch {
+            title: "Apply folder sorting to subfolders",
+            description: "Subfolders without their own saved sort follow the nearest parent folder's sort.",
+            read: PreferenceManager::inherit_folder_sorts,
+            write: PreferenceManager::set_inherit_folder_sorts,
+        },
+    );
+    append_preference_switch(
+        content,
+        manager,
+        PreferenceSwitch {
             title: "Remember sort and icon size per folder",
             description: "Each folder keeps the sort and thumbnail size you choose there. Other folders use the defaults.",
             read: PreferenceManager::remember_folder_views,
@@ -539,6 +590,15 @@ fn append_preference_switch(
     }
     if switch.title == "Include subfolders" {
         super::indent_row(&row);
+    }
+    if switch.title == "Apply folder sorting to subfolders" {
+        manager.bind_preference(
+            &row,
+            PreferenceManager::remember_folder_views,
+            |widget, enabled| {
+                widget.set_sensitive(enabled);
+            },
+        );
     }
     if switch.title == "10xer mode" {
         append_experimental_label(&row, manager);
@@ -825,6 +885,26 @@ fn append_cross_volume_drop_option(content: &gtk::Box, manager: &Rc<PreferenceMa
     content.append(&super::control_row(
         "Drag & drop to another device",
         "What happens when you drop items onto a different drive or share.",
+        &control,
+    ));
+}
+
+#[cfg(windows)]
+fn append_permanent_delete_option(content: &gtk::Box, manager: &Rc<PreferenceManager>) {
+    use crate::services::PermanentDeleteMethod;
+    let control = super::bindings::choice_menu(
+        manager,
+        "Permanent deletion method",
+        &[
+            ("Fast (parallel)", PermanentDeleteMethod::Fast),
+            ("Windows (standard)", PermanentDeleteMethod::Native),
+        ],
+        PreferenceManager::permanent_delete_method,
+        PreferenceManager::set_permanent_delete_method,
+    );
+    content.append(&super::control_row(
+        "Permanent deletion method",
+        "Choose how files are permanently deleted. Normal deletion still uses the Recycle Bin.",
         &control,
     ));
 }

@@ -165,6 +165,89 @@ fn permanent_delete_confirmation_is_actionable_while_summary_loads() {
 }
 
 #[test]
+fn permanent_delete_method_loads_before_settings_and_changes_across_windows_and_views() {
+    crate::test_support::gtk_test(
+        "ui::browser::trash::tests::permanent_delete_method_loads_before_settings_and_changes_across_windows_and_views",
+        || {
+            use crate::ui::{
+                browser_modes::BrowserMode,
+                preferences::{PreferenceManager, fixtures::seed_saved_preferences_for_test},
+            };
+            use crate::{
+                services::{OperationEvent, PermanentDeleteMethod},
+                test_support::operations::{HeldOperations, entry},
+            };
+            seed_saved_preferences_for_test();
+            let manager = PreferenceManager::shared();
+            let first = view();
+            let second = view();
+            let first_window = window(&first);
+            let second_window = window(&second);
+            let fixture = tempfile::tempdir().expect("delete fixture");
+            let file = fixture.path().join("keep.txt");
+            fs::write(&file, b"held operation").expect("fixture file");
+            let selected = entry(Location::local(file));
+            assert_eq!(
+                manager.permanent_delete_method(),
+                PermanentDeleteMethod::Native
+            );
+            for (index, method) in [
+                PermanentDeleteMethod::Native,
+                PermanentDeleteMethod::Fast,
+                PermanentDeleteMethod::Native,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if index > 0 {
+                    manager.set_permanent_delete_method(method);
+                }
+                for (view, window) in [(&first, &first_window), (&second, &second_window)] {
+                    if index == 2 {
+                        view.set_view_mode(BrowserMode::Icons);
+                    }
+                    let operations = Rc::new(HeldOperations::default());
+                    view.set_operation_provider(operations.clone());
+                    view.state.show_delete_confirmation(vec![selected.clone()]);
+                    button(window.upcast_ref(), "Permanently delete 1 item")
+                        .expect("confirmation")
+                        .emit_clicked();
+                    let (id, permanent, count) = operations.delete_requests.borrow()[0];
+                    assert!(permanent);
+                    assert_eq!(count, 1);
+                    assert_eq!(operations.delete_methods.borrow().as_slice(), &[method]);
+                    operations.emit(
+                        id,
+                        OperationEvent::Deleted {
+                            request_id: id,
+                            locations: vec![selected.location.clone()],
+                        },
+                    );
+                    if method == PermanentDeleteMethod::Fast {
+                        view.browser().delete(vec![selected.clone()], false);
+                        let (id, permanent, _) = operations.delete_requests.borrow()[1];
+                        assert!(!permanent);
+                        assert_eq!(
+                            operations.delete_methods.borrow()[1],
+                            PermanentDeleteMethod::Native
+                        );
+                        operations.emit(
+                            id,
+                            OperationEvent::Deleted {
+                                request_id: id,
+                                locations: vec![selected.location.clone()],
+                            },
+                        );
+                    }
+                }
+            }
+            first_window.close();
+            second_window.close();
+        },
+    );
+}
+
+#[test]
 fn changing_metadata_after_confirmation_is_presented_refuses_the_move() {
     crate::test_support::gtk_test(
         "ui::browser::trash::tests::changing_metadata_after_confirmation_is_presented_refuses_the_move",
@@ -353,7 +436,11 @@ fn unsupported_trash_fallback_explains_and_focuses_cancel() {
                 button(window.upcast_ref(), "Permanently delete 2 items")
                     .expect("confirm")
                     .emit_clicked();
-                wait_until(|| held.delete_requests.borrow().len() == requests + 2);
+                assert_eq!(
+                    held.delete_requests.borrow().len(),
+                    requests + 2,
+                    "confirmation must dispatch before the modal exit animation finishes"
+                );
                 let (id, permanent, count) = held
                     .delete_requests
                     .borrow()

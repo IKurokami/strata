@@ -31,11 +31,21 @@ pub(crate) fn pinned_places_path() -> std::path::PathBuf {
     glib::user_config_dir().join("gtk-3.0/bookmarks")
 }
 
-pub(super) fn deletion_completed(locations: &[Location]) {
+pub(super) async fn deletion_completed(locations: &[Location]) {
     if locations.is_empty() {
         return;
     }
-    let result = remove_deleted_pins(&gio::File::for_path(pinned_places_path()), locations);
+    let path = pinned_places_path();
+    let locations = locations.to_vec();
+    let result =
+        gio::spawn_blocking(move || remove_deleted_pins(&gio::File::for_path(path), &locations))
+            .await
+            .unwrap_or_else(|_| {
+                Err(glib::Error::new(
+                    gio::IOErrorEnum::Failed,
+                    &crate::i18n::tr("File operations are unavailable"),
+                ))
+            });
     if let Err(error) = &result {
         tracing::warn!(%error, "unable to remove deleted folder pins");
     }

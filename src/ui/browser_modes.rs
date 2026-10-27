@@ -4553,6 +4553,9 @@ fn install_preview_click(
             }
             return;
         }
+        let context_selected = weak_state.upgrade().is_some_and(|state| {
+            super::browser::context_menu::resume_primary_selection(&state, &entry)
+        });
         if should_activate_pointer_click(press_count, entry.is_directory(), click_activation.get())
         {
             if !browser.is_chooser_mode() || entry.is_directory() {
@@ -4560,6 +4563,7 @@ fn install_preview_click(
                 browser.activate_in_place(depth, position);
             }
         } else if press_count == 1
+            && !context_selected
             && !modifiers.intersects(
                 gtk::gdk::ModifierType::ALT_MASK
                     | gtk::gdk::ModifierType::SUPER_MASK
@@ -5352,15 +5356,31 @@ fn pane_type_group_sorter(
     model: &gtk::StringList,
 ) -> gtk::CustomSorter {
     let browser = Rc::downgrade(browser);
-    let sorter = type_group_sorter(move || {
+    let preferences = Rc::new(move || {
         browser
             .upgrade()
             .and_then(|browser| browser.column_preferences(depth))
             .unwrap_or_default()
     });
+    let for_sorter = preferences.clone();
+    let sorter = type_group_sorter(move || for_sorter());
+    let read_order = move || {
+        let preferences = preferences();
+        (
+            preferences.sort_key,
+            preferences.sort_direction,
+            preferences.folders_first,
+        )
+    };
+    let previous = Cell::new(read_order());
     let weak_sorter = sorter.downgrade();
     model.connect_items_changed(move |_, _, _, _| {
-        if let Some(sorter) = weak_sorter.upgrade() {
+        // Insertions/removals already reach SortListModel. Only a changed comparator
+        // requires invalidating the order of all surviving rows.
+        let order = read_order();
+        if previous.replace(order) != order
+            && let Some(sorter) = weak_sorter.upgrade()
+        {
             sorter.changed(gtk::SorterChange::Different);
         }
     });

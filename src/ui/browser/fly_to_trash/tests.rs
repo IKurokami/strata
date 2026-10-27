@@ -85,9 +85,9 @@ fn prepared_flights_stay_hidden_until_play_and_survive_row_removal() {
 }
 
 #[test]
-fn outbound_restore_keeps_the_pre_restore_listing_frozen_until_landing() {
+fn outbound_restore_freezes_only_during_playback() {
     crate::test_support::gtk_test(
-        "ui::browser::fly_to_trash::tests::outbound_restore_keeps_the_pre_restore_listing_frozen_until_landing",
+        "ui::browser::fly_to_trash::tests::outbound_restore_freezes_only_during_playback",
         || {
             use gtk::prelude::*;
             use std::{cell::Cell, rc::Rc, time::Duration};
@@ -126,7 +126,7 @@ fn outbound_restore_keeps_the_pre_restore_listing_frozen_until_landing() {
 
             let prepared = prepare_fly_from_trash(&source.clone().upcast(), [&entry], &trash)
                 .expect("outbound restore flight");
-            assert!(root.is_frozen());
+            assert!(!root.is_frozen());
 
             let finished = Rc::new(Cell::new(false));
             let thawed_on_landing = Rc::new(Cell::new(false));

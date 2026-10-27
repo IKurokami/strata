@@ -15,6 +15,19 @@ struct Target {
 const TARGETS: &[Target] = &[
     #[cfg(windows)]
     Target {
+        id: "permanent-delete-method",
+        page: "general",
+        title: "Permanent deletion method",
+        aliases: "windows delete removal permanent fast parallel standard shell recycle bin",
+    },
+    Target {
+        id: "clear-preview-cache",
+        page: "general",
+        title: "Clear preview cache",
+        aliases: "cache memory thumbnails clean clear storage",
+    },
+    #[cfg(windows)]
+    Target {
         id: "application-console",
         page: "general",
         title: "Show application console",
@@ -281,6 +294,24 @@ const TARGETS: &[Target] = &[
         page: "theme",
         title: "File icon colors",
         aliases: "appearance file type icons brand palette accent theme monochrome catppuccin",
+    },
+    Target {
+        id: "file-icon-theme",
+        page: "theme",
+        title: "File icon theme",
+        aliases: "appearance icons material catppuccin files folders colors",
+    },
+    Target {
+        id: "interface-font",
+        page: "theme",
+        title: "Interface font",
+        aliases: "appearance typography system windows fonts proportional monospace family",
+    },
+    Target {
+        id: "inherit-folder-sorts",
+        page: "general",
+        title: "Apply folder sorting to subfolders",
+        aliases: "sort sorting folder subfolders parent inherit recursive order remember",
     },
     Target {
         id: "glow",

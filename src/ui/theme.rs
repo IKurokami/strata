@@ -94,6 +94,8 @@ struct AppearancePreferences {
     text_size: TextSize,
     element_glow: bool,
     file_icon_colors: FileIconColors,
+    file_icon_theme: super::preferences::FileIconTheme,
+    interface_font_family: String,
 }
 
 type ThemeRefreshPreference = dyn Fn(&gtk::Widget, &ThemeManager);
@@ -208,6 +210,8 @@ impl ThemeManager {
             text_size: preferences.text_size(),
             element_glow: preferences.element_glow(),
             file_icon_colors: preferences.file_icon_colors(),
+            file_icon_theme: preferences.file_icon_theme(),
+            interface_font_family: preferences.interface_font_family(),
         };
 
         let manager = Rc::new(Self {
@@ -434,7 +438,7 @@ impl ThemeManager {
             "{}\n@define-color strata_glow {glow};\n",
             tokens_css(tokens, root_font_px)
         ));
-        apply_interface_font(root_font_px);
+        apply_interface_font(root_font_px, &self.preferences.interface_font_family());
         crate::assets::set_interface_icon_scale(root_font_px / 13.0);
         let dark_background =
             parse_rgb_channels(&tokens.background).is_none_or(|[red, green, blue]| {
@@ -443,6 +447,7 @@ impl ThemeManager {
         crate::assets::set_catppuccin_flavor(crate::assets::CatppuccinFlavor::for_dark_background(
             dark_background,
         ));
+        crate::assets::set_file_icon_theme(self.preferences.file_icon_theme());
         crate::assets::set_catppuccin_theme_colors(
             self.preferences.file_icon_colors() == FileIconColors::Theme,
         );
@@ -465,6 +470,8 @@ impl ThemeManager {
             text_size: self.preferences.text_size(),
             element_glow: self.preferences.element_glow(),
             file_icon_colors: self.preferences.file_icon_colors(),
+            file_icon_theme: self.preferences.file_icon_theme(),
+            interface_font_family: self.preferences.interface_font_family(),
         };
         if *self.appearance.borrow() != appearance {
             self.appearance.replace(appearance);
@@ -1047,12 +1054,6 @@ fn source_style_scheme_xml(tokens: &ThemeTokens, palette: Option<&SourcePalette>
     )
 }
 
-const INTERFACE_FONT_FAMILY: &str = "JetBrains Mono";
-
-fn interface_font_name(root_font_px: f64) -> String {
-    format!("{INTERFACE_FONT_FAMILY} {root_font_px:.6}px")
-}
-
 /// GTK's automatic font rendering hints glyph outlines but not their metrics,
 /// so GPU glyph atlas slots are sized from unhinted extents and lose the top
 /// pixel row at some sizes (GNOME/gtk#8395). Manual rendering hints metrics
@@ -1073,9 +1074,12 @@ fn pin_manual_font_rendering() {
     settings.set_property("gtk-font-rendering", manual);
 }
 
-fn apply_interface_font(root_font_px: f64) {
+fn apply_interface_font(root_font_px: f64, family: &str) {
     if let Some(settings) = gtk::Settings::default() {
-        settings.set_gtk_font_name(Some(&interface_font_name(root_font_px)));
+        let mut description = gtk::pango::FontDescription::new();
+        description.set_family(family);
+        description.set_absolute_size(root_font_px * f64::from(gtk::pango::SCALE));
+        settings.set_gtk_font_name(Some(&description.to_string()));
     }
 }
 

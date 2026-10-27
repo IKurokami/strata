@@ -30,6 +30,20 @@ fails, Strata reports that separately and does not revert a completed deletion.
 Cleanup is not guaranteed if the process exits before the provider confirms
 the deletion.
 
+Delete feedback starts when Strata accepts the command, including confirmation,
+without waiting for the dialog exit or filesystem completion. Animation overlays
+do not disable the live listing. Failed and cancelled items remain present;
+completion must not replay the command's animation. Restore snapshots are frozen
+only during playback, not while the filesystem operation is pending.
+
+Before destructive mutations, matching previews in all tabs are closed, including
+debounced selections and previews of descendants of a removed folder. Windows
+waits asynchronously for its own preview helpers to release their input handles
+and blocks focus/resize/theme callbacks from reopening those inputs until the
+operation finishes;
+locks owned by other applications remain ordinary filesystem errors. Shared GTK
+bookmark cleanup uses a worker rather than synchronous I/O on the UI thread.
+
 ## Automated regressions
 
 Run the full Rust suite with isolated GTK, disposable preferences, and required
@@ -50,6 +64,8 @@ Focused selections can be run on the same infrastructure:
 ./scripts/test-headless.py volume
 ./scripts/test-headless.py ui::window::bookmarks::tests
 ./scripts/test-headless.py adapters::bookmarks::tests
+./scripts/test-headless.py services::file_mutations::
+./scripts/test-headless.py ui::browser::progress::tests::minimization::deletion::
 ./scripts/test-headless.py adapters::local_operations::tests::deletion
 ./scripts/test-headless.py ui::browser::trash::tests
 ./scripts/test-headless.py adapters::gio_location::tests

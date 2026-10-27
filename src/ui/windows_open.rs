@@ -35,6 +35,7 @@ pub(super) use menu::Controller as ShellMenuController;
 fn helper_command() -> io::Result<Command> {
     let executable = std::env::current_exe()?;
     let mut command = Command::new(executable.with_file_name("strata-shell.exe"));
+    crate::background_process::configure(&mut command);
     // The target application must not inherit Strata's private GTK runtime.
     for name in [
         "GSETTINGS_SCHEMA_DIR",

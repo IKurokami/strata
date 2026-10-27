@@ -3,6 +3,41 @@
 use super::render_raw;
 
 #[test]
+fn background_probe_capture_preserves_output_and_failure_status() {
+    use std::{process::Command, time::Duration};
+    for timed in [false, true] {
+        for code in [0, 7] {
+            let script = format!(
+                r#"Add-Type 'using System; using System.Runtime.InteropServices; public static class ConsoleProbe {{ [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }}';
+if ([ConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) {{ exit 91 }}
+[Console]::Out.Write('probe-output'); exit {code}"#
+            );
+            let mut command = Command::new("powershell.exe");
+            command.args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &script,
+            ]);
+            let output = if timed {
+                super::bounded_output_with_timeout(&mut command, 1024, Duration::from_secs(15))
+                    .expect("hidden probe")
+                    .expect("probe completed")
+            } else {
+                super::bounded_output(&mut command, 1024).expect("hidden thumbnail provider")
+            };
+            assert_eq!(output.status.code(), Some(code), "timed={timed}");
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout).trim(),
+                "probe-output",
+                "timed={timed}"
+            );
+        }
+    }
+}
+
+#[test]
 fn image_fallback_decodes_webp_and_gif_on_windows() {
     let directory = tempfile::tempdir().expect("image fixture");
     let webp = directory.path().join("image.webp");

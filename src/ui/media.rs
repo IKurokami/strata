@@ -214,6 +214,7 @@ mod imp {
 
         fn seek(&self, timestamp: i64) {
             let position = timestamp.max(0) as u64;
+            self.restore.set(None);
             let obj = self.obj();
             if self.first_frame.get() && self.seek_origin.get().is_none() {
                 obj.capture_position();
@@ -348,6 +349,15 @@ impl DecodedMedia {
             .map(|header| (header.width, header.height))
     }
 
+    pub(crate) fn playback_position(&self) -> u64 {
+        let imp = self.imp();
+        imp.seek_pending
+            .get()
+            .map(|(position, _)| position)
+            .or_else(|| imp.restore.get())
+            .unwrap_or_else(|| imp.position.get())
+    }
+
     pub(crate) fn has_frame(&self) -> bool {
         self.imp().texture.borrow().is_some()
     }
@@ -455,7 +465,7 @@ impl DecodedMedia {
             return;
         }
         if let Some(source) = imp.source.borrow().as_ref() {
-            let position = imp.position.get();
+            let position = self.playback_position();
             let duration = self.duration().max(0) as u64;
             if !crate::services::is_gif_path(&source.path)
                 && imp.header.get().is_some_and(|header| header.width > 0)
@@ -758,7 +768,14 @@ impl DecodedMedia {
                 Err(error) => return Err(error),
             }
         }
+        let drain_started = Instant::now();
+        let mut drained = 0;
         while imp.end.get().is_none() && self.can_queue_more() {
+            if drained >= 8 || (drained > 0 && drain_started.elapsed() >= Duration::from_millis(2))
+            {
+                break;
+            }
+            drained += 1;
             let event = imp.session.borrow().as_ref().and_then(Session::receive);
             match event {
                 Some(Event::Prepared(header)) => {

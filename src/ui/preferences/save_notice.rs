@@ -42,6 +42,10 @@ pub(super) struct SaveNotices {
 }
 
 impl SaveNotices {
+    pub(super) fn write_succeeded(&self) {
+        self.streak.set(Streak::Armed);
+    }
+
     pub(super) fn for_folder_views() -> Self {
         Self {
             subject: SaveSubject::FolderViews,

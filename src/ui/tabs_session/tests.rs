@@ -5,6 +5,43 @@ use std::fs;
 use super::*;
 use crate::model::Location;
 
+#[test]
+fn deferred_writes_keep_the_latest_session_and_removal_supersedes_pending_saves() {
+    let (directory, path) = session_file();
+    let first = Location::local(existing_dir(directory.path(), "first"));
+    let last = Location::local(existing_dir(directory.path(), "last"));
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || write_sessions(receive));
+    let barrier = || {
+        let (done, ready) = std::sync::mpsc::channel();
+        send.send(WriteCommand::Flush(done))
+            .expect("session writer fixture");
+        ready
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("session writer fixture");
+    };
+    send.send(WriteCommand::Save(path.clone(), vec![first.clone()], 0))
+        .expect("session writer fixture");
+    send.send(WriteCommand::Save(
+        path.clone(),
+        vec![first.clone(), last.clone()],
+        1,
+    ))
+    .expect("session writer fixture");
+    barrier();
+    let restored = load_from(&path).expect("session writer fixture");
+    assert_eq!(restored.tabs, vec![first.clone(), last]);
+    assert_eq!(restored.active, 1);
+    send.send(WriteCommand::Save(path.clone(), vec![first], 0))
+        .expect("session writer fixture");
+    send.send(WriteCommand::Remove(path.clone()))
+        .expect("session writer fixture");
+    barrier();
+    assert!(!path.exists());
+    drop(send);
+    worker.join().expect("session writer fixture");
+}
+
 fn session_file() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::tempdir().expect("session fixture");
     let path = directory.path().join("tabs.toml");

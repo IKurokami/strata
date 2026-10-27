@@ -61,6 +61,47 @@ fn label_parts(raw: &str) -> (String, &str) {
     (text.replace('_', "__"), shortcut)
 }
 
+fn retain_extra_commands(nodes: &mut Vec<Node>, print_covered: bool) {
+    nodes.retain_mut(|node| {
+        // Canonical verbs are independent of the Windows display language.
+        // Unknown verbs (including extension-specific commands) remain intact.
+        let verb = node.verb.to_ascii_lowercase();
+        let verb = verb.strip_prefix("windows.").unwrap_or(&verb);
+        if (print_covered && verb == "print")
+            || matches!(
+                verb,
+                "open"
+                    | "opennewwindow"
+                    | "opennewtab"
+                    | "explore"
+                    | "openas"
+                    | "openwith"
+                    | "copy"
+                    | "cut"
+                    | "delete"
+                    | "rename"
+                    | "properties"
+                    | "copyaspath"
+                    | "extract"
+                    | "extractall"
+            )
+        {
+            return false;
+        }
+        retain_extra_commands(&mut node.children, print_covered);
+        !node.submenu || node.children.iter().any(|child| !child.separator)
+    });
+    let mut previous_separator = true;
+    nodes.retain(|node| {
+        let keep = !node.separator || !previous_separator;
+        previous_separator = node.separator;
+        keep
+    });
+    if nodes.last().is_some_and(|node| node.separator) {
+        nodes.pop();
+    }
+}
+
 fn clipboard_commands(
     nodes: &[Node],
     enabled: bool,
@@ -154,6 +195,7 @@ pub(in crate::ui) struct Controller {
     clipboard_commands: RefCell<std::collections::HashMap<u32, bool>>,
     session: RefCell<Option<transport::Session>>,
     started: Cell<bool>,
+    print_covered: Cell<bool>,
     popover: glib::WeakRef<gtk::PopoverMenu>,
     owner: glib::WeakRef<gtk::Widget>,
     changed: Rc<dyn Fn()>,
@@ -182,6 +224,7 @@ impl Controller {
             clipboard_commands: RefCell::new(std::collections::HashMap::new()),
             session: RefCell::new(None),
             started: Cell::new(false),
+            print_covered: Cell::new(false),
             popover: popover.downgrade(),
             owner: owner.downgrade(),
             changed: Rc::new(changed),
@@ -232,10 +275,11 @@ impl Controller {
         }
     }
 
-    pub(in crate::ui) fn prepare(&self, paths: Vec<PathBuf>) {
+    pub(in crate::ui) fn prepare(&self, paths: Vec<PathBuf>, print_covered: bool) {
         self.reset();
         self.open.set_state(&false.to_variant());
         self.paths.replace(paths);
+        self.print_covered.set(print_covered);
         if !self.paths.borrow().is_empty() {
             self.model
                 .append(Some(&crate::i18n::tr("Loading…")), Some("shell.status"));
@@ -288,7 +332,8 @@ impl Controller {
             return;
         }
         match result {
-            Ok(nodes) => {
+            Ok(mut nodes) => {
+                retain_extra_commands(&mut nodes, self.print_covered.get());
                 clipboard_commands(&nodes, true, &mut self.clipboard_commands.borrow_mut());
                 self.model.remove_all();
                 let weak = Rc::downgrade(self);

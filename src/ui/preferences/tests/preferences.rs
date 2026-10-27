@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+use crate::ui::preferences::tests::read_saved_preferences;
+
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -47,12 +49,15 @@ fn saved_language_applies_before_settings_and_changes_only_after_restart() {
             assert!(manager.language_restart_required());
             assert_eq!(crate::i18n::tr("Language"), "Langue");
             assert_eq!(
-                read_preferences().expect("read saved language").language,
+                read_saved_preferences()
+                    .expect("read saved language")
+                    .language,
                 crate::i18n::Language::Japanese
             );
             manager.set_language(crate::i18n::Language::French);
             assert!(!manager.language_restart_required());
             manager.set_language(crate::i18n::Language::Japanese);
+            manager.flush_preferences();
             let restarted = PreferenceManager::load();
             assert!(!restarted.language_restart_required());
             assert_eq!(&*rust_i18n::locale(), "ja");
@@ -89,6 +94,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
     let mut saved = toml::Table::try_from(non_default_preferences()).expect("saved preferences");
     saved.remove("filter_include_subfolders");
     saved.remove("open_folder_after_drop");
+    saved.remove("permanent_delete_method");
     saved.remove("date_format");
     saved.remove("send_to_recent_destinations");
     saved.remove("tenxer_mode");
@@ -104,6 +110,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
             language: crate::i18n::Language::Auto,
             filter_include_subfolders: true,
             open_folder_after_drop: false,
+            permanent_delete_method: crate::services::PermanentDeleteMethod::Fast,
             date_format: "relative".into(),
             send_to_recent_destinations: HashMap::new(),
             tenxer_mode: false,
@@ -164,6 +171,7 @@ fn send_to_history_is_device_scoped_deduplicated_capped_and_persistent() {
                     .is_empty()
             );
 
+            manager.flush_preferences();
             let reloaded = PreferenceManager::load();
             assert_eq!(
                 reloaded.send_to_recent_destinations("volume:kingston"),
@@ -235,12 +243,16 @@ fn assert_recovered_preferences_survive_save(
     );
     expected.folder_peeking = false;
     manager.set_folder_peeking(false);
+    manager.flush_preferences();
 
     let persisted: Preferences =
         toml::from_str(&fs::read_to_string(settings_path()).expect("saved file"))
             .expect("save repairs invalid preferences");
     assert_eq!(persisted, expected);
-    assert_eq!(read_preferences().expect("saved preferences"), expected);
+    assert_eq!(
+        read_saved_preferences().expect("saved preferences"),
+        expected
+    );
 }
 
 #[test]
@@ -310,7 +322,7 @@ fn unreadable_preferences_are_preserved_while_live_changes_still_apply() {
             manager.set_folder_peeking(false);
             assert!(save_notices(&window).is_empty());
             assert!(
-                !read_preferences()
+                !read_saved_preferences()
                     .expect("saving resumes after reload")
                     .folder_peeking
             );
@@ -327,9 +339,14 @@ fn missing_settings_allow_first_run_saves() {
             let manager = PreferenceManager::load();
             assert!(!manager.folder_peeking());
             manager.set_folder_peeking(true);
-            assert!(read_preferences().expect("first run save").folder_peeking);
+            assert!(
+                read_saved_preferences()
+                    .expect("first run save")
+                    .folder_peeking
+            );
             assert!(PreferenceManager::load().folder_peeking());
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
             assert!(!PreferenceManager::load().folder_peeking());
         },
     );
@@ -354,6 +371,7 @@ fn symlinked_settings_save_through_to_the_target() {
             let manager = PreferenceManager::load();
             assert!(manager.folder_peeking());
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
 
             assert!(
                 !manager.persistence_dirty.get(),
@@ -392,6 +410,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
             other.present();
             wait_for(|| !window.is_active(), "another window to take focus");
             manager.set_folder_peeking(true);
+            manager.flush_preferences();
             assert!(
                 save_notices(&window).is_empty(),
                 "a change while no browser window is active only logs"
@@ -400,6 +419,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
             window.present();
             wait_for(|| window.is_active(), "the notice window to become active");
             manager.set_folder_peeking(true);
+            manager.flush_preferences();
             window.set_visible(false);
             assert!(
                 save_notices(&window).is_empty(),
@@ -410,6 +430,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
 
             manager.set_folder_peeking(true);
             manager.set_type_to_search(!manager.type_to_search());
+            manager.flush_preferences();
             let notices = save_notices(&window);
             assert_eq!(
                 notices.len(),
@@ -427,12 +448,17 @@ fn failed_saves_show_one_notice_per_failure_streak() {
 
             fs::remove_dir(settings_path()).expect("repair the settings file");
             manager.set_folder_peeking(true);
-            assert!(read_preferences().expect("retried save").folder_peeking);
+            assert!(
+                read_saved_preferences()
+                    .expect("retried save")
+                    .folder_peeking
+            );
             assert_eq!(save_notices(&window).len(), 1);
 
             fs::remove_file(settings_path()).expect("saved settings file");
             fs::create_dir(settings_path()).expect("block the settings file again");
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
             assert_eq!(
                 save_notices(&window).len(),
                 2,
@@ -608,7 +634,7 @@ fn unlisted_auto_refresh_intervals_round_up_on_load_and_set() {
                 manager.set_auto_refresh_interval(requested);
                 assert_eq!(manager.auto_refresh_interval(), expected);
                 assert_eq!(
-                    read_preferences()
+                    read_saved_preferences()
                         .expect("saved preferences")
                         .auto_refresh_interval,
                     expected
@@ -920,7 +946,9 @@ fn saved_omarchy_mode_loads_and_changes_through_the_same_binding() {
                     Some(tokens.surface.as_str())
                 );
                 assert_eq!(
-                    read_preferences().expect("saved variant").omarchy_variant,
+                    read_saved_preferences()
+                        .expect("saved variant")
+                        .omarchy_variant,
                     variant
                 );
             }
@@ -960,7 +988,7 @@ fn saved_omarchy_mode_loads_and_changes_through_the_same_binding() {
                 window.close();
             }
             assert_eq!(
-                read_preferences().expect("saved theme mode").mode,
+                read_saved_preferences().expect("saved theme mode").mode,
                 "omarchy"
             );
         },
@@ -1075,7 +1103,10 @@ fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
                 .expect("remove Omarchy theme name");
             themes.refresh_omarchy_state();
             assert!(!themes.follows_omarchy());
-            assert_eq!(read_preferences().expect("saved theme mode").mode, "theme");
+            assert_eq!(
+                read_saved_preferences().expect("saved theme mode").mode,
+                "theme"
+            );
         },
     );
 }
@@ -1131,6 +1162,9 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_element_glow(true),
                 |m| m.set_omarchy_variant(OmarchyVariant::HighContrast),
                 |m| m.set_file_icon_colors(FileIconColors::Brand),
+                |m| m.set_file_icon_theme(FileIconTheme::Catppuccin),
+                |m| m.set_interface_font_family("JetBrains Mono".into()),
+                |m| m.set_inherit_folder_sorts(false),
                 |m| m.set_browser_mode(BrowserMode::Icons),
                 |m| m.set_browser_density(BrowserDensity::Compact),
                 |m| m.set_group_by_type(false),
@@ -1202,6 +1236,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                     )
                 },
                 |m| m.set_open_folder_after_drop(false),
+                |m| m.set_permanent_delete_method(crate::services::PermanentDeleteMethod::Fast),
                 |m| m.set_folder_color(Path::new("/fixture/folder"), None),
                 |m| m.set_custom_icon(Path::new("/fixture/folder"), None),
             ];
@@ -1233,7 +1268,10 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                     "setter publishes exactly once"
                 );
                 assert_eq!(observations.borrow().last(), Some(&expected));
-                assert_eq!(read_preferences().expect("saved preferences"), expected);
+                assert_eq!(
+                    read_saved_preferences().expect("saved preferences"),
+                    expected
+                );
             };
             for setter in preference_setters {
                 setter(&manager);
@@ -1368,6 +1406,7 @@ fn item_customizations_follow_relocations_and_removals() {
 
             seed_saved_preferences_for_test();
             let manager = PreferenceManager::shared();
+            manager.set_inherit_folder_sorts(false);
             let notifications = Rc::new(std::cell::Cell::new(0));
             let counted = notifications.clone();
             manager.observe(Rc::new(move || counted.set(counted.get() + 1)));
@@ -1591,7 +1630,7 @@ fn item_customizations_follow_relocations_and_removals() {
                     (notified * 2, notified as u64),
                     "{case}: notifications of color and folder sort changes"
                 );
-                let saved = read_preferences().expect("saved preferences");
+                let saved = read_saved_preferences().expect("saved preferences");
                 for (relative, color, icon) in expected {
                     assert_eq!(
                         manager.resolve_folder_sort(&location(relative), false),
@@ -1619,6 +1658,193 @@ fn item_customizations_follow_relocations_and_removals() {
                         "{case}: saved keys of {relative}"
                     );
                 }
+            }
+        },
+    );
+}
+
+#[test]
+fn font_and_icon_choices_apply_before_settings_across_windows_and_rebuilt_content() {
+    gtk_test(
+        "ui::preferences::tests::preferences::font_and_icon_choices_apply_before_settings_across_windows_and_rebuilt_content",
+        || {
+            let manager = PreferenceManager::shared();
+            manager.set_interface_font_family("Sans".into());
+            manager.set_file_icon_theme(FileIconTheme::Material);
+            manager.set_file_icon_colors(FileIconColors::Brand);
+            let _themes = ThemeManager::shared();
+            crate::ui::prepare_portal_ui();
+            let fixture = tempfile::tempdir().expect("icon fixture");
+            let path = fixture.path().join("example.ts");
+            let windows = [gtk::Window::new(), gtk::Window::new()];
+            let labels = [
+                gtk::Label::new(Some("System font")),
+                gtk::Label::new(Some("System font")),
+            ];
+            let images = [gtk::Image::new(), gtk::Image::new()];
+            let fallback = crate::ui::browser::icon_for_name("example.ts");
+            let menu_label = gtk::Label::new(Some("Menu font"));
+            let popover = gtk::Popover::builder()
+                .child(&menu_label)
+                .has_arrow(false)
+                .build();
+            popover.add_css_class("item-context-menu");
+            let menu = gtk::MenuButton::builder()
+                .label("Menu")
+                .popover(&popover)
+                .build();
+            for index in 0..2 {
+                let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                content.append(&labels[index]);
+                content.append(&images[index]);
+                if index == 0 {
+                    content.append(&menu);
+                }
+                crate::ui::thumbnail::show_customized_icon_image(
+                    &images[index],
+                    &path,
+                    fallback,
+                    24,
+                );
+                windows[index].set_child(Some(&content));
+                windows[index].present();
+            }
+            popover.popup();
+            let family = |label: &gtk::Label| {
+                label
+                    .pango_context()
+                    .font_description()
+                    .and_then(|description| description.family())
+                    .map(|family| family.to_string())
+            };
+            wait_for_theme(|| {
+                labels
+                    .iter()
+                    .all(|label| family(label).as_deref() == Some("Sans"))
+                    && family(&menu_label).as_deref() == Some("Sans")
+            });
+            let bytes = |image: &gtk::Image| {
+                image
+                    .paintable()
+                    .and_downcast::<gtk::gdk::Texture>()
+                    .expect("file icon")
+                    .save_to_png_bytes()
+                    .as_ref()
+                    .to_vec()
+            };
+            let material = bytes(&images[0]);
+            assert_eq!(material, bytes(&images[1]));
+            manager.set_interface_font_family("Serif".into());
+            manager.set_file_icon_theme(FileIconTheme::Catppuccin);
+            wait_for_theme(|| {
+                labels
+                    .iter()
+                    .all(|label| family(label).as_deref() == Some("Serif"))
+                    && family(&menu_label).as_deref() == Some("Serif")
+            });
+            let catppuccin = bytes(&images[0]);
+            assert_ne!(material, catppuccin);
+            assert_eq!(catppuccin, bytes(&images[1]));
+            let rebuilt_label = gtk::Label::new(Some("Rebuilt content"));
+            let rebuilt_icon = gtk::Image::new();
+            crate::ui::thumbnail::show_customized_icon_image(&rebuilt_icon, &path, fallback, 24);
+            let rebuilt = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            rebuilt.append(&rebuilt_label);
+            rebuilt.append(&rebuilt_icon);
+            windows[1].set_child(Some(&rebuilt));
+            wait_for_theme(|| family(&rebuilt_label).as_deref() == Some("Serif"));
+            assert_eq!(catppuccin, bytes(&rebuilt_icon));
+            popover.popdown();
+            for window in windows {
+                window.destroy();
+            }
+        },
+    );
+}
+
+#[test]
+fn inherited_folder_sorts_update_two_views_and_keep_explicit_child_choices_after_rebuild() {
+    gtk_test(
+        "ui::preferences::tests::preferences::inherited_folder_sorts_update_two_views_and_keep_explicit_child_choices_after_rebuild",
+        || {
+            use crate::ui::browser::{BrowserView, PeekBehavior};
+            let fixture = tempfile::tempdir().expect("folder-sort fixture");
+            let child = fixture.path().join("child");
+            fs::create_dir(&child).expect("child folder");
+            fs::write(child.join("a.txt"), b"a").expect("small file");
+            fs::write(child.join("b.txt"), b"larger file").expect("large file");
+            let manager = PreferenceManager::shared();
+            manager.set_remember_folder_views(true);
+            manager.set_default_sort(SortKey::Name, SortDirection::Ascending);
+            manager.set_folder_sort(
+                &Location::local(fixture.path()),
+                SortKey::Size,
+                SortDirection::Descending,
+            );
+            manager.set_inherit_folder_sorts(true);
+            let views: Vec<_> = (0..2)
+                .map(|_| {
+                    BrowserView::new(
+                        Rc::new(crate::adapters::LocalFileSource),
+                        PeekBehavior::default(),
+                    )
+                })
+                .collect();
+            let windows = [gtk::Window::new(), gtk::Window::new()];
+            for index in 0..2 {
+                windows[index].set_child(Some(&views[index].widget()));
+                windows[index].present();
+                views[index].browser().navigate(Location::local(&child));
+            }
+            let first = |view: &BrowserView| {
+                view.browser()
+                    .entry_at(0, 0)
+                    .map(|entry| entry.display_name)
+            };
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| first(view).as_deref() == Some("b.txt"))
+            });
+            manager.set_inherit_folder_sorts(false);
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| first(view).as_deref() == Some("a.txt"))
+            });
+            manager.set_inherit_folder_sorts(true);
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| first(view).as_deref() == Some("b.txt"))
+            });
+            views[0]
+                .browser()
+                .set_sort(0, SortKey::Name, SortDirection::Ascending);
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| first(view).as_deref() == Some("a.txt"))
+            });
+            manager.set_default_sort(SortKey::Size, SortDirection::Descending);
+            let rebuilt = BrowserView::new(
+                Rc::new(crate::adapters::LocalFileSource),
+                PeekBehavior::default(),
+            );
+            windows[1].set_child(Some(&rebuilt.widget()));
+            rebuilt.browser().navigate(Location::local(&child));
+            wait_for_theme(|| first(&rebuilt).as_deref() == Some("a.txt"));
+            assert_eq!(first(&views[0]).as_deref(), Some("a.txt"));
+            assert_eq!(
+                manager.resolve_folder_sort(&Location::local(&child), false),
+                FolderSort::Saved(SortKey::Name, SortDirection::Ascending)
+            );
+            for view in &views {
+                view.browser().clear_observer();
+            }
+            rebuilt.browser().clear_observer();
+            for window in windows {
+                window.destroy();
             }
         },
     );

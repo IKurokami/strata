@@ -47,6 +47,7 @@ enum Flight {
 
 pub(super) struct PreparedFlight {
     overlay: gtk::Overlay,
+    layer: gtk::Fixed,
     source: gtk::Widget,
     trash_button: gtk::Button,
     flyers: Option<Vec<Flyer>>,
@@ -58,11 +59,9 @@ impl Drop for PreparedFlight {
     fn drop(&mut self) {
         if let Some(flyers) = self.flyers.take() {
             for flyer in flyers {
-                self.overlay.remove_overlay(&flyer.widget);
+                self.layer.remove(&flyer.widget);
             }
-        }
-        if let Some(root) = self.frozen_root.take() {
-            root.thaw();
+            self.overlay.remove_overlay(&self.layer);
         }
     }
 }
@@ -90,12 +89,13 @@ impl PreparedFlight {
             Flight::Outbound => release_trash(&self.trash_button),
         }
         let overlay = self.overlay.clone();
+        let layer = self.layer.clone();
         let source = self.source.clone();
         let button = self.trash_button.clone();
-        let frozen_root = self.frozen_root.take();
+        let frozen_root = self.frozen_root.take().filter(|root| root.freeze());
         let mode = self.mode;
         drop(self);
-        animate_flyers(&overlay, &source, flyers, mode, move || {
+        animate_flyers(&overlay, &layer, &source, flyers, mode, move || {
             if mode == Flight::Inbound {
                 button.remove_css_class("trash-receiving");
                 impact_trash(&button);
@@ -119,22 +119,27 @@ fn prepare_flight(
     }
     let overlay = window_overlay(source)?;
     let trash_center = widget_center_in_overlay(trash_button.upcast_ref(), &overlay)?;
+    let layer = gtk::Fixed::new();
+    layer.set_can_target(false);
+    layer.set_hexpand(true);
+    layer.set_vexpand(true);
     let flyers = match mode {
         Flight::Inbound | Flight::Release => {
             let targets = collect_entry_targets(source, entries.iter().copied());
-            create_flyers(&overlay, &targets, trash_center, mode)
+            create_flyers(&overlay, &layer, &targets, trash_center, mode)
         }
-        Flight::Outbound => create_outbound_flyers(&overlay, source, entries, trash_center),
+        Flight::Outbound => create_outbound_flyers(&overlay, &layer, source, entries, trash_center),
     };
     if flyers.is_empty() {
         return None;
     }
+    overlay.add_overlay(&layer);
     let frozen_root = (mode == Flight::Outbound)
         .then(|| overlay.child().and_downcast::<crate::ui::blur::BlurBin>())
-        .flatten()
-        .filter(|root| root.freeze());
+        .flatten();
     Some(PreparedFlight {
         overlay,
+        layer,
         source: source.clone(),
         trash_button: trash_button.clone(),
         flyers: Some(flyers),
@@ -182,6 +187,7 @@ fn release_end(row_center: (f64, f64), index: usize, count: usize) -> (f64, f64)
 
 fn create_flyers(
     overlay: &gtk::Overlay,
+    layer: &gtk::Fixed,
     targets: &[EntryAnimationTarget],
     trash_center: (f64, f64),
     mode: Flight,
@@ -226,13 +232,11 @@ fn create_flyers(
             widget.set_valign(gtk::Align::Start);
             widget.set_can_target(false);
             widget.set_visible(false);
-            widget.set_margin_start(start.0.round() as i32);
-            widget.set_margin_top(start.1.round() as i32);
             let icon = crate::assets::primary_icon(entry_icon(&target.entry), 18);
             icon.add_css_class("fly-to-trash-icon");
             icon.set_opacity(if mode == Flight::Outbound { 0.0 } else { 1.0 });
             widget.set_child(Some(&icon));
-            overlay.add_overlay(&widget);
+            layer.put(&widget, start.0, start.1);
             let delay = Duration::from_millis((index as u64 * STAGGER_MS).min(MAX_STAGGER_MS));
             let drift = end.0 - start.0;
             let bank_class = if drift < -10.0 {
@@ -260,6 +264,7 @@ fn create_flyers(
 
 fn create_outbound_flyers(
     overlay: &gtk::Overlay,
+    layer: &gtk::Fixed,
     source: &gtk::Widget,
     entries: &[&FileEntry],
     trash_center: (f64, f64),
@@ -296,14 +301,12 @@ fn create_outbound_flyers(
             widget.set_valign(gtk::Align::Start);
             widget.set_can_target(false);
             widget.set_visible(false);
-            widget.set_margin_start(trash_position.0.round() as i32);
-            widget.set_margin_top(trash_position.1.round() as i32);
 
             let icon = crate::assets::primary_icon(entry_icon(entry), 18);
             icon.add_css_class("fly-to-trash-icon");
             icon.set_opacity(0.0);
             widget.set_child(Some(&icon));
-            overlay.add_overlay(&widget);
+            layer.put(&widget, trash_position.0, trash_position.1);
 
             let delay = Duration::from_millis((index as u64 * STAGGER_MS).min(MAX_STAGGER_MS));
             Flyer {
@@ -388,6 +391,7 @@ fn arc_height(start: (f64, f64), end: (f64, f64), index: usize) -> f64 {
 
 fn animate_flyers(
     overlay: &gtk::Overlay,
+    layer: &gtk::Fixed,
     source: &gtk::Widget,
     flyers: Vec<Flyer>,
     mode: Flight,
@@ -405,6 +409,8 @@ fn animate_flyers(
             .max()
             .unwrap_or_default();
     let overlay_for_cleanup = overlay.clone();
+    let layer_for_cleanup = layer.clone();
+    let layer_for_frame = layer.clone();
     let source_for_frame = source.clone();
     let overlay_for_frame = overlay.clone();
     let flyers = std::rc::Rc::new(std::cell::RefCell::new(flyers));
@@ -440,8 +446,7 @@ fn animate_flyers(
                         let y = flyer.start.1 + (flyer.end.1 - flyer.start.1) * launch_progress;
                         (x, y)
                     };
-                    flyer.widget.set_margin_start(x.round() as i32);
-                    flyer.widget.set_margin_top(y.round() as i32);
+                    layer_for_frame.move_(&flyer.widget, x, y);
                     let opacity = if progress < 0.65 {
                         1.0
                     } else {
@@ -459,8 +464,7 @@ fn animate_flyers(
                     let x = flyer.start.0 + (flyer.end.0 - flyer.start.0) * position_progress;
                     let y = flyer.start.1 + (flyer.end.1 - flyer.start.1) * position_progress
                         - flyer.arc_height * (std::f64::consts::PI * position_progress).sin();
-                    flyer.widget.set_margin_start(x.round() as i32);
-                    flyer.widget.set_margin_top(y.round() as i32);
+                    layer_for_frame.move_(&flyer.widget, x, y);
                     flyer.icon.set_opacity(match mode {
                         Flight::Outbound => ease_out_cubic(progress),
                         _ => 1.0 - ease_in_cubic(progress),
@@ -475,8 +479,9 @@ fn animate_flyers(
         },
         move || {
             for flyer in flyers_for_cleanup.borrow().iter() {
-                overlay_for_cleanup.remove_overlay(&flyer.widget);
+                layer_for_cleanup.remove(&flyer.widget);
             }
+            overlay_for_cleanup.remove_overlay(&layer_for_cleanup);
             on_done();
         },
     );

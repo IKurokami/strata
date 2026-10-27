@@ -45,7 +45,9 @@ pub(in crate::ui) mod media_layout;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod selection;
 mod session;
+pub(in crate::ui) use selection::{selection_preview_suppressed, suppress_selection_preview};
 pub(super) mod video;
 mod waveform;
 
@@ -100,7 +102,7 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
 
     let (content_type, uncertain) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
-    let content = crate::services::content_family(&content_type);
+    let content = crate::services::content_family_for_file(&entry.native_name, &content_type);
     // Windows installations often lack a complete shared MIME database.
     // Keep quick preview available for known image/media extensions; the
     // provider still validates and decodes the actual file before rendering.
@@ -155,9 +157,11 @@ struct PendingSourcePreview {
 
 struct SourcePreviewView {
     view: RefCell<Option<sourceview5::View>>,
+    buffer: RefCell<Option<sourceview5::Buffer>>,
     scroll: RefCell<Option<gtk::ScrolledWindow>>,
     virtual_state: RefCell<Option<Rc<super::virtual_preview::VirtualPreviewState>>>,
     generation: Rc<Cell<u64>>,
+    fill: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 struct DocumentPreview {
@@ -169,6 +173,7 @@ struct DocumentPreview {
 }
 
 struct PreviewState {
+    mutation_watch: RefCell<Option<crate::services::file_mutations::MutationWatch>>,
     provider: Rc<dyn PreviewProvider>,
     revealer: gtk::Revealer,
     slot: gtk::Box,
@@ -216,6 +221,7 @@ struct PreviewState {
     current: RefCell<Option<FileEntry>>,
     current_depth: Cell<Option<usize>>,
     pending_show: RefCell<Option<glib::SourceId>>,
+    pending_show_location: RefCell<Option<crate::model::Location>>,
     load: RefCell<Option<LoadHandle>>,
     loading_delay: RefCell<Option<glib::SourceId>>,
     loading_label: RefCell<Option<gtk::Label>>,
@@ -402,6 +408,7 @@ impl PreviewDrawer {
         slot.append(&slot_overlay);
 
         let state = Rc::new(PreviewState {
+            mutation_watch: RefCell::new(None),
             provider,
             revealer,
             slot,
@@ -444,6 +451,7 @@ impl PreviewDrawer {
             current: RefCell::new(None),
             current_depth: Cell::new(None),
             pending_show: RefCell::new(None),
+            pending_show_location: RefCell::new(None),
             load: RefCell::new(None),
             loading_delay: RefCell::new(None),
             loading_label: RefCell::new(None),
@@ -562,6 +570,23 @@ impl PreviewDrawer {
             }
         });
 
+        let weak = Rc::downgrade(&state);
+        state
+            .mutation_watch
+            .replace(Some(crate::services::file_mutations::watch(move |roots| {
+                let Some(state) = weak.upgrade() else {
+                    return;
+                };
+                let affected = state.current.borrow().as_ref().is_some_and(|entry| {
+                    crate::services::file_mutations::contains(roots, &entry.location)
+                }) || state.pending_show_location.borrow().as_ref().is_some_and(
+                    |location| crate::services::file_mutations::contains(roots, location),
+                );
+                if affected {
+                    state.print_load.borrow_mut().take();
+                    state.clear_target();
+                }
+            })));
         Self { state }
     }
 
@@ -583,10 +608,13 @@ impl PreviewDrawer {
         }
         let media = state.media.borrow().clone()?;
         media.set_playing(false);
-        media
-            .downcast_ref::<super::media::DecodedMedia>()?
-            .video_size()?;
-        let position = media.timestamp().max(0) as u64;
+        let decoded = media.downcast_ref::<super::media::DecodedMedia>()?;
+        if decoded.video_size().is_none() && state.video.borrow().is_none() {
+            return None;
+        }
+        // A replacement stream may still be restoring its saved position before
+        // GTK publishes a timestamp or the decoder has delivered its header.
+        let position = decoded.playback_position();
         let duration = media.duration().max(0) as u64;
         let inside = position > HANDOFF_MARGIN_US
             && (duration == 0 || position.saturating_add(HANDOFF_MARGIN_US) < duration);
@@ -631,6 +659,20 @@ impl PreviewDrawer {
     }
 
     pub fn handle_browser_event(&self, browser: &Browser, event: &BrowserEvent) {
+        if selection_preview_suppressed()
+            && matches!(
+                event,
+                BrowserEvent::FocusChanged { .. }
+                    | BrowserEvent::SelectionSynced { .. }
+                    | BrowserEvent::SelectionSetChanged { .. }
+                    | BrowserEvent::PreviewRequested {
+                        automatic: true,
+                        ..
+                    }
+            )
+        {
+            return;
+        }
         match event {
             BrowserEvent::PreviewRequested { entry, automatic } => {
                 if *automatic && self.state.dismissed.get() {
@@ -835,12 +877,20 @@ impl PreviewState {
     }
 
     fn cancel_pending_show(&self) {
+        self.pending_show_location.take();
         if let Some(source) = self.pending_show.borrow_mut().take() {
             source.remove();
         }
     }
 
     fn show_after_focus_change(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
+        if selection_preview_suppressed() {
+            return;
+        }
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         self.cancel_pending_show();
         self.retain_pending_playback(&entry);
         if self.current.borrow().as_ref() == Some(&entry) && self.current_request.get().is_some() {
@@ -862,11 +912,14 @@ impl PreviewState {
         // not mistake a replacement request for an empty, closed drawer.
 
         let weak = Rc::downgrade(self);
+        self.pending_show_location
+            .replace(Some(entry.location.clone()));
         let source = glib::timeout_add_local_once(FOCUS_PREVIEW_DELAY, move || {
             let Some(state) = weak.upgrade() else {
                 return;
             };
             state.pending_show.borrow_mut().take();
+            state.pending_show_location.take();
             if state.is_enabled() {
                 state.show(entry, depth);
             }
@@ -890,6 +943,10 @@ impl PreviewState {
     }
 
     fn show(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         if self
             .current
             .borrow()
@@ -1013,7 +1070,10 @@ impl PreviewState {
         let parent = self.pane.root().and_downcast::<gtk::Window>();
         let (content_type, _) =
             gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
-        if content_type == "application/pdf" {
+        if matches!(
+            crate::services::content_family_for_file(&entry.native_name, &content_type),
+            PreviewContent::Pdf { .. }
+        ) {
             self.show_print_progress();
         }
         self.load_print_page(entry, parent, 0, Rc::new(RefCell::new(Vec::new())));
@@ -1290,6 +1350,10 @@ impl PreviewState {
     }
 
     fn load(self: &Rc<Self>, entry: FileEntry, pdf_page: i32) {
+        if crate::services::file_mutations::blocks(&entry.location) {
+            self.clear_target();
+            return;
+        }
         self.load_with_password(entry, pdf_page, None);
     }
 
@@ -2968,8 +3032,9 @@ impl PreviewState {
         self.detach_find();
         self.rendered_text.borrow_mut().take();
         self.source_preview.cancel();
-        self.source_preview.scroll.borrow_mut().take();
-        self.source_preview.virtual_state.borrow_mut().take();
+        let scroll = self.source_preview.scroll.borrow_mut().take();
+        let virtual_state = self.source_preview.virtual_state.borrow_mut().take();
+        drop((scroll, virtual_state));
         self.document_view_button.set_visible(false);
         self.document_preview.borrow_mut().take();
         let audio = self.audio.borrow_mut().take();
@@ -3593,9 +3658,11 @@ impl SourcePreviewView {
     fn new() -> Self {
         Self {
             view: RefCell::new(None),
+            buffer: RefCell::new(None),
             scroll: RefCell::new(None),
             virtual_state: RefCell::new(None),
             generation: Rc::new(Cell::new(0)),
+            fill: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -3628,9 +3695,11 @@ impl SourcePreviewView {
         truncated: bool,
     ) -> (gtk::Widget, bool) {
         self.cancel();
-        self.scroll.borrow_mut().take();
-        self.virtual_state.borrow_mut().take();
-        if let Some(view) = self.view.borrow().as_ref()
+        let obsolete_scroll = self.scroll.borrow_mut().take();
+        let obsolete_virtual = self.virtual_state.borrow_mut().take();
+        drop((obsolete_scroll, obsolete_virtual));
+        let previous_view = self.view.borrow().clone();
+        if let Some(view) = previous_view
             && let Some(parent) = view.parent()
         {
             if let Ok(scroll) = parent.downcast::<gtk::ScrolledWindow>() {
@@ -3641,7 +3710,7 @@ impl SourcePreviewView {
         }
         let languages = sourceview5::LanguageManager::default();
         let language = languages.guess_language(entry.location.native_path(), Some(content_type));
-        if language.is_none() && super::virtual_preview::use_virtual_plain_source(content) {
+        if super::virtual_preview::use_virtual_plain_source(content) {
             let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
             let (container, state) =
                 super::virtual_preview::source_document(content, truncated, wrapped);
@@ -3651,10 +3720,12 @@ impl SourcePreviewView {
         let view = self.ensure_view();
         let display = normalize_preview_text(content).into_owned();
         let buffer = sourceview5::Buffer::new(None);
+        buffer.set_enable_undo(false);
         super::theme::register_source_buffer(&buffer);
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
         view.set_buffer(Some(&buffer));
+        self.buffer.replace(Some(buffer.clone()));
         let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
         view.set_wrap_mode(text_wrap_mode(wrapped));
         fill_source_buffer(
@@ -3663,6 +3734,7 @@ impl SourcePreviewView {
             self.generation.clone(),
             self.generation.get(),
             language.is_some(),
+            self.fill.clone(),
         );
 
         let scroll = gtk::ScrolledWindow::builder()
@@ -3690,6 +3762,21 @@ impl SourcePreviewView {
 
     fn cancel(&self) {
         self.generation.set(self.generation.get().saturating_add(1));
+        if let Some(source) = self.fill.borrow_mut().take() {
+            source.remove();
+        }
+        let previous_buffer = self.buffer.borrow_mut().take();
+        if let Some(buffer) = previous_buffer {
+            buffer.set_highlight_syntax(false);
+            buffer.set_language(None);
+            buffer.set_text("");
+        }
+    }
+}
+
+impl Drop for SourcePreviewView {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -3699,6 +3786,7 @@ fn fill_source_buffer(
     generation: Rc<Cell<u64>>,
     expected_generation: u64,
     highlight_syntax: bool,
+    pending: Rc<RefCell<Option<glib::SourceId>>>,
 ) {
     let text = normalize_preview_text(&text).into_owned();
     let first_end = source_chunk_end(&text, 0);
@@ -3711,17 +3799,21 @@ fn fill_source_buffer(
 
     let weak_buffer = buffer.downgrade();
     let mut offset = first_end;
-    glib::idle_add_local(move || {
+    let finished = pending.clone();
+    let source = glib::idle_add_local(move || {
         if generation.get() != expected_generation {
+            finished.borrow_mut().take();
             return glib::ControlFlow::Break;
         }
         let Some(buffer) = weak_buffer.upgrade() else {
+            finished.borrow_mut().take();
             return glib::ControlFlow::Break;
         };
         let end = source_chunk_end(&text, offset);
         buffer.insert(&mut buffer.end_iter(), &text[offset..end]);
         offset = end;
         if offset == text.len() {
+            finished.borrow_mut().take();
             buffer.set_modified(false);
             buffer.set_highlight_syntax(highlight_syntax);
             glib::ControlFlow::Break
@@ -3729,6 +3821,7 @@ fn fill_source_buffer(
             glib::ControlFlow::Continue
         }
     });
+    *pending.borrow_mut() = Some(source);
 }
 
 fn source_chunk_end(text: &str, start: usize) -> usize {

@@ -17,7 +17,7 @@ def extract_archive(strata, archive_name, activation):
         strata.double_click_entry(archive_name)
     else:
         strata.open_context_menu(archive_name)
-        strata.choose_menu_item(activation)
+        strata.choose_submenu_item("Extract", activation)
         if activation == "Extract to…":
             chooser = strata.destination_chooser("Extract to")
             strata.confirm_destination(chooser, "Extract here")

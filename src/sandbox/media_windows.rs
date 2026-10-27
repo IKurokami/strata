@@ -43,6 +43,7 @@ impl Session {
         let stop = cancelled.clone();
         let children = Arc::new(Mutex::new(Vec::new()));
         let worker_children = children.clone();
+        let lease = crate::services::file_mutations::worker(&source.path, stop.clone());
         let (sender, receiver) = mpsc::sync_channel(3);
         let worker = thread::Builder::new()
             .name("windows-media-helper".into())
@@ -50,6 +51,7 @@ impl Session {
                 let result = decode_video(source, start_tick, &stop, &sender, &worker_children);
                 // Ensure ffmpeg cannot survive a finished, failed, or cancelled preview.
                 terminate_children(&worker_children);
+                drop(lease);
                 if let Err(error) = result {
                     let _ = send(&sender, Event::Failed(error), &stop);
                 }
@@ -66,16 +68,7 @@ impl Session {
         self.receiver.try_recv().ok()
     }
     pub fn cancel(&self) {
-        if !self.cancelled.swap(true, Ordering::AcqRel) {
-            let children = self.children.clone();
-            // Even dropping the final child handle waits for stderr to drain.
-            // Keep termination and handle destruction off the GTK event loop.
-            let _ = thread::Builder::new()
-                .name("media-cancel".into())
-                .spawn(move || {
-                    kill_children(&children);
-                });
-        }
+        cancel_children(&self.cancelled, &self.children);
     }
     pub fn finished(&self) -> bool {
         self.worker
@@ -109,6 +102,19 @@ fn send(
             Err(mpsc::TrySendError::Full(pending)) => event = pending,
         }
         thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+fn cancel_children(
+    cancelled: &AtomicBool,
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
+) {
+    if !cancelled.swap(true, Ordering::AcqRel) {
+        let children = children.clone();
+        // Killing and dropping a contained process may drain pipes; never do it on GTK.
+        let _ = thread::Builder::new()
+            .name("media-cancel".into())
+            .spawn(move || kill_children(&children));
     }
 }
 
@@ -233,7 +239,14 @@ struct ProbeCacheEntry {
 
 static PROBE_CACHE: LazyLock<Mutex<Vec<ProbeCacheEntry>>> = LazyLock::new(Mutex::default);
 
-fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::SandboxedOutput> {
+fn run_ffprobe(
+    arguments: &[&str],
+    path: &Path,
+    cancelled: &AtomicBool,
+) -> Option<strata_win_shell::SandboxedOutput> {
+    if cancelled.load(Ordering::Acquire) {
+        return None;
+    }
     let executable = PathBuf::from(media_tool("STRATA_FFPROBE", "ffprobe.exe"));
     let stamp = strata_native_io::windows_file_stamp::from_metadata(&std::fs::metadata(path).ok()?);
     if let Ok(cache) = PROBE_CACHE.lock()
@@ -265,7 +278,7 @@ fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::Sand
         None,
         &limits,
         std::time::Duration::from_secs(5),
-        None,
+        Some(cancelled),
     )
     .ok()?;
     if output.exit_code == 0
@@ -291,7 +304,10 @@ fn run_ffprobe(arguments: &[&str], path: &Path) -> Option<strata_win_shell::Sand
     Some(output)
 }
 
-fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> {
+fn probe_video_dimensions(
+    path: &std::path::Path,
+    cancelled: &AtomicBool,
+) -> Result<(f64, f64), String> {
     let output = run_ffprobe(
         &[
             "-v",
@@ -304,6 +320,7 @@ fn probe_video_dimensions(path: &std::path::Path) -> Result<(f64, f64), String> 
             "json",
         ],
         path,
+        cancelled,
     )
     .ok_or_else(|| crate::i18n::tr("Unable to inspect media dimensions"))?;
     let value: serde_json::Value =
@@ -354,7 +371,7 @@ fn fitted_video_size(
     )
 }
 
-fn has_audio(path: &std::path::Path) -> bool {
+fn has_audio(path: &std::path::Path, cancelled: &AtomicBool) -> bool {
     run_ffprobe(
         &[
             "-v",
@@ -367,6 +384,7 @@ fn has_audio(path: &std::path::Path) -> bool {
             "csv=p=0",
         ],
         path,
+        cancelled,
     )
     .is_some_and(|result| result.exit_code == 0 && !result.stdout.is_empty())
 }
@@ -383,15 +401,15 @@ fn decode_video(
     }
     let requested_width = source.size.width.clamp(16, 1280) as u32;
     let requested_height = source.size.height.clamp(16, 1280) as u32;
-    let (source_width, source_height) = probe_video_dimensions(&source.path)?;
+    let (source_width, source_height) = probe_video_dimensions(&source.path, cancelled)?;
     let (width, height) = fitted_video_size(
         requested_width,
         requested_height,
         source_width,
         source_height,
     );
-    let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
-    let audio = has_audio(&source.path);
+    let duration_us = probe_duration(&source.path, cancelled).unwrap_or(MAX_DURATION_US);
+    let audio = has_audio(&source.path, cancelled);
     let pixels_pipe = spawn_decoder(
         &mut video_command(&source, start_tick, width, height),
         cancelled,
@@ -471,7 +489,7 @@ fn decode_audio(
     sender: &mpsc::SyncSender<Event>,
     children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
-    let duration_us = probe_duration(&source.path).unwrap_or(MAX_DURATION_US);
+    let duration_us = probe_duration(&source.path, cancelled).unwrap_or(MAX_DURATION_US);
     let pipe = spawn_decoder(&mut audio_command(&source, start_tick), cancelled, children)?;
     let header = Header {
         width: 0,
@@ -547,7 +565,7 @@ fn media_tool(override_name: &str, executable: &str) -> std::ffi::OsString {
     executable.into()
 }
 
-fn probe_duration(path: &std::path::Path) -> Option<u64> {
+fn probe_duration(path: &std::path::Path, cancelled: &AtomicBool) -> Option<u64> {
     let output = run_ffprobe(
         &[
             "-v",
@@ -558,6 +576,7 @@ fn probe_duration(path: &std::path::Path) -> Option<u64> {
             "default=noprint_wrappers=1:nokey=1",
         ],
         path,
+        cancelled,
     )?;
     if output.exit_code != 0 {
         return None;
@@ -580,6 +599,7 @@ static ACTIVE_BACKGROUND: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct PeaksSession {
     cancelled: Arc<AtomicBool>,
+    children: Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
     receiver: mpsc::Receiver<PeaksEvent>,
 }
 
@@ -593,11 +613,16 @@ impl PeaksSession {
         }
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
+        let lease = crate::services::file_mutations::worker(&source.path, stop.clone());
+        let children = Arc::new(Mutex::new(Vec::new()));
+        let worker_children = children.clone();
         let (sender, receiver) = mpsc::sync_channel(64);
         thread::Builder::new()
             .name("windows-audio-peaks".into())
             .spawn(move || {
-                let result = render_peaks(&source, &stop, &sender);
+                let result = render_peaks(&source, &stop, &sender, &worker_children);
+                terminate_children(&worker_children);
+                drop(lease);
                 ACTIVE_BACKGROUND.store(false, Ordering::Release);
                 let event = if result.is_ok() {
                     PeaksEvent::Finished
@@ -606,9 +631,11 @@ impl PeaksSession {
                 };
                 let _ = sender.send(event);
             })
+            .map_err(|_| ACTIVE_BACKGROUND.store(false, Ordering::Release))
             .ok()?;
         Some(Self {
             cancelled,
+            children,
             receiver,
         })
     }
@@ -623,7 +650,7 @@ impl PeaksSession {
 
 impl Drop for PeaksSession {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        cancel_children(&self.cancelled, &self.children);
     }
 }
 
@@ -636,6 +663,7 @@ pub(crate) enum StoryboardEvent {
 
 pub(crate) struct StoryboardSession {
     cancelled: Arc<AtomicBool>,
+    children: Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
     receiver: mpsc::Receiver<StoryboardEvent>,
 }
 
@@ -649,11 +677,17 @@ impl StoryboardSession {
         }
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
+        let lease = crate::services::file_mutations::worker(&source.path, stop.clone());
+        let children = Arc::new(Mutex::new(Vec::new()));
+        let worker_children = children.clone();
         let (sender, receiver) = mpsc::sync_channel(64);
         thread::Builder::new()
             .name("windows-video-storyboard".into())
             .spawn(move || {
-                let result = render_storyboard(&source, cell_edge, &stop, &sender);
+                let result =
+                    render_storyboard(&source, cell_edge, &stop, &sender, &worker_children);
+                terminate_children(&worker_children);
+                drop(lease);
                 ACTIVE_BACKGROUND.store(false, Ordering::Release);
                 let event = if result.is_ok() {
                     StoryboardEvent::Finished
@@ -662,9 +696,11 @@ impl StoryboardSession {
                 };
                 let _ = sender.send(event);
             })
+            .map_err(|_| ACTIVE_BACKGROUND.store(false, Ordering::Release))
             .ok()?;
         Some(Self {
             cancelled,
+            children,
             receiver,
         })
     }
@@ -679,7 +715,7 @@ impl StoryboardSession {
 
 impl Drop for StoryboardSession {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        cancel_children(&self.cancelled, &self.children);
     }
 }
 
@@ -687,15 +723,15 @@ fn render_peaks(
     source: &SandboxedMedia,
     cancelled: &AtomicBool,
     sender: &mpsc::SyncSender<PeaksEvent>,
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
-    let duration = probe_duration(&source.path).unwrap_or(MAX_DURATION_US - 1);
+    let duration = probe_duration(&source.path, cancelled).unwrap_or(MAX_DURATION_US - 1);
     let mut command = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
     command
         .args(["-v", "error", "-i"])
         .arg(&source.path)
         .args(["-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"]);
-    let children = Arc::new(Mutex::new(Vec::new()));
-    let child = spawn_decoder(&mut command, cancelled, &children)?;
+    let child = spawn_decoder(&mut command, cancelled, children)?;
     let mut accumulator = crate::media::peaks::Accumulator::new(duration);
     let mut wire = Vec::new();
     let mut decoded_any = false;
@@ -717,10 +753,10 @@ fn render_peaks(
         .finish(&mut wire)
         .map_err(|error| error.to_string())?;
     if !decoded_any {
-        terminate_children(&children);
+        terminate_children(children);
         return Err("Audio decoder returned no PCM samples".into());
     }
-    terminate_children(&children);
+    terminate_children(children);
     let mut cursor = std::io::Cursor::new(wire);
     crate::media::peaks::read_header(&mut cursor).map_err(|e| e.to_string())?;
     let mut runs = crate::media::peaks::RunReader::default();
@@ -737,15 +773,16 @@ fn render_storyboard(
     cell_edge: u32,
     cancelled: &AtomicBool,
     sender: &mpsc::SyncSender<StoryboardEvent>,
+    children: &Arc<Mutex<Vec<Arc<strata_win_shell::SandboxedChild>>>>,
 ) -> Result<(), String> {
-    let duration = probe_duration(&source.path).unwrap_or(MAX_DURATION_US - 1);
+    let duration = probe_duration(&source.path, cancelled).unwrap_or(MAX_DURATION_US - 1);
     let count = crate::media::storyboard::cell_count(duration);
     let edge = cell_edge.clamp(
         crate::media::storyboard::MIN_CELL_EDGE,
         crate::media::storyboard::MAX_CELL_EDGE,
     );
-    let (source_width, source_height) =
-        probe_video_dimensions(&source.path).unwrap_or((f64::from(edge), f64::from(edge)));
+    let (source_width, source_height) = probe_video_dimensions(&source.path, cancelled)
+        .unwrap_or((f64::from(edge), f64::from(edge)));
     let (width, height) = fitted_video_size(edge, edge, source_width, source_height);
     let sheet = crate::media::storyboard::Sheet {
         width,
@@ -775,10 +812,9 @@ fn render_storyboard(
                 "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgba"
             ))
             .args(["-f", "rawvideo", "pipe:1"]);
-        let children = Arc::new(Mutex::new(Vec::new()));
-        let child = spawn_decoder(&mut command, cancelled, &children)?;
+        let child = spawn_decoder(&mut command, cancelled, children)?;
         let pixels = read_chunk(child.as_ref(), sheet.cell_bytes())?;
-        terminate_children(&children);
+        terminate_children(children);
         if pixels.len() == sheet.cell_bytes() {
             sender
                 .send(StoryboardEvent::Cell { index, pixels })

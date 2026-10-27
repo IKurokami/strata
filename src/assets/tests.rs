@@ -250,31 +250,43 @@ fn icon_texture_cache_bounds_entries_and_preserves_lru() {
 }
 
 #[test]
-fn catppuccin_file_icons_render_in_both_flavors() {
+fn bundled_file_icon_collections_render_in_both_flavors() {
     crate::test_support::gtk_test(
-        "assets::tests::catppuccin_file_icons_render_in_both_flavors",
+        "assets::tests::bundled_file_icon_collections_render_in_both_flavors",
         || {
             use super::{CatppuccinFlavor, IconContext};
-            let names = gio::resources_enumerate_children(
-                "/io/github/lgse/Strata/icons/catppuccin/",
-                gio::ResourceLookupFlags::NONE,
-            )
-            .expect("bundled Catppuccin icons");
-            assert!(names.len() > 300);
-            for resource in &names {
-                let name = resource.strip_suffix(".svg").expect("bundled SVG icon");
-                assert!(name.starts_with(super::CATPPUCCIN_ICON_PREFIX), "{name}");
-                super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
-                let mocha = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
-                assert!(mocha.is::<gtk::gdk::MemoryTexture>(), "{name}");
-                super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
-                let latte = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
-                assert_ne!(
-                    mocha, latte,
-                    "{name} must follow the flavor, not the accent"
-                );
+            for (directory, prefix) in [
+                ("catppuccin", super::CATPPUCCIN_ICON_PREFIX),
+                ("material", super::MATERIAL_ICON_PREFIX),
+            ] {
+                let names = gio::resources_enumerate_children(
+                    &format!("/io/github/lgse/Strata/icons/{directory}/"),
+                    gio::ResourceLookupFlags::NONE,
+                )
+                .expect("bundled icon collection");
+                assert!(!names.is_empty());
+                for resource in &names {
+                    let name = resource.strip_suffix(".svg").expect("bundled SVG icon");
+                    assert!(name.starts_with(prefix), "{name}");
+                    super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+                    let mocha = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
+                    assert!(mocha.is::<gtk::gdk::MemoryTexture>(), "{name}");
+                    assert!(
+                        crate::test_support::texture_has_visible_pixels(&mocha),
+                        "{name}"
+                    );
+                    super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
+                    let latte = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
+                    assert!(
+                        crate::test_support::texture_has_visible_pixels(&latte),
+                        "{name}"
+                    );
+                    assert_ne!(
+                        mocha, latte,
+                        "{name} must follow the flavor, not the accent"
+                    );
+                }
             }
-
             let name = "strata-ctp-rust";
             let grid = |size, scale| {
                 super::sized_icon_paintable(name, "#123456", size, scale, IconContext::Grid)
@@ -291,29 +303,31 @@ fn catppuccin_file_icons_render_in_both_flavors() {
 }
 
 #[test]
-fn catppuccin_file_icons_can_follow_the_theme_accent() {
+fn file_icon_collections_keep_brand_colors_or_follow_the_theme_accent() {
     crate::test_support::gtk_test(
-        "assets::tests::catppuccin_file_icons_can_follow_the_theme_accent",
+        "assets::tests::file_icon_collections_keep_brand_colors_or_follow_the_theme_accent",
         || {
             use super::{CatppuccinFlavor, IconContext};
-            let render = |color| {
-                super::sized_icon_paintable("strata-ctp-rust", color, 64, 1, IconContext::Grid)
-                    .expect("render icon")
-            };
-            super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
-            let brand = render("#123456");
-            assert_eq!(brand, render("#654321"), "brand colors ignore the accent");
+            for name in ["strata-ctp-rust", "strata-material-rust"] {
+                let render = |color| {
+                    super::sized_icon_paintable(name, color, 64, 1, IconContext::Grid)
+                        .expect("render icon")
+                };
+                super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+                let brand = render("#123456");
+                assert_eq!(brand, render("#654321"), "brand colors ignore the accent");
 
-            super::set_catppuccin_theme_colors(true);
-            let themed = render("#123456");
-            assert_ne!(themed, brand);
-            assert_ne!(themed, render("#654321"), "theme colors follow the accent");
-            super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
-            assert_eq!(themed, render("#123456"), "theme colors ignore the flavor");
+                super::set_catppuccin_theme_colors(true);
+                let themed = render("#123456");
+                assert_ne!(themed, brand);
+                assert_ne!(themed, render("#654321"), "theme colors follow the accent");
+                super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
+                assert_eq!(themed, render("#123456"), "theme colors ignore the flavor");
 
-            super::set_catppuccin_theme_colors(false);
-            super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
-            assert_eq!(render("#123456"), brand);
+                super::set_catppuccin_theme_colors(false);
+                super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+                assert_eq!(render("#123456"), brand);
+            }
         },
     );
 }

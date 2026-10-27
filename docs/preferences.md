@@ -4,6 +4,10 @@ Application-wide preferences live in `ui::preferences::Preferences`. The
 `ui::preferences::PreferenceManager` loads them once per application process and
 persists changes atomically to
 `$XDG_CONFIG_HOME/strata/settings.toml` (normally `~/.config/strata/settings.toml`).
+Bindings apply changes immediately. A background writer coalesces changes for up
+to 200 ms, serializes them and performs the atomic write without blocking GTK.
+Shutdown flushes pending settings; a failed write leaves the current values live
+and retries on the next change, including an unchanged value.
 The file may be a symlink, for example into a dotfiles repository: Strata follows
 up to eight links owned by the current user to a regular file the user owns,
 replaces that target atomically in its own directory, keeps its permission bits
@@ -121,6 +125,17 @@ control that might be midway through synchronization.
 
 ## Consumers and intentional scopes
 
+On Windows, **Settings → General → File transfers → Permanent deletion method**
+selects bounded parallel deletion or the standard Windows Shell implementation.
+The choice is read when confirming a permanent deletion, including before
+Settings opens and after changing views. Parallel deletion uses at most four
+workers with a bounded queue, preserves native filenames, reports failures and
+checks cancellation between subtrees. It does not traverse junctions or symbolic
+links as ordinary directories. Existing preview-reader release and cancellation
+guards apply to both methods. Regular Delete continues to use the Recycle Bin;
+deleting existing Recycle Bin entries retains Windows' metadata bookkeeping.
+Both permanent-deletion methods are irreversible.
+
 | Stored preferences | Consumer / application point |
 | --- | --- |
 | Default directory | New windows without an explicit target read the current choice before navigating, without opening Settings. Existing windows and explicit targets are unchanged. Missing directories fall back to home and clear the saved choice; Reset also restores home. |
@@ -136,7 +151,8 @@ control that might be midway through synchronization.
 | Global search exclusions | Each global-search invocation reads the current rules before indexing, including before Settings opens. Existing search snapshots keep their rules until reopened. Exclusion editors synchronize across windows. Pane filters, 10xer path search, folder-history search, and destination pickers retain their explicit browsing scope and ignore these rules. |
 | 10xer mode | Interactive browsers and the portal file chooser bind pane Close/filter/refresh/sort chrome and the Yazi-style keymap at construction, including lazily rebuilt views. Window Search hides in interactive browsers. Window Close, chooser Accept/Cancel, and List column headings stay. Unclaimed letter commands return focus from non-text window chrome to the listing; text fields, menus, and previews retain their own input. Off by default; toggle with `Ctrl+Shift+M` or Settings → General → Browsing. Enabling shows a brief non-interactive splash that respects Reduce motion; reopening an already-enabled window does not replay it. |
 | Include subfolders | Every pane filter binds at construction, including lazy view rebuilds. Enabled by default; disabling indexes only immediate files and folders, without traversing descendants. Live changes cancel pending queries and invalidate old result streams before refreshing the active filter. Global search remains recursive. 10xer mode ignores it: entering or leaving the mode re-runs active filters in the new scope. |
-| File icon colors | Brand colors by default: Catppuccin file-type icons keep their own palette, Mocha on dark themes and Latte on light ones. Theme colors draws every one of their strokes in the theme accent instead. `ThemeManager` applies the choice with the other appearance preferences, before Settings opens and live across windows and rebuilt views; Lucide interface icons and folders are unaffected. Set under **Settings → Appearance → File icons**. |
+| File icon theme and colors | Catppuccin is the default collection; Material Icons is also available. Brand colors retain the collection's palette and light/dark variants; Theme colors applies the theme accent. `ThemeManager` applies both preferences before Settings opens and live across windows and rebuilt views. Custom folder colors and user icons take precedence. Set under **Settings → Appearance → File icons**. |
+| Interface font | Any installed font family can be selected, including proportional fonts. The default is JetBrains Mono. The shared theme manager applies the saved family before Settings opens and updates existing windows and rebuilt views immediately. Text size remains a separate preference. Set under **Settings → Appearance → Interface font**. |
 | Element glow | Shared semantic glow color is applied by `ThemeManager` when the appearance preferences change, before Settings opens and live across windows, dialogs, menus, and rebuilt views. Focus outlines and ordinary depth shadows are preserved. The video preview's ambient light, and the band it needs around the frame, follow the same switch live. |
 | Reduced motion | Set before any window is constructed. Frame-clock animations finish at their final state when it changes; shared CSS suppresses decorative keyframes/transitions and stack bindings update across open and rebuilt views. Hidden-window file-operation callbacks still complete, and superseded visual callbacks cannot close a reopened surface. |
 | Theme, Omarchy following/variant, text size | `ThemeManager` applies shared CSS when theme selection, Omarchy following, Omarchy variant, text size, or element glow change; controls and theme-card selections bind to preferences through `ThemeManager::bind_theme_preference`. Newly saved custom themes appear in other open theme pages. Missing themes/Omarchy use the existing fallback policy. |
@@ -181,8 +197,12 @@ With **Settings → General → Browsing → Remember sort and icon size per fol
 (the default), choosing a sort field or direction in a pane, a List heading, or the
 10xer sort chord remembers it for that folder only, and the Icons thumbnail slider
 remembers the size for the folder it shows. Folders without their own value use
-the default sort and default size; values are exact per folder and are not
-inherited by subfolders. A value equal to the default is not stored, so the folder
+the default sort and default size. Enable **Apply folder sorting to subfolders**
+to let folders without their own saved sort follow the nearest saved ancestor.
+This preference is off by default and requires per-folder settings to be on.
+An explicit child sort takes precedence, even when it matches the default; reset
+that child's saved sort to let it inherit again. Icon sizes are not inherited.
+With inheritance off, a value equal to the default is not stored, so the folder
 follows later default changes. Every open column, tab, and window showing the same
 folder updates live. View mode, density, hidden files, grouping, folders first, and
 List column widths stay application-wide.
@@ -190,9 +210,10 @@ List column widths stay application-wide.
 A pane's sort menu shows **Make this the default sort** when its sort differs from
 the default and **Reset to default sort** when the folder has its own sort; the
 thumbnail popover has the matching size actions. Making a value the default leaves
-other folders' values alone, except those now equal to it, which are dropped. With
-per-folder settings off, a new default drops nothing; turning them back on drops
-the values that equal the defaults at that point. **Forget all folder settings**
+other folders' values alone, except those now equal to it, which are dropped when
+sort inheritance is off. With per-folder settings off, a new default drops
+nothing; turning them back on drops matching defaults only when inheritance is
+off. **Forget all folder settings**
 clears every saved value.
 
 Local folders are keyed by path and folders on removable drives by filesystem UUID

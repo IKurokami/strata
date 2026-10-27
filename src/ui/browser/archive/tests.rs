@@ -253,7 +253,7 @@ fn only_a_password_failure_kind_opens_the_extract_password_dialog() {
                 view.state.pending_extract_retry.replace(Some((
                     crate::test_support::operations::entry(archive),
                     Location::local(fixture.path()),
-                    false,
+                    ExtractionMode::Automatic,
                 )));
 
                 view.state

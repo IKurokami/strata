@@ -39,6 +39,8 @@ const ARCHIVE_CANCELLED: &str = "Operation cancelled";
 #[cfg(feature = "rar")]
 #[path = "archive/rar.rs"]
 mod rar;
+#[path = "archive/reclaim.rs"]
+mod reclaim;
 
 #[cfg(test)]
 #[path = "archive/folder_tests.rs"]
@@ -337,7 +339,8 @@ pub(crate) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let format = ArchiveFormat::from_extension(&request.entry.display_name);
         let password = request.password.clone();
         let display_name = request.entry.display_name.clone();
-        let into_folder = request.into_folder;
+        let into_folder = request.mode == crate::services::ExtractionMode::Folder;
+        let reclaim_space = request.mode == crate::services::ExtractionMode::ReclaimSpace;
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
 
@@ -352,6 +355,15 @@ pub(crate) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         let work_total = total.clone();
 
         let result = gio::spawn_blocking(move || {
+            if reclaim_space {
+                return reclaim::extract(
+                    &archive_path,
+                    password.as_deref(),
+                    &work_progress,
+                    &work_total,
+                    &work_cancelled,
+                );
+            }
             let decode = |dest_dir: &Path| match format {
                 Some(ArchiveFormat::Zip) => extract_zip(
                     &archive_path,

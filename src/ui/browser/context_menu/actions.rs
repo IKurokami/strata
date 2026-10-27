@@ -385,7 +385,10 @@ impl ActionMenuSection {
     ) {
         #[cfg(windows)]
         if let Some(shell) = self.shell_menu.borrow().as_ref() {
-            shell.prepare(native_paths(entries).unwrap_or_default());
+            shell.prepare(
+                native_paths(entries).unwrap_or_default(),
+                entries.len() == 1 && super::entry_supports_printing(&entries[0]),
+            );
         }
         self.selection.replace(Some(SelectionMenuContext {
             state: Rc::downgrade(state),

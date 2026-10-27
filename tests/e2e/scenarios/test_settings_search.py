@@ -4,6 +4,24 @@
 import pytest
 
 
+@pytest.mark.preferences(browser_mode="list", single_click_previews=False)
+def test_clear_preview_cache_is_searchable_and_keeps_the_open_preview(strata):
+    strata.fixture.path("documents/notes.txt").write_text("cache-live-preview\n")
+    strata.open_directory("documents")
+    strata.select_entry_with_keyboard("notes.txt")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("cache-live-preview"), "open preview")
+    assert strata.window.find(role="button", name="Settings").activate()
+    search = strata.wait(lambda: strata.window.find(role="text", name="Search settings"), "settings search")
+    strata.pointer.click(search)
+    strata.keyboard.type_text("clear preview cache")
+    clear = strata.wait(lambda: strata.window.find(role="button", name="Clear"), "cache action")
+    assert clear.activate()
+    strata.wait(lambda: strata.window.find(name="Preview cache cleared"), "cache completion")
+    assert strata.window.find(role="button", name="Close settings").activate()
+    strata.wait(lambda: strata.preview_shows("cache-live-preview"), "retained open preview")
+
+
 @pytest.mark.parametrize("width", [1360, 640], ids=["sidebar", "compact-popover"])
 def test_settings_search_filters_navigates_and_clears(strata, width):
     bounds = strata.window.screen_bounds()

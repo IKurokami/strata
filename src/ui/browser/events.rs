@@ -807,6 +807,11 @@ impl ViewState {
                 crate::ui::preferences::PreferenceManager::shared().restore_folder_views(location);
             }
             BrowserEvent::DeletionStarted { total } => {
+                // Feedback belongs to the accepted command, not the filesystem completion.
+                self.play_pending_file_operation_animation();
+                if let Some((_, dissolve)) = self.pending_delete_dissolve.take() {
+                    dissolve.play(|| {});
+                }
                 let browser = self.browser.clone();
                 self.show_file_operation_progress(
                     *total,
@@ -908,7 +913,7 @@ impl ViewState {
                         return;
                     };
                     state.clear_delete_animation();
-                    if let Some((entry, destination, into_folder)) = retry
+                    if let Some((entry, destination, mode)) = retry
                         && let Some(invalid_password) = extract_password_retry(password_failure)
                     {
                         let navigate_after_extract = state.pending_navigate.take();
@@ -916,7 +921,7 @@ impl ViewState {
                             entry,
                             destination,
                             invalid_password,
-                            into_folder,
+                            mode,
                             navigate_after_extract,
                         );
                     } else {
@@ -1521,6 +1526,9 @@ impl ViewState {
     ) {
         if let Some(source) = self.pending_mirror.borrow_mut().take() {
             source.remove();
+        }
+        if crate::ui::preview::selection_preview_suppressed() {
+            return;
         }
         let Some(position) = position else {
             return;

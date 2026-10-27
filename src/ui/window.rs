@@ -1321,51 +1321,43 @@ pub(super) struct SidebarView {
 }
 
 impl SidebarView {
-    // Device discovery can block on D-Bus; let the chooser paint before starting it.
+    // Transient tabs must not start device/trash discovery before the user settles on one.
     pub(in crate::ui) fn schedule_after_first_paint(&self, window: &impl IsA<gtk::Widget>) {
+        let ready = Rc::new(Cell::new(false));
+        let pending = Rc::new(RefCell::new(None::<glib::SourceId>));
         let weak_state = Rc::downgrade(&self.state);
-        let armed = Rc::new(Cell::new(false));
         let arm = {
-            let weak_state = weak_state.clone();
-            let armed = armed.clone();
+            let ready = ready.clone();
+            let pending = pending.clone();
             move |widget: &gtk::Widget| {
-                if armed.get() {
+                if ready.get() || pending.borrow().is_some() {
                     return;
                 }
-                armed.set(true);
-                let Some(clock) = widget.frame_clock() else {
-                    let weak = weak_state.clone();
-                    glib::idle_add_local_once(move || {
-                        if let Some(state) = weak.upgrade() {
-                            state.populate_devices_after_first_paint();
-                        }
-                    });
-                    return;
-                };
-                let handler = Rc::new(RefCell::new(None));
-                let handler_for_paint = handler.clone();
-                let weak = weak_state.clone();
-                let id = clock.connect_after_paint(move |clock| {
-                    if let Some(id) = handler_for_paint.borrow_mut().take() {
-                        clock.disconnect(id);
+                let widget = widget.downgrade();
+                let state = weak_state.clone();
+                let ready = ready.clone();
+                let finished = pending.clone();
+                let source = glib::timeout_add_local_once(Duration::from_millis(150), move || {
+                    finished.borrow_mut().take();
+                    if widget.upgrade().is_some_and(|widget| widget.is_mapped())
+                        && let Some(state) = state.upgrade()
+                    {
+                        ready.set(true);
+                        state.populate_devices_after_first_paint();
                     }
-                    let weak = weak.clone();
-                    glib::idle_add_local_once(move || {
-                        if let Some(state) = weak.upgrade() {
-                            state.populate_devices_after_first_paint();
-                        }
-                    });
                 });
-                handler.replace(Some(id));
+                *pending.borrow_mut() = Some(source);
             }
         };
+        let arm_on_map = arm.clone();
+        window.connect_map(move |widget| arm_on_map(widget.upcast_ref()));
+        window.connect_unmap(move |_| {
+            if let Some(source) = pending.borrow_mut().take() {
+                source.remove();
+            }
+        });
         if window.is_mapped() {
             arm(window.upcast_ref());
-        } else {
-            let arm_on_map = arm.clone();
-            window.connect_map(move |widget| {
-                arm_on_map(widget.upcast_ref());
-            });
         }
     }
 
@@ -1420,6 +1412,10 @@ impl SidebarState {
             return;
         }
         self.append_devices();
+        if !self.local_only && self.preference_manager.sidebar_show_trash() {
+            self.watch_trash();
+            self.refresh_trash_contents();
+        }
         self.sync_active_place();
         self.sync_rail_rows();
     }
@@ -2011,7 +2007,7 @@ impl SidebarState {
 
     fn refresh_trash_contents(self: &Rc<Self>) {
         {
-            if self.local_only {
+            if self.local_only || !self.devices_populated.get() {
                 return;
             }
             // A probe already in flight may have read Trash before this change landed, so queue
@@ -2047,7 +2043,7 @@ impl SidebarState {
 
     /// Keeps the context menu current when another application changes `trash:///`.
     fn watch_trash(self: &Rc<Self>) {
-        if self.trash_monitor.borrow().is_some() {
+        if !self.devices_populated.get() || self.trash_monitor.borrow().is_some() {
             return;
         }
         let trash = gio::File::for_uri("trash:///");
@@ -2928,20 +2924,23 @@ fn select_sidebar_row(sidebar: &gtk::Box, selected: &gtk::Button) {
     let mut child = sidebar.first_child();
     while let Some(widget) = child {
         if let Some(row) = sidebar_row_button(&widget) {
-            set_sidebar_row_active(&row, false);
+            set_sidebar_row_active(&row, row == *selected);
         }
         child = widget.next_sibling();
     }
-    set_sidebar_row_active(selected, true);
 }
 
 fn set_sidebar_row_active(row: &gtk::Button, active: bool) {
-    if active {
-        row.add_css_class("active");
-    } else {
-        row.remove_css_class("active");
+    if row.has_css_class("active") != active {
+        if active {
+            row.add_css_class("active");
+        } else {
+            row.remove_css_class("active");
+        }
     }
-    if let Some(shell) = sidebar_device_shell(row) {
+    if let Some(shell) = sidebar_device_shell(row)
+        && shell.has_css_class("active") != active
+    {
         if active {
             shell.add_css_class("active");
         } else {

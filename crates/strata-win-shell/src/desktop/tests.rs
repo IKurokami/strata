@@ -5,6 +5,19 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use windows::Win32::Foundation::HANDLE;
 
 #[test]
+fn tray_clear_cache_command_routes_without_opening_a_window() {
+    EVENTS.with_borrow_mut(VecDeque::clear);
+    // WM_COMMAND is handled before any window or shell API is called.
+    unsafe {
+        procedure(HWND::default(), WM_COMMAND, WPARAM(4), LPARAM(0));
+    }
+    assert_eq!(
+        EVENTS.with_borrow_mut(VecDeque::pop_front),
+        Some(Event::ClearCache)
+    );
+}
+
+#[test]
 fn allocated_console_replays_startup_logs_and_preserves_redirected_output() {
     const CHILD: &str = "STRATA_CONSOLE_REGRESSION_CHILD";
     if std::env::var_os(CHILD).is_none() {

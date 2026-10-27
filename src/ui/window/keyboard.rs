@@ -92,6 +92,9 @@ pub(super) fn install_on(
         let Some(browser) = weak_browser.upgrade() else {
             return Propagation::Proceed;
         };
+        if press.modifier_key().is_empty() {
+            dispatcher.view.prepare_for_input();
+        }
         match dispatcher.handle_key(&browser, press) {
             Propagation::Proceed => dispatcher.after_yield(press),
             handled => handled,

@@ -205,6 +205,9 @@ fn find_thumbnail(widget: &gtk::Widget) -> Option<crate::ui::thumbnail::Thumbnai
 }
 
 fn walk_widgets(widget: &gtk::Widget, visit: &mut dyn FnMut(&gtk::Widget)) {
+    if !widget.is_mapped() {
+        return;
+    }
     visit(widget);
     let mut child = widget.first_child();
     while let Some(widget) = child {

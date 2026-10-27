@@ -4,7 +4,8 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    rc::Rc,
+    rc::{Rc, Weak},
+    time::{Duration, Instant},
 };
 
 mod remote;
@@ -20,7 +21,7 @@ use crate::{
     sandbox::{Cancellation, MediaPreviewBackend, ParseOperation, PdfRenderSize},
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
-        PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
+        PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family_for_file,
         document_kind, has_plain_text_extension, is_gif_path, is_image_path, is_media_path,
         is_non_executable_extensionless_dotfile, layout_document, normalize_preview_text,
         parse_document,
@@ -107,10 +108,12 @@ fn release_heavy_preview_permit() {
     }
 }
 
+#[derive(Default)]
 struct PreviewCache {
     entries: HashMap<PreviewCacheKey, PreviewContent>,
     recent: VecDeque<PreviewCacheKey>,
     byte_count: usize,
+    last_used: Option<Instant>,
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -122,8 +125,25 @@ struct PreviewCacheKey {
 }
 
 impl PreviewCache {
+    fn clear_if_idle(&mut self, now: Instant) -> bool {
+        if self
+            .last_used
+            .is_none_or(|used| now.saturating_duration_since(used) < Duration::from_secs(90))
+        {
+            return false;
+        }
+        let populated = !self.entries.is_empty();
+        self.entries = HashMap::new();
+        self.recent = VecDeque::new();
+        self.byte_count = 0;
+        self.last_used = None;
+        populated
+    }
+
     fn get(&mut self, key: &PreviewCacheKey) -> Option<PreviewContent> {
+        self.clear_if_idle(Instant::now());
         let content = self.entries.get(key)?.clone();
+        self.last_used = Some(Instant::now());
         self.recent.retain(|k| k != key);
         self.recent.push_back(key.clone());
         Some(content)
@@ -133,6 +153,7 @@ impl PreviewCache {
         if matches!(content, PreviewContent::SandboxedMedia { .. }) {
             return;
         }
+        self.last_used = Some(Instant::now());
         let bytes = preview_content_size(&content);
         self.recent.retain(|k| k != &key);
         if let Some(old) = self.entries.remove(&key) {
@@ -158,20 +179,96 @@ impl PreviewCache {
 
 fn preview_content_size(content: &PreviewContent) -> usize {
     match content {
-        PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => png.len(),
-        PreviewContent::RawImage { pixels, .. } => pixels.len(),
+        PreviewContent::Rasterized { png } | PreviewContent::Model { png, .. } => png.capacity(),
+        PreviewContent::RawImage { pixels, .. } => pixels.capacity(),
         PreviewContent::Pdf {
             png, text_layer, ..
         } => {
-            png.len()
+            png.capacity()
                 + text_layer.as_ref().map_or(0, |layer| {
-                    layer.text.len() + layer.glyphs.len() * size_of::<[f32; 4]>()
+                    layer.text.capacity() + layer.glyphs.capacity() * size_of::<[f32; 4]>()
                 })
         }
         PreviewContent::SandboxedMedia { .. } => 0,
-        PreviewContent::Text { content, .. } => content.len(),
+        PreviewContent::Text { content, .. } => content.capacity(),
+        PreviewContent::Document {
+            source,
+            document,
+            fallback_reason,
+            warnings,
+            ..
+        } => {
+            source.capacity()
+                + document.as_ref().map_or(0, document_retained_bytes)
+                + fallback_reason.as_ref().map_or(0, String::capacity)
+                + warnings.capacity() * size_of::<String>()
+                + warnings.iter().map(String::capacity).sum::<usize>()
+        }
+        PreviewContent::Rendered { document, warnings } => {
+            document_retained_bytes(document)
+                + warnings.capacity() * size_of::<String>()
+                + warnings.iter().map(String::capacity).sum::<usize>()
+        }
+        PreviewContent::Archive { tree } => {
+            let mut bytes = 0;
+            let mut pending = vec![&tree.root];
+            while let Some(directory) = pending.pop() {
+                bytes += directory.name.capacity()
+                    + directory.children.capacity() * size_of::<crate::services::ArchiveNode>();
+                for child in &directory.children {
+                    match child {
+                        crate::services::ArchiveNode::Directory(directory) => {
+                            pending.push(directory)
+                        }
+                        crate::services::ArchiveNode::File { name, .. } => bytes += name.capacity(),
+                    }
+                }
+            }
+            bytes
+        }
         _ => 0,
     }
+}
+
+fn document_retained_bytes(document: &crate::services::DocumentLayout) -> usize {
+    use crate::services::{
+        DocumentMedia, DocumentSpan, DocumentSpanStyle, DocumentTableCellLayout, DocumentUnit,
+        DocumentUnitKind,
+    };
+    fn spans_bytes(spans: &Vec<DocumentSpan>) -> usize {
+        spans.capacity() * size_of::<DocumentSpan>()
+            + spans
+                .iter()
+                .map(|span| match &span.style {
+                    DocumentSpanStyle::Link(text) | DocumentSpanStyle::Math(text) => text.len(),
+                    _ => 0,
+                })
+                .sum::<usize>()
+    }
+    let mut bytes = document.units.capacity() * size_of::<DocumentUnit>();
+    for unit in &document.units {
+        bytes += unit.text.capacity() + unit.copy_text.capacity() + spans_bytes(&unit.spans);
+        match &unit.kind {
+            DocumentUnitKind::Table { rows, .. } => {
+                bytes += rows.capacity() * size_of::<Vec<DocumentTableCellLayout>>();
+                for row in rows {
+                    bytes += row.capacity() * size_of::<DocumentTableCellLayout>();
+                    for cell in row {
+                        bytes += cell.text.capacity() + spans_bytes(&cell.spans);
+                    }
+                }
+            }
+            DocumentUnitKind::Media { source, .. } => {
+                bytes += match source {
+                    DocumentMedia::Image(source)
+                    | DocumentMedia::Mermaid(source)
+                    | DocumentMedia::Math { source, .. } => source.capacity(),
+                };
+            }
+            _ => {}
+        }
+    }
+    bytes
 }
 
 thread_local! {
@@ -180,17 +277,57 @@ thread_local! {
         entries: HashMap::new(),
         recent: VecDeque::new(),
         byte_count: 0,
+        last_used: None,
     });
+    static CACHE_MAINTENANCE: RefCell<Weak<PreviewCacheMaintenance>> = const { RefCell::new(Weak::new()) };
+}
+
+struct PreviewCacheMaintenance {
+    timer: Option<glib::SourceId>,
+}
+
+impl PreviewCacheMaintenance {
+    fn shared() -> Rc<Self> {
+        CACHE_MAINTENANCE.with_borrow_mut(|current| {
+            if let Some(maintenance) = current.upgrade() {
+                return maintenance;
+            }
+            // No thread-bound captures: another context owner may dispatch
+            // during teardown. Each dispatch only accesses its own TLS cache.
+            let timer = glib::timeout_add_seconds(30, || {
+                PREVIEW_CACHE.with_borrow_mut(|cache| {
+                    cache.clear_if_idle(Instant::now());
+                });
+                glib::ControlFlow::Continue
+            });
+            let maintenance = Rc::new(Self { timer: Some(timer) });
+            *current = Rc::downgrade(&maintenance);
+            maintenance
+        })
+    }
+}
+
+impl Drop for PreviewCacheMaintenance {
+    fn drop(&mut self) {
+        if let Some(timer) = self.timer.take() {
+            timer.remove();
+        }
+        let _ = PREVIEW_CACHE.try_with(|cache| {
+            *cache.borrow_mut() = PreviewCache::default();
+        });
+    }
 }
 
 pub struct LocalPreviewProvider {
     media_preview_backend: Rc<dyn Fn() -> MediaPreviewBackend>,
+    _cache_maintenance: Rc<PreviewCacheMaintenance>,
 }
 
 impl LocalPreviewProvider {
     pub(crate) fn new(media_preview_backend: Rc<dyn Fn() -> MediaPreviewBackend>) -> Self {
         Self {
             media_preview_backend,
+            _cache_maintenance: PreviewCacheMaintenance::shared(),
         }
     }
 }
@@ -259,7 +396,7 @@ impl LocalPreviewProvider {
             let (guessed_type, uncertain) =
                 gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
             let mut content_type = guessed_type.to_string();
-            let mut content = content_family(&content_type);
+            let mut content = content_family_for_file(&entry.native_name, &content_type);
             if crate::services::is_model(&entry.native_name) {
                 content = PreviewContent::Unsupported;
             }
@@ -329,7 +466,7 @@ impl LocalPreviewProvider {
                 let unix_mode = info
                     .has_attribute(gio::FILE_ATTRIBUTE_UNIX_MODE)
                     .then(|| info.attribute_uint32(gio::FILE_ATTRIBUTE_UNIX_MODE));
-                let mut resolved = content_family(&queried_type);
+                let mut resolved = content_family_for_file(&entry.native_name, &queried_type);
                 if matches!(resolved, PreviewContent::Unsupported)
                     && (gio::content_type_is_a(&queried_type, "text/plain")
                         || has_plain_text_extension(&entry.native_name)
@@ -344,6 +481,9 @@ impl LocalPreviewProvider {
                 content_type = queried_type;
             }
 
+            if matches!(content, PreviewContent::Pdf { .. }) {
+                content_type = "application/pdf".to_owned();
+            }
             if let Some(format) = crate::services::archive_preview_format(&entry.native_name) {
                 let archive_path = match entry.location.native_path() {
                     Some(path) => path.to_path_buf(),
@@ -854,6 +994,7 @@ async fn read_text(
     native_path: Option<&Path>,
     byte_limit: usize,
 ) -> Result<(String, bool), glib::Error> {
+    let byte_limit = byte_limit.min(16 * 1024 * 1024);
     if let Some(path) = native_path {
         let path = path.to_path_buf();
         let result = gio::spawn_blocking(move || {
@@ -892,6 +1033,11 @@ async fn read_text(
     let truncated = bytes.len() > byte_limit;
     let sample = &bytes[..bytes.len().min(byte_limit)];
     Ok((decode_text_sample(sample), truncated))
+}
+
+pub(crate) fn clear_preview_cache() {
+    let discarded = PREVIEW_CACHE.with_borrow_mut(std::mem::take);
+    drop(discarded);
 }
 
 fn decode_text_sample(sample: &[u8]) -> String {

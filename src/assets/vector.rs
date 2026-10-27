@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use gtk::{gdk, glib, prelude::*};
+use gtk::gdk;
 use resvg::{tiny_skia, usvg};
 
 /// Only bundled interface SVGs belong here, never files from a browser location.
@@ -11,14 +11,7 @@ pub(super) fn surface(source: &str, pixels: i32) -> Option<cairo::ImageSurface> 
 }
 
 pub(super) fn texture(source: &str, pixels: i32) -> Option<gdk::Texture> {
-    let data = render_argb32(source, pixels)?;
-    let bytes = glib::Bytes::from_owned(data);
-    let format = if cfg!(target_endian = "little") {
-        gdk::MemoryFormat::B8g8r8a8Premultiplied
-    } else {
-        gdk::MemoryFormat::A8r8g8b8Premultiplied
-    };
-    Some(gdk::MemoryTexture::new(pixels, pixels, format, &bytes, (pixels * 4) as usize).upcast())
+    super::texture_from_surface(&surface(source, pixels)?)
 }
 
 fn render_argb32(source: &str, pixels: i32) -> Option<Vec<u8>> {

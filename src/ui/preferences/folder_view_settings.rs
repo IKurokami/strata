@@ -35,6 +35,9 @@ const USE_SAVE_DELAY: Duration = Duration::from_secs(60);
 /// Another process saves in milliseconds; one stopped mid-save must not hold up exit.
 const EXIT_LOCK_WAIT: Duration = Duration::from_secs(1);
 
+#[cfg(all(test, windows))]
+mod windows_tests;
+
 /// Whether a change can reach saved sorts, which re-sort open columns.
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Affects {
@@ -133,13 +136,22 @@ pub(in crate::ui) fn folder_views_path() -> PathBuf {
 
 /// Keeps other Strata processes from saving between this one's merge and its
 /// rename, which would drop their changes. Locks the directory, because every
-/// save replaces the file.
+/// save replaces the file. Windows uses a separate file because directory
+/// handles cannot be opened and locked through `std::fs::File` there.
 fn lock_saves(path: &Path, wait: Duration) -> io::Result<fs::File> {
     let directory = path
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     fs::create_dir_all(directory)?;
+    #[cfg(not(windows))]
     let lock = fs::File::open(directory)?;
+    #[cfg(windows)]
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join("folder-views.lock"))?;
     let deadline = Instant::now() + wait;
     loop {
         match lock.try_lock() {
@@ -168,14 +180,26 @@ impl PreferenceManager {
         self.preferences.borrow().remember_folder_views
     }
 
+    pub(in crate::ui) fn inherit_folder_sorts(&self) -> bool {
+        self.preferences.borrow().inherit_folder_sorts
+    }
+
+    pub(in crate::ui) fn set_inherit_folder_sorts(&self, enabled: bool) {
+        self.preferences.borrow_mut().inherit_folder_sorts = enabled;
+        self.folder_sorts_revision
+            .set(self.folder_sorts_revision.get().wrapping_add(1));
+        self.save_preferences();
+    }
+
     /// Defaults changed while this was off can equal saved values, which are
     /// dropped when it is turned back on.
     pub(in crate::ui) fn set_remember_folder_views(&self, enabled: bool) {
         self.preferences.borrow_mut().remember_folder_views = enabled;
         if enabled {
             let (sort, size) = (self.default_sort(), self.icons_thumbnail_size());
+            let inherit = self.inherit_folder_sorts();
             self.change_folder_views(Affects::Sorts, |views| {
-                views.prune_default_sort(sort) | views.prune_default_icons_size(size)
+                (!inherit && views.prune_default_sort(sort)) | views.prune_default_icons_size(size)
             });
         }
         self.save_preferences();
@@ -209,7 +233,15 @@ impl PreferenceManager {
         let store = self.folder_view_store();
         let (touched, sort) = {
             let mut views = store.views.borrow_mut();
-            (opened && views.touch(&key), views.view(&key).sort)
+            let own = views.view(&key).sort;
+            let inherited = if own.is_none() && self.inherit_folder_sorts() {
+                views.inherited_sort(&key)
+            } else {
+                None
+            };
+            let source = inherited.as_ref().map_or(&key, |(source, _)| source);
+            let touched = opened && views.touch(source);
+            (touched, own.or_else(|| inherited.map(|(_, sort)| sort)))
         };
         if touched {
             self.schedule_folder_views_write(store, USE_SAVE_DELAY);
@@ -233,7 +265,8 @@ impl PreferenceManager {
         let Some(key) = self.remembered_key(location) else {
             return;
         };
-        let sort = Some((sort_key, sort_direction)).filter(|sort| *sort != self.default_sort());
+        let sort = Some((sort_key, sort_direction))
+            .filter(|sort| self.inherit_folder_sorts() || *sort != self.default_sort());
         self.change_folder_views(Affects::Sorts, |views| {
             views.update(&key, |view| view.sort = sort)
         });
@@ -260,7 +293,7 @@ impl PreferenceManager {
             return;
         }
         self.save_preferences();
-        if self.remember_folder_views() {
+        if self.remember_folder_views() && !self.inherit_folder_sorts() {
             self.change_folder_views(Affects::Sorts, |views| {
                 views.prune_default_sort((sort_key, sort_direction))
             });
@@ -402,6 +435,9 @@ impl PreferenceManager {
     /// Another Strata process, such as the portal chooser, can change the
     /// defaults that folder values are stored relative to.
     fn adopt_defaults_saved_elsewhere(&self) {
+        if self.persistence_dirty.get() {
+            return;
+        }
         let stamp = file_stamp(&settings_path());
         if self.load_failure.is_some() || stamp == self.settings_synced.get() {
             return;

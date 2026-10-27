@@ -20,6 +20,7 @@ use windows::{
 pub enum Event {
     Open,
     Console,
+    ClearCache,
     Quit,
     Restart,
 }
@@ -155,6 +156,7 @@ unsafe extern "system" fn procedure(
             1 => Some(Event::Open),
             2 => Some(Event::Console),
             3 => Some(Event::Quit),
+            4 => Some(Event::ClearCache),
             _ => None,
         };
         if let Some(event) = event {
@@ -190,6 +192,7 @@ unsafe extern "system" fn procedure(
                         1 => Some(Event::Open),
                         2 => Some(Event::Console),
                         3 => Some(Event::Quit),
+                        4 => Some(Event::ClearCache),
                         _ => None,
                     }
                 }
@@ -215,6 +218,26 @@ pub struct Tray {
 
 impl Tray {
     pub fn new(open: &str, console: &str, quit: &str, icon_png: &[u8]) -> io::Result<Self> {
+        Self::create(open, console, quit, None, icon_png)
+    }
+
+    pub fn with_cache_action(
+        open: &str,
+        console: &str,
+        quit: &str,
+        clear_cache: &str,
+        icon_png: &[u8],
+    ) -> io::Result<Self> {
+        Self::create(open, console, quit, Some(clear_cache), icon_png)
+    }
+
+    fn create(
+        open: &str,
+        console: &str,
+        quit: &str,
+        clear_cache: Option<&str>,
+        icon_png: &[u8],
+    ) -> io::Result<Self> {
         // SAFETY: Window class, menu and icon lifetimes are retained until Drop on this thread.
         unsafe {
             let instance = GetModuleHandleW(None).map_err(io::Error::other)?;
@@ -235,7 +258,13 @@ impl Tray {
                     return Err(io::Error::other(error));
                 }
             };
-            for (id, label) in [(1, open), (2, console), (3, quit)] {
+            for (id, label) in [
+                (1, Some(open)),
+                (2, Some(console)),
+                (4, clear_cache),
+                (3, Some(quit)),
+            ] {
+                let Some(label) = label else { continue };
                 let label: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
                 if let Err(error) = AppendMenuW(menu, MF_STRING, id, PCWSTR(label.as_ptr())) {
                     let _ = DestroyMenu(menu);

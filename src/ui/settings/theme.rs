@@ -12,7 +12,8 @@ use crate::{
     ui::{
         controls::segmented_control,
         preferences::{
-            FileIconColors, InterfaceRenderer, OmarchyVariant, PreferenceManager, TextSize,
+            FileIconColors, FileIconTheme, InterfaceRenderer, OmarchyVariant, PreferenceManager,
+            TextSize,
         },
         theme::{Theme, ThemeManager, ThemeTokens},
     },
@@ -149,6 +150,7 @@ pub(super) fn theme_page(
     rendering.append(&renderer_row);
 
     append_text_size_option(&content, &preferences);
+    append_interface_font_option(&content, &preferences);
     append_file_icon_colors_option(&content, &preferences);
     let effects = super::settings_group(&content, "EFFECTS");
     let (row, toggle) = super::settings_option(
@@ -301,6 +303,21 @@ fn append_follow_omarchy_option(content: &gtk::Box, themes: &Rc<ThemeManager>) -
 
 fn append_file_icon_colors_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
     let group = super::settings_group(content, "FILE ICONS");
+    let theme = super::bindings::choice_menu(
+        preferences,
+        "File icon theme",
+        &[
+            ("Catppuccin", FileIconTheme::Catppuccin),
+            ("Material Icons", FileIconTheme::Material),
+        ],
+        PreferenceManager::file_icon_theme,
+        PreferenceManager::set_file_icon_theme,
+    );
+    group.append(&super::control_row(
+        "File icon theme",
+        "Choose the icon collection for files and folders.",
+        &theme,
+    ));
     let choice = super::bindings::choice_menu(
         preferences,
         "File icon colors",
@@ -315,6 +332,53 @@ fn append_file_icon_colors_option(content: &gtk::Box, preferences: &Rc<Preferenc
         "File icon colors",
         "Brand colors use each file type's own palette; theme colors use the accent.",
         &choice,
+    ));
+}
+
+fn append_interface_font_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
+    let dialog = gtk::FontDialog::builder()
+        .title(crate::i18n::tr("Interface font"))
+        .modal(true)
+        .build();
+    let button = gtk::Button::builder().valign(gtk::Align::Center).build();
+    button.add_css_class("form-control");
+    button.add_css_class("settings-choice");
+    let value = gtk::Label::new(None);
+    value.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    button.set_child(Some(&value));
+    preferences.bind_preference(
+        &value,
+        PreferenceManager::interface_font_family,
+        |widget, family| {
+            if let Some(value) = widget.downcast_ref::<gtk::Label>() {
+                value.set_text(&family);
+            }
+        },
+    );
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Interface font"));
+    let manager = preferences.clone();
+    button.connect_clicked(move |button| {
+        let parent = button.root().and_downcast::<gtk::Window>();
+        let initial = button
+            .pango_context()
+            .font_map()
+            .and_then(|map| map.family(&manager.interface_font_family()));
+        let manager = manager.clone();
+        dialog.choose_family(
+            parent.as_ref(),
+            initial.as_ref(),
+            gio::Cancellable::NONE,
+            move |result| {
+                if let Ok(family) = result {
+                    manager.set_interface_font_family(family.name().to_string());
+                }
+            },
+        );
+    });
+    content.append(&super::control_row(
+        "Interface font",
+        "Choose any installed system font. Proportional and monospace fonts are supported.",
+        &button,
     ));
 }
 

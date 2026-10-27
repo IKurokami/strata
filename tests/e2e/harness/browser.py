@@ -471,6 +471,12 @@ class Strata:
         self.pointer.click(item)
         self.wait_for_menu_closed()
 
+    def choose_submenu_item(self, submenu: str, label: str) -> None:
+        item = self.menu_item(submenu)
+        self.settle(item)
+        self.pointer.click(item)
+        self.choose_menu_item(label)
+
     def dismiss_menu(self) -> None:
         self.keyboard.press("Escape")
         self.wait_for_menu_closed()
