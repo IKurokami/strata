@@ -403,7 +403,7 @@ impl LocalPreviewProvider {
                 if let Some(page)=hit.locator.page(){request.pdf_page=page.min(i32::MAX as u32) as i32;}
             }
             let (guessed_type, uncertain) =
-                gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
+                crate::services::guess_content_type(Path::new(&entry.native_name));
             let mut content_type = guessed_type.to_string();
             let mut content = content_family_for_file(&entry.native_name, &content_type);
             if crate::services::is_model(&entry.native_name) {

@@ -128,7 +128,7 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     }
 
     let (content_type, _) =
-        gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
+        crate::services::guess_content_type(Path::new(&entry.native_name));
     let content = crate::services::content_family_for_file(&entry.native_name, &content_type);
     // Windows installations often lack a complete shared MIME database.
     // Keep quick preview available for known image/media extensions; the
@@ -3757,13 +3757,18 @@ fn entry_family(entry: &FileEntry) -> Option<MediaFamily> {
         .and_then(|extension| extension.to_str())
         .filter(|_| !entry.is_directory())
         .map(str::to_ascii_lowercase)?;
-    FAMILIES.with_borrow_mut(|known| {
+    let family = FAMILIES.with_borrow_mut(|known| {
         *known.entry(extension).or_insert_with_key(|extension| {
             media_family(
-                &gio::content_type_guess(Some(Path::new(&format!("a.{extension}"))), None::<&[u8]>)
-                    .0,
+                &crate::services::guess_content_type(Path::new(&format!("a.{extension}"))).0,
             )
         })
+    });
+    // Elementary streams can have valid video dimensions without a duration.
+    family.filter(|family| {
+        entry.duration_seconds != MetadataValue::Unavailable
+            || (*family == MediaFamily::Video
+                && matches!(entry.image_dimensions, MetadataValue::Known(_)))
     })
 }
 

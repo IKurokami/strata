@@ -213,8 +213,16 @@ pub trait PreviewProvider {
     fn load(&self, request: PreviewRequest, emit: Rc<dyn Fn(PreviewEvent)>) -> LoadHandle;
 }
 
+pub(crate) fn guess_content_type(path: &Path) -> (String, bool) {
+    if path.extension().is_some_and(|extension| extension.as_encoded_bytes().eq_ignore_ascii_case(b"h264")) {
+        return ("video/h264".to_owned(), false);
+    }
+    let (guessed, uncertain) = gio::content_type_guess(Some(path), None::<&[u8]>);
+    (guessed.to_string(), uncertain)
+}
+
 fn content_type_for_path(path: &Path) -> glib::GString {
-    gio::content_type_guess(Some(path), None::<&[u8]>).0
+    guess_content_type(path).0.into()
 }
 
 pub(crate) fn is_image_path(path: &Path) -> bool {
