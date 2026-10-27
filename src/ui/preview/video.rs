@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use gtk::{gdk, glib, gsk, prelude::*};
+use gtk::{glib, gsk, prelude::*};
 
 use crate::{
     model::FileEntry,

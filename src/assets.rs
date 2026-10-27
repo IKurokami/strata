@@ -947,7 +947,9 @@ fn texture_from_surface(surface: &cairo::ImageSurface) -> Option<gdk::Texture> {
     let alpha = if cfg!(target_endian = "little") { 3 } else { 0 };
     let visible = |row: usize| {
         bytes[row * stride..row * stride + surface.width() as usize * 4]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[alpha] > 0)
     };
     let height = surface.height() as usize;
