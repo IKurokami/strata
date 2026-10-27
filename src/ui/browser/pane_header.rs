@@ -78,6 +78,7 @@ pub(in crate::ui) fn pane_refresh_button(browser: &Rc<Browser>, depth: usize) ->
 pub(in crate::ui) fn column_sort_menu(browser: &Rc<Browser>, depth: usize) -> gtk::MenuButton {
     let content = gtk::Box::new(gtk::Orientation::Vertical, 2);
     content.add_css_class("column-menu");
+    content.add_css_class("sort-menu");
     let heading = gtk::Label::new(Some(&crate::i18n::tr("SORT BY")));
     heading.set_xalign(0.0);
     heading.add_css_class("menu-heading");
@@ -92,6 +93,7 @@ pub(in crate::ui) fn column_sort_menu(browser: &Rc<Browser>, depth: usize) -> gt
         .position(gtk::PositionType::Bottom)
         .build();
     popover.add_css_class("column-popover");
+    popover.add_css_class("sort-popover");
     crate::ui::scrolling::popover::dismiss_on_outside_scroll(&popover);
     let popover_weak = popover.downgrade();
     let location = browser.location_at(depth);
@@ -111,6 +113,16 @@ pub(in crate::ui) fn column_sort_menu(browser: &Rc<Browser>, depth: usize) -> gt
             continue;
         }
         let (option, check) = menu_option(&crate::i18n::tr(label), preferences.sort_key == key);
+        if let Some(row) = option.child().and_downcast::<gtk::Box>() {
+            let icon = match key {
+                SortKey::Modified | SortKey::Recency => crate::assets::icons::CLOCK,
+                SortKey::Size => crate::assets::icons::HARD_DRIVE,
+                SortKey::Type => crate::assets::icons::FILE_TYPE,
+                SortKey::DeviceOrder => crate::assets::icons::LIST,
+                _ => crate::assets::icons::DOCUMENTS,
+            };
+            row.prepend(&crate::assets::primary_icon(icon, 16));
+        }
         if key == SortKey::DeviceOrder {
             crate::ui::accessibility::set_description(
                 &option,

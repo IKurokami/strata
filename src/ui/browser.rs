@@ -1099,6 +1099,9 @@ impl BrowserView {
             .borrow()
             .widget()
             .connect_visible_child_name_notify(move |stack| {
+                if stack.visible_child_name().as_deref() == Some("computer") {
+                    return;
+                }
                 let mode = match stack.visible_child_name().as_deref() {
                     Some("icons") => BrowserMode::Icons,
                     Some("list") => BrowserMode::List,
@@ -1195,6 +1198,17 @@ impl BrowserView {
     // Columns grabs the collection view itself; item-level focus lands on
     // editable cells that would swallow navigation keys.
     pub(in crate::ui) fn focus_file_view(&self) {
+        #[cfg(windows)]
+        if self
+            .state
+            .browser
+            .active_depth()
+            .and_then(|depth| self.state.browser.location_at(depth))
+            .is_some_and(|location| crate::adapters::computer::is_root(&location))
+        {
+            self.state.mode_views.borrow().computer_view().focus();
+            return;
+        }
         if self.view_mode() == BrowserMode::Columns {
             self.state.focus_rebuilt_active_column();
         } else {

@@ -5966,7 +5966,7 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
 /* Settings uses its own grouped,
 two-column presentation. */
 .settings-dialog {
-  font-size: 1.230769em;
+  font-size: 1em;
   background: @strata_bg;
   border: 1px solid alpha(@strata_border, 0.65);
   border-radius: 14px;
@@ -5975,8 +5975,8 @@ two-column presentation. */
 
 .settings-navigation {
   background: transparent;
-  min-width: 258px;
-  padding: 20px 15px;
+  min-width: 216px;
+  padding: 16px 12px;
   border-right: 1px solid alpha(@strata_border, 0.55);
   border-radius: 13px 0 0 13px;
 }
@@ -5989,8 +5989,8 @@ two-column presentation. */
 }
 
 .settings-navigation button {
-  min-height: 48px;
-  padding: 5px 14px;
+  min-height: 36px;
+  padding: 5px 12px;
   border-radius: 8px;
   color: @strata_dim_text;
 }
@@ -6028,7 +6028,7 @@ two-column presentation. */
 }
 
 .settings-preferences {
-  padding: 30px 74px;
+  padding: 24px 30px;
 }
 
 .settings-preferences > .menu-heading,
@@ -7121,3 +7121,39 @@ popover.settings-action-library > contents {
 .settings-dialog.modal-constrained {
   min-width: 0;
 }
+
+/* Keep browser controls and settings on the same surface and interaction scale. */
+.sort-popover contents,
+.font-popover contents {
+  background: @strata_surface;
+  color: @strata_text;
+  border: 1px solid alpha(@strata_border, 0.7);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px alpha(@strata_glow, 0.14);
+  padding: 8px;
+}
+.sort-menu { min-width: 208px; padding: 2px; font-size: 1em; }
+.sort-menu .menu-heading { color: @strata_dim_text; font-size: 0.8em; margin: 6px 8px; }
+.sort-menu .column-menu-option { min-height: 30px; padding: 4px 9px; border-radius: 6px; transition: background 90ms ease-out, color 90ms ease-out; }
+.sort-menu .column-menu-option:active { transform: none; }
+.sort-menu .column-menu-option:checked { background: alpha(@strata_accent, 0.12); }
+.font-choices { background: transparent; color: @strata_text; }
+.font-choices row { border-radius: 6px; background: transparent; color: @strata_text; }
+.font-choices row:hover { background: alpha(@strata_accent, 0.08); }
+.font-choices row:selected { background: alpha(@strata_accent, 0.16); color: @strata_text; }
+.font-choices row:focus-visible { outline: 2px solid @strata_accent; outline-offset: -2px; }
+.font-choice-row { padding: 9px 12px; }
+.day-group-heading { color: @strata_dim_text; font-size: 0.85em; padding: 9px 12px 5px; }
+.day-group-heading separator { background: alpha(@strata_border, 0.55); min-height: 1px; }
+.computer-page { background: @strata_bg; color: @strata_text; padding: 12px; }
+.computer-table { background: transparent; color: @strata_text; }
+.computer-table header button { background: @strata_surface; color: @strata_dim_text; border: none; border-bottom: 1px solid @strata_border; padding: 9px 12px; }
+.computer-table cell { padding: 10px 12px; }
+.computer-table row { color: @strata_text; background: transparent; }
+.computer-table row:hover { background: alpha(@strata_accent, 0.06); }
+.computer-table row:selected { background: alpha(@strata_accent, 0.14); }
+.computer-table row:focus-visible { outline: 2px solid @strata_accent; outline-offset: -2px; }
+.drive-capacity { color: @strata_text; font-size: 0.85em; }
+.drive-capacity trough { background: @strata_muted; border: 1px solid alpha(@strata_border, 0.5); border-radius: 5px; min-height: 9px; }
+.drive-capacity progress { background: @strata_accent; border-radius: 4px; min-height: 9px; }
+.drive-capacity.nearly-full progress { background: @strata_danger; }

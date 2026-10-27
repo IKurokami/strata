@@ -427,6 +427,8 @@ impl Pane {
 
 pub struct ModeViews {
     stack: gtk::Stack,
+    #[cfg(windows)]
+    computer: std::cell::OnceCell<Rc<super::computer::ComputerView>>,
     icons_root: gtk::Box,
     list_root: gtk::Box,
     icons_panes: Vec<Pane>,
@@ -504,6 +506,8 @@ impl ModeViews {
 
         Self {
             stack,
+            #[cfg(windows)]
+            computer: std::cell::OnceCell::new(),
             icons_root,
             list_root,
             icons_panes: Vec::new(),
@@ -1223,6 +1227,15 @@ impl ModeViews {
         self.cancel_rename();
         self.pane_navigation.borrow_mut().cancel();
         self.mode = mode;
+        #[cfg(windows)]
+        if self
+            .browser
+            .active_depth()
+            .and_then(|depth| self.browser.location_at(depth))
+            .is_some_and(|location| crate::adapters::computer::is_root(&location))
+        {
+            return;
+        }
         match mode {
             BrowserMode::Columns => {}
             BrowserMode::Icons => self.prepare_icons(),
@@ -1249,6 +1262,13 @@ impl ModeViews {
     }
 
     fn grouping_for_snapshot(&self, depth: usize, snapshot: &BrowserColumnSnapshot) -> bool {
+        if self
+            .browser
+            .column_preferences(depth)
+            .is_some_and(|preferences| preferences.sort_key == SortKey::Modified)
+        {
+            return false;
+        }
         if snapshot.location.is_recent_root() {
             return false;
         }
@@ -1287,11 +1307,33 @@ impl ModeViews {
     }
 
     pub fn show_mode(&self, mode: BrowserMode) {
+        #[cfg(windows)]
+        if self
+            .browser
+            .active_depth()
+            .and_then(|depth| self.browser.location_at(depth))
+            .is_some_and(|location| crate::adapters::computer::is_root(&location))
+        {
+            if self.stack.visible_child_name().as_deref() != Some("computer") {
+                self.computer_view().refresh();
+            }
+            self.stack.set_visible_child_name("computer");
+            return;
+        }
         self.stack.set_visible_child_name(match mode {
             BrowserMode::Columns => "columns",
             BrowserMode::Icons => "icons",
             BrowserMode::List => "list",
         });
+    }
+
+    #[cfg(windows)]
+    pub(super) fn computer_view(&self) -> &Rc<super::computer::ComputerView> {
+        self.computer.get_or_init(|| {
+            let view = super::computer::ComputerView::new(&self.browser);
+            self.stack.add_named(&view.widget, Some("computer"));
+            view
+        })
     }
 
     pub fn clear_inactive_mode(&mut self, mode: BrowserMode) {
@@ -1642,6 +1684,11 @@ impl ModeViews {
     }
 
     pub fn focus_visible_pane(&self, depth: usize) {
+        #[cfg(windows)]
+        if self.stack.visible_child_name().as_deref() == Some("computer") {
+            self.computer_view().focus();
+            return;
+        }
         if self.rename_is_active() {
             return;
         }
@@ -3419,9 +3466,22 @@ fn build_list_pane(
         view_model.set_sorter(Some(&sorter));
         view_model.set_section_sorter(Some(&sorter));
     }
-    let view_model_object = view_model.clone().upcast::<gio::ListModel>();
+    let day_sections = {
+        let browser = Rc::downgrade(&browser);
+        let positions = source_index.clone();
+        let source = view_model.clone();
+        super::day_sections::DaySections::new(
+            &view_model,
+            Rc::new(move |position| {
+                let browser = browser.upgrade()?;
+                let item = source.item(position)?;
+                super::day_sections::timestamp(&browser, depth, positions.of_item(&item)?)
+            }),
+        )
+    };
+    let view_model_object = day_sections.clone().upcast::<gio::ListModel>();
     let view_index = SourceIndexMap::watch(&view_model_object);
-    let selection = gtk::MultiSelection::new(Some(view_model.clone()));
+    let selection = gtk::MultiSelection::new(Some(day_sections.clone()));
     let syncing_selection = Rc::new(Cell::new(false));
     let sections: Rc<RefCell<Vec<PaneSection>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -3451,9 +3511,7 @@ fn build_list_pane(
     let view = gtk::ListView::new(Some(selection.clone()), Some(factory));
     view.add_css_class("file-list-mode");
     super::accessibility::describe_entry_container(&view, &pane_directory_name(&browser, depth));
-    if options.group_by_type {
-        view.set_header_factory(Some(&type_group_header_factory()));
-    }
+    view.set_header_factory(Some(&day_sections.header_factory()));
     view.set_enable_rubberband(false);
     view.set_vexpand(true);
     // GTK bundles single-click activation with hover selection, which collapses
@@ -5412,40 +5470,6 @@ fn compare_type_groups_for_preferences(
         SortDirection::Ascending => order,
         SortDirection::Descending => order.reverse(),
     }
-}
-
-fn type_group_heading(label: &str) -> gtk::Label {
-    let heading = gtk::Label::new(Some(&crate::i18n::tr(label)));
-    heading.add_css_class("type-group-heading");
-    heading.set_xalign(0.0);
-    heading
-}
-
-/// Section headings for a grouped list view.
-fn type_group_header_factory() -> gtk::SignalListItemFactory {
-    let factory = gtk::SignalListItemFactory::new();
-    factory.connect_setup(|_, header| {
-        let Some(header) = header.downcast_ref::<gtk::ListHeader>() else {
-            return;
-        };
-        header.set_child(Some(&type_group_heading("")));
-    });
-    factory.connect_bind(|_, header| {
-        let Some(header) = header.downcast_ref::<gtk::ListHeader>() else {
-            return;
-        };
-        let Some(heading) = header.child().and_downcast::<gtk::Label>() else {
-            return;
-        };
-        let value = header
-            .item()
-            .map(|item| model_value(&item))
-            .unwrap_or_default();
-        let group = value_type_group(&value);
-        heading.set_label(&crate::i18n::tr(&group));
-        heading.set_visible(!group.is_empty());
-    });
-    factory
 }
 
 fn bound_item_visitor(bound_items: Rc<RefCell<Vec<BoundModeItem>>>) -> super::marquee::ItemVisitor {

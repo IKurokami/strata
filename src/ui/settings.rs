@@ -29,6 +29,7 @@ mod about;
 mod actions;
 mod bindings;
 mod exclusions;
+mod font_picker;
 mod general;
 mod search;
 mod theme;

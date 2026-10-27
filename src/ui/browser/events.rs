@@ -163,7 +163,7 @@ impl ViewState {
                     }
                     if camera && entry_count > 0 && column.selection.model().is_none() {
                         column.filtered_model.set_model(Some(&column.model));
-                        column.selection.set_model(Some(&column.filtered_model));
+                        column.selection.set_model(Some(&column.day_sections));
                         column.syncing_selection.set(false);
                     }
                     let count = column.entry_count.get() + entry_count;
@@ -425,7 +425,7 @@ impl ViewState {
                     if column.selection.model().is_none() {
                         column.syncing_selection.set(true);
                         column.filtered_model.set_model(Some(&column.model));
-                        column.selection.set_model(Some(&column.filtered_model));
+                        column.selection.set_model(Some(&column.day_sections));
                     }
                     let positions: Vec<u32> = self
                         .browser
@@ -529,7 +529,7 @@ impl ViewState {
                 if let Some(column) = self.columns.borrow().get(*depth) {
                     if column.selection.model().is_none() {
                         column.filtered_model.set_model(Some(&column.model));
-                        column.selection.set_model(Some(&column.filtered_model));
+                        column.selection.set_model(Some(&column.day_sections));
                         column.syncing_selection.set(false);
                     }
                     stop_column_spinner(column);

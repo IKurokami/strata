@@ -1305,14 +1305,7 @@ fn set_fallback_icon(
 ) -> (usize, u64) {
     let ids = prepare_thumbnail_target(image, size);
     clear_displayed_thumbnail(image);
-    let (texture, customized) = path_icon_texture(
-        path,
-        icon,
-        image.icon_pixel_size(),
-        image.scale_factor(),
-        image.icon_context(),
-    );
-    image.set_fallback(icon, texture.as_ref());
+    let customized = set_slot_path_icon(image, path, icon);
     if let Some(p) = path {
         register_tracked_icon(image, p, icon, customized);
     } else {
@@ -1423,15 +1416,59 @@ fn path_icon_texture(
 }
 
 fn apply_path_customization(image: &ThumbnailSlot, path: &Path, fallback_icon: &str) -> bool {
-    let (texture, customized) = path_icon_texture(
-        Some(path),
-        fallback_icon,
-        image.icon_pixel_size(),
-        image.scale_factor(),
-        image.icon_context(),
-    );
-    image.set_fallback(fallback_icon, texture.as_ref());
-    customized
+    set_slot_path_icon(image, Some(path), fallback_icon)
+}
+
+fn set_slot_path_icon(image: &ThumbnailSlot, path: Option<&Path>, icon: &str) -> bool {
+    let preferences = super::preferences::PreferenceManager::shared();
+    let customized = path.is_some_and(|path| {
+        preferences.custom_icon(path).is_some() || preferences.folder_color(path).is_some()
+    });
+    if customized {
+        let (texture, _) = path_icon_texture(
+            path,
+            icon,
+            image.icon_pixel_size(),
+            image.scale_factor(),
+            image.icon_context(),
+        );
+        image.set_fallback(icon, texture.as_ref());
+        return true;
+    }
+    let folder = icon == crate::assets::icons::FOLDER || icon.starts_with("strata-material-folder");
+    let resolved = path
+        .map_or(icon, |path| themed_path_icon(path, icon, folder))
+        .to_owned();
+    let generic = if folder {
+        crate::assets::icons::FOLDER
+    } else {
+        crate::assets::icons::DOCUMENTS
+    };
+    let color = crate::assets::primary_icon_color();
+    let size = image.icon_pixel_size();
+    let scale = image.scale_factor();
+    let context = image.icon_context();
+    if let Some(texture) =
+        crate::assets::cached_file_icon_texture(&resolved, &color, size, scale, context)
+    {
+        image.set_fallback(icon, Some(&texture));
+        return false;
+    }
+    let placeholder = crate::assets::sized_icon_paintable(generic, &color, size, scale, context);
+    image.set_fallback(icon, placeholder.as_ref());
+    let generation = image.fallback_generation();
+    let visible = viewport::near_viewport(image);
+    let weak = image.downgrade();
+    let task = glib::MainContext::default().spawn_local(async move {
+        if let Some(texture) =
+            crate::assets::file_icon_texture(resolved, color, size, scale, context, visible).await
+            && let Some(image) = weak.upgrade()
+        {
+            image.finish_fallback(generation, &texture);
+        }
+    });
+    image.set_fallback_task(task);
+    false
 }
 
 fn apply_path_customization_image(
@@ -1488,14 +1525,7 @@ pub(super) fn refresh_slot_icon(image: &ThumbnailSlot) {
     if let Some((path, icon)) = tracked {
         apply_path_customization(image, &path, &icon);
     } else if let Some(icon) = image.fallback_icon() {
-        let (texture, _) = path_icon_texture(
-            None,
-            &icon,
-            image.icon_pixel_size(),
-            image.scale_factor(),
-            image.icon_context(),
-        );
-        image.set_fallback(&icon, texture.as_ref());
+        set_slot_path_icon(image, None, &icon);
     }
 }
 

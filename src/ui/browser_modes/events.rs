@@ -15,6 +15,30 @@ use crate::{
 
 impl ModeViews {
     pub(crate) fn handle_with_deferred_empty(&mut self, event: &BrowserEvent, defer_empty: bool) {
+        #[cfg(windows)]
+        if self
+            .browser
+            .active_depth()
+            .and_then(|depth| self.browser.location_at(depth))
+            .is_some_and(|location| crate::adapters::computer::is_root(&location))
+        {
+            self.show_mode(self.mode);
+            if matches!(event, BrowserEvent::ColumnReloading { .. }) {
+                self.computer_view().refresh();
+            }
+            return;
+        }
+        #[cfg(windows)]
+        if matches!(
+            event,
+            BrowserEvent::ColumnAdded { .. }
+                | BrowserEvent::ColumnsTruncated {
+                    replacing: false,
+                    ..
+                }
+        ) {
+            self.show_mode(self.mode);
+        }
         if self.handle_structure_event(event) {
             return;
         }
@@ -302,7 +326,14 @@ impl ModeViews {
         let Some(list) = pane.section.view.downcast_ref::<gtk::ListView>() else {
             return;
         };
-        let Some(model) = pane.section.view_model.downcast_ref::<gtk::SortListModel>() else {
+        let Some(sections) = pane
+            .section
+            .view_model
+            .downcast_ref::<crate::ui::day_sections::DaySections>()
+        else {
+            return;
+        };
+        let Some(model) = sections.source().and_downcast::<gtk::SortListModel>() else {
             return;
         };
         let top = crate::ui::browser::camera_scroll::CameraTopAnchor::capture(&pane.section.view);
@@ -315,9 +346,7 @@ impl ModeViews {
             grouped.then(|| super::pane_type_group_sorter(&self.browser, pane.depth, &pane.model));
         model.set_section_sorter(sorter.as_ref());
         model.set_sorter(sorter.as_ref());
-        if grouped {
-            list.set_header_factory(Some(&super::type_group_header_factory()));
-        }
+        list.set_header_factory(Some(&sections.header_factory()));
         pane.group_by_type = grouped;
         pane.section.syncing.set(was_syncing);
         if let Some(top) = top {

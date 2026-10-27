@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 pub(crate) mod bookmarks;
+#[cfg(windows)]
+pub(crate) mod computer;
 pub(crate) mod directory_summary;
 mod file_manager1;
 mod gio_location;

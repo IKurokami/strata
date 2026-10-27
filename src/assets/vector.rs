@@ -14,7 +14,7 @@ pub(super) fn texture(source: &str, pixels: i32) -> Option<gdk::Texture> {
     super::texture_from_surface(&surface(source, pixels)?)
 }
 
-fn render_argb32(source: &str, pixels: i32) -> Option<Vec<u8>> {
+pub(super) fn render_argb32(source: &str, pixels: i32) -> Option<Vec<u8>> {
     if !(1..=768).contains(&pixels) || source.len() > 64 * 1024 {
         return None;
     }

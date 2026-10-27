@@ -1155,6 +1155,10 @@ pub(crate) fn recent_remove_entries(
 impl FileSource for LocalFileSource {
     fn validate_location(&self, location: &Location) -> Result<(), LocationValidationError> {
         #[cfg(windows)]
+        if super::computer::is_root(location) {
+            return Ok(());
+        }
+        #[cfg(windows)]
         if super::recycle_bin::is_root(location) {
             return Ok(());
         }
@@ -1188,6 +1192,11 @@ impl FileSource for LocalFileSource {
         location: Location,
         emit: Rc<dyn Fn(Result<(), LocationValidationError>)>,
     ) -> LoadHandle {
+        #[cfg(windows)]
+        if super::computer::is_root(&location) {
+            emit(Ok(()));
+            return LoadHandle::new(|| {});
+        }
         #[cfg(windows)]
         if super::recycle_bin::is_root(&location) {
             emit(Ok(()));
@@ -1234,6 +1243,10 @@ impl FileSource for LocalFileSource {
     }
 
     fn enumerate(&self, request: DirectoryRequest, emit: Rc<dyn Fn(DirectoryEvent)>) -> LoadHandle {
+        #[cfg(windows)]
+        if super::computer::is_root(&request.location) {
+            return super::computer::enumerate(request, emit);
+        }
         let request_id = request.id;
         let location = request.location.clone();
         let started = Instant::now();

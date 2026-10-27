@@ -336,45 +336,7 @@ fn append_file_icon_colors_option(content: &gtk::Box, preferences: &Rc<Preferenc
 }
 
 fn append_interface_font_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
-    let dialog = gtk::FontDialog::builder()
-        .title(crate::i18n::tr("Interface font"))
-        .modal(true)
-        .build();
-    let button = gtk::Button::builder().valign(gtk::Align::Center).build();
-    button.add_css_class("form-control");
-    button.add_css_class("settings-choice");
-    let value = gtk::Label::new(None);
-    value.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    button.set_child(Some(&value));
-    preferences.bind_preference(
-        &value,
-        PreferenceManager::interface_font_family,
-        |widget, family| {
-            if let Some(value) = widget.downcast_ref::<gtk::Label>() {
-                value.set_text(&family);
-            }
-        },
-    );
-    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Interface font"));
-    let manager = preferences.clone();
-    button.connect_clicked(move |button| {
-        let parent = button.root().and_downcast::<gtk::Window>();
-        let initial = button
-            .pango_context()
-            .font_map()
-            .and_then(|map| map.family(&manager.interface_font_family()));
-        let manager = manager.clone();
-        dialog.choose_family(
-            parent.as_ref(),
-            initial.as_ref(),
-            gio::Cancellable::NONE,
-            move |result| {
-                if let Ok(family) = result {
-                    manager.set_interface_font_family(family.name().to_string());
-                }
-            },
-        );
-    });
+    let button = super::font_picker::button(preferences);
     content.append(&super::control_row(
         "Interface font",
         "Choose any installed system font. Proportional and monospace fonts are supported.",
