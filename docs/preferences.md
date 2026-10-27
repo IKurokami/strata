@@ -4,6 +4,10 @@ Application-wide preferences live in `ui::preferences::Preferences`. The
 `ui::preferences::PreferenceManager` loads them once per application process and
 persists changes atomically to
 `$XDG_CONFIG_HOME/strata/settings.toml` (normally `~/.config/strata/settings.toml`).
+Bindings apply changes immediately. A background writer coalesces changes for up
+to 200 ms, serializes them and performs the atomic write without blocking GTK.
+Shutdown flushes pending settings; a failed write leaves the current values live
+and retries on the next change, including an unchanged value.
 The file may be a symlink, for example into a dotfiles repository: Strata follows
 up to eight links owned by the current user to a regular file the user owns,
 replaces that target atomically in its own directory, keeps its permission bits

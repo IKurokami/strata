@@ -334,7 +334,10 @@ fn main() -> gtk::glib::ExitCode {
     #[cfg(target_os = "linux")]
     application.connect_startup(export_file_manager_interface);
     application.connect_startup(|_application| ui::schedule_rollback_cleanup());
-    application.connect_shutdown(|_| ui::preferences::flush_pending_folder_views());
+    application.connect_shutdown(|_| {
+        ui::preferences::flush_pending_preferences();
+        ui::preferences::flush_pending_folder_views();
+    });
     application.connect_activate(|application| {
         if let Err(error) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             ui::present(application);

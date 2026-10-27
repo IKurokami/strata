@@ -32,12 +32,14 @@ mod item_customizations;
 mod save_notice;
 mod text_size;
 mod trashed;
+mod writer;
 pub(in crate::ui) use bindings::notify_live;
 pub(crate) use folder_view_settings::flush_pending_folder_views;
 pub use text_size::TextSize;
 
 thread_local! {
     static SHARED_MANAGER: RefCell<std::rc::Weak<PreferenceManager>> = const { RefCell::new(std::rc::Weak::new()) };
+    static MANAGERS: RefCell<Vec<std::rc::Weak<PreferenceManager>>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -478,11 +480,15 @@ pub(in crate::ui) fn is_valid_send_to_relative_path(path: &Path) -> bool {
 }
 
 pub struct PreferenceManager {
+    weak: std::rc::Weak<Self>,
     preferences: RefCell<Preferences>,
     startup_interface_renderer: InterfaceRenderer,
     startup_locale: &'static str,
     changes: bindings::PreferenceChanges,
     persistence_dirty: Cell<bool>,
+    persistence_revision: Cell<u64>,
+    persistence_completed: Cell<u64>,
+    writer: RefCell<Option<writer::Writer>>,
     /// The settings file as this process last wrote or read it.
     settings_synced: Cell<Option<FileStamp>>,
     /// Why saving is off for this session: the file existed but could not be read.
@@ -540,11 +546,15 @@ impl PreferenceManager {
 
         let startup_locale = preferences.language.locale();
         rust_i18n::set_locale(startup_locale);
-        Rc::new(Self {
+        let manager = Rc::new_cyclic(|weak| Self {
+            weak: weak.clone(),
             startup_locale,
             startup_interface_renderer: preferences.interface_renderer,
             changes: bindings::PreferenceChanges::new(preferences.clone()),
             persistence_dirty: Cell::new(false),
+            persistence_revision: Cell::new(0),
+            persistence_completed: Cell::new(0),
+            writer: RefCell::new(None),
             settings_synced: Cell::new(settings_synced),
             load_failure,
             save_notices: save_notice::SaveNotices::default(),
@@ -553,7 +563,12 @@ impl PreferenceManager {
             folder_save_notices: save_notice::SaveNotices::for_folder_views(),
             item_customizations: Default::default(),
             preferences: RefCell::new(preferences),
-        })
+        });
+        MANAGERS.with_borrow_mut(|managers| {
+            managers.retain(|manager| manager.strong_count() > 0);
+            managers.push(Rc::downgrade(&manager));
+        });
+        manager
     }
 
     /// Repairs loaded values whose validity depends on data the preference store
@@ -1606,23 +1621,78 @@ impl PreferenceManager {
             return;
         }
         self.persistence_dirty.set(true);
-        let contents =
-            toml::to_string_pretty(&*self.preferences.borrow()).map_err(io::Error::other);
-        let result = contents.and_then(|contents| {
-            self.save_notices
-                .write(&path, &contents, crate::storage::atomic_write_config)
-        });
-        if result.is_ok() {
-            self.persistence_dirty.set(false);
-            self.settings_synced.set(file_stamp(&path));
-        }
+        let revision = self.persistence_revision.get().wrapping_add(1);
+        self.persistence_revision.set(revision);
+        let result = (|| {
+            let mut writer = self.writer.borrow_mut();
+            if writer.is_none() {
+                *writer = Some(writer::Writer::new()?);
+            }
+            writer.as_ref().expect("writer initialized").save(
+                revision,
+                path.clone(),
+                self.preferences.borrow().clone(),
+            )
+        })();
         if changed {
             self.changes.notify(self);
         }
-        // Reported after bindings apply, and whether or not anything changed,
-        // because a retry with an unchanged value can fail too.
-        if let Err(error) = result {
-            self.save_notices.write_failed(&path, &error);
+        match result {
+            Ok(done) => {
+                let weak = self.weak.clone();
+                glib::MainContext::default().spawn_local(async move {
+                    if let Ok(completion) = done.await
+                        && let Some(manager) = weak.upgrade()
+                    {
+                        manager.complete_save(completion);
+                    }
+                });
+            }
+            Err(error) => {
+                self.writer.take();
+                self.save_notices.write_failed(&path, &error);
+            }
+        }
+    }
+
+    fn complete_save(&self, completion: writer::Completion) {
+        if completion.revision != self.persistence_revision.get()
+            || self.persistence_completed.get() == completion.revision
+        {
+            return;
+        }
+        self.persistence_completed.set(completion.revision);
+        match completion.result {
+            Ok(stamp) => {
+                self.persistence_dirty.set(false);
+                self.settings_synced.set(stamp);
+                self.save_notices.write_succeeded();
+            }
+            Err(error) => self.save_notices.write_failed(&completion.path, &error),
+        }
+    }
+
+    pub(in crate::ui) fn flush_preferences(&self) {
+        let result = self.writer.borrow().as_ref().map(writer::Writer::flush);
+        match result {
+            Some(Ok(Some(completion))) => self.complete_save(completion),
+            Some(Err(error)) => self.save_notices.write_failed(&settings_path(), &error),
+            _ => {}
+        }
+    }
+}
+
+impl Drop for PreferenceManager {
+    fn drop(&mut self) {
+        self.flush_preferences();
+    }
+}
+
+pub(crate) fn flush_pending_preferences() {
+    let managers = MANAGERS.with_borrow(|managers| managers.clone());
+    for manager in managers {
+        if let Some(manager) = manager.upgrade() {
+            manager.flush_preferences();
         }
     }
 }

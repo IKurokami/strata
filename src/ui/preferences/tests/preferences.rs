@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+use crate::ui::preferences::tests::read_saved_preferences;
+
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -47,12 +49,15 @@ fn saved_language_applies_before_settings_and_changes_only_after_restart() {
             assert!(manager.language_restart_required());
             assert_eq!(crate::i18n::tr("Language"), "Langue");
             assert_eq!(
-                read_preferences().expect("read saved language").language,
+                read_saved_preferences()
+                    .expect("read saved language")
+                    .language,
                 crate::i18n::Language::Japanese
             );
             manager.set_language(crate::i18n::Language::French);
             assert!(!manager.language_restart_required());
             manager.set_language(crate::i18n::Language::Japanese);
+            manager.flush_preferences();
             let restarted = PreferenceManager::load();
             assert!(!restarted.language_restart_required());
             assert_eq!(&*rust_i18n::locale(), "ja");
@@ -166,6 +171,7 @@ fn send_to_history_is_device_scoped_deduplicated_capped_and_persistent() {
                     .is_empty()
             );
 
+            manager.flush_preferences();
             let reloaded = PreferenceManager::load();
             assert_eq!(
                 reloaded.send_to_recent_destinations("volume:kingston"),
@@ -237,12 +243,16 @@ fn assert_recovered_preferences_survive_save(
     );
     expected.folder_peeking = false;
     manager.set_folder_peeking(false);
+    manager.flush_preferences();
 
     let persisted: Preferences =
         toml::from_str(&fs::read_to_string(settings_path()).expect("saved file"))
             .expect("save repairs invalid preferences");
     assert_eq!(persisted, expected);
-    assert_eq!(read_preferences().expect("saved preferences"), expected);
+    assert_eq!(
+        read_saved_preferences().expect("saved preferences"),
+        expected
+    );
 }
 
 #[test]
@@ -312,7 +322,7 @@ fn unreadable_preferences_are_preserved_while_live_changes_still_apply() {
             manager.set_folder_peeking(false);
             assert!(save_notices(&window).is_empty());
             assert!(
-                !read_preferences()
+                !read_saved_preferences()
                     .expect("saving resumes after reload")
                     .folder_peeking
             );
@@ -329,9 +339,14 @@ fn missing_settings_allow_first_run_saves() {
             let manager = PreferenceManager::load();
             assert!(!manager.folder_peeking());
             manager.set_folder_peeking(true);
-            assert!(read_preferences().expect("first run save").folder_peeking);
+            assert!(
+                read_saved_preferences()
+                    .expect("first run save")
+                    .folder_peeking
+            );
             assert!(PreferenceManager::load().folder_peeking());
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
             assert!(!PreferenceManager::load().folder_peeking());
         },
     );
@@ -356,6 +371,7 @@ fn symlinked_settings_save_through_to_the_target() {
             let manager = PreferenceManager::load();
             assert!(manager.folder_peeking());
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
 
             assert!(
                 !manager.persistence_dirty.get(),
@@ -394,6 +410,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
             other.present();
             wait_for(|| !window.is_active(), "another window to take focus");
             manager.set_folder_peeking(true);
+            manager.flush_preferences();
             assert!(
                 save_notices(&window).is_empty(),
                 "a change while no browser window is active only logs"
@@ -402,6 +419,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
             window.present();
             wait_for(|| window.is_active(), "the notice window to become active");
             manager.set_folder_peeking(true);
+            manager.flush_preferences();
             window.set_visible(false);
             assert!(
                 save_notices(&window).is_empty(),
@@ -412,6 +430,7 @@ fn failed_saves_show_one_notice_per_failure_streak() {
 
             manager.set_folder_peeking(true);
             manager.set_type_to_search(!manager.type_to_search());
+            manager.flush_preferences();
             let notices = save_notices(&window);
             assert_eq!(
                 notices.len(),
@@ -429,12 +448,17 @@ fn failed_saves_show_one_notice_per_failure_streak() {
 
             fs::remove_dir(settings_path()).expect("repair the settings file");
             manager.set_folder_peeking(true);
-            assert!(read_preferences().expect("retried save").folder_peeking);
+            assert!(
+                read_saved_preferences()
+                    .expect("retried save")
+                    .folder_peeking
+            );
             assert_eq!(save_notices(&window).len(), 1);
 
             fs::remove_file(settings_path()).expect("saved settings file");
             fs::create_dir(settings_path()).expect("block the settings file again");
             manager.set_folder_peeking(false);
+            manager.flush_preferences();
             assert_eq!(
                 save_notices(&window).len(),
                 2,
@@ -610,7 +634,7 @@ fn unlisted_auto_refresh_intervals_round_up_on_load_and_set() {
                 manager.set_auto_refresh_interval(requested);
                 assert_eq!(manager.auto_refresh_interval(), expected);
                 assert_eq!(
-                    read_preferences()
+                    read_saved_preferences()
                         .expect("saved preferences")
                         .auto_refresh_interval,
                     expected
@@ -922,7 +946,9 @@ fn saved_omarchy_mode_loads_and_changes_through_the_same_binding() {
                     Some(tokens.surface.as_str())
                 );
                 assert_eq!(
-                    read_preferences().expect("saved variant").omarchy_variant,
+                    read_saved_preferences()
+                        .expect("saved variant")
+                        .omarchy_variant,
                     variant
                 );
             }
@@ -962,7 +988,7 @@ fn saved_omarchy_mode_loads_and_changes_through_the_same_binding() {
                 window.close();
             }
             assert_eq!(
-                read_preferences().expect("saved theme mode").mode,
+                read_saved_preferences().expect("saved theme mode").mode,
                 "omarchy"
             );
         },
@@ -1077,7 +1103,10 @@ fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
                 .expect("remove Omarchy theme name");
             themes.refresh_omarchy_state();
             assert!(!themes.follows_omarchy());
-            assert_eq!(read_preferences().expect("saved theme mode").mode, "theme");
+            assert_eq!(
+                read_saved_preferences().expect("saved theme mode").mode,
+                "theme"
+            );
         },
     );
 }
@@ -1239,7 +1268,10 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                     "setter publishes exactly once"
                 );
                 assert_eq!(observations.borrow().last(), Some(&expected));
-                assert_eq!(read_preferences().expect("saved preferences"), expected);
+                assert_eq!(
+                    read_saved_preferences().expect("saved preferences"),
+                    expected
+                );
             };
             for setter in preference_setters {
                 setter(&manager);
@@ -1598,7 +1630,7 @@ fn item_customizations_follow_relocations_and_removals() {
                     (notified * 2, notified as u64),
                     "{case}: notifications of color and folder sort changes"
                 );
-                let saved = read_preferences().expect("saved preferences");
+                let saved = read_saved_preferences().expect("saved preferences");
                 for (relative, color, icon) in expected {
                     assert_eq!(
                         manager.resolve_folder_sort(&location(relative), false),

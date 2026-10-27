@@ -435,6 +435,9 @@ impl PreferenceManager {
     /// Another Strata process, such as the portal chooser, can change the
     /// defaults that folder values are stored relative to.
     fn adopt_defaults_saved_elsewhere(&self) {
+        if self.persistence_dirty.get() {
+            return;
+        }
         let stamp = file_stamp(&settings_path());
         if self.load_failure.is_some() || stamp == self.settings_synced.get() {
             return;

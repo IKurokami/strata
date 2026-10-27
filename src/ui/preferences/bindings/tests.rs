@@ -3,6 +3,55 @@
 use super::*;
 use crate::test_support::gtk_test;
 
+fn read_saved_preferences() -> io::Result<Preferences> {
+    flush_pending_preferences();
+    read_preferences()
+}
+
+#[test]
+fn rapid_changes_apply_live_before_the_latest_snapshot_is_persisted() {
+    gtk_test(
+        "ui::preferences::bindings::tests::rapid_changes_apply_live_before_the_latest_snapshot_is_persisted",
+        || {
+            let manager = PreferenceManager::shared();
+            let anchors = [
+                gtk::Box::new(gtk::Orientation::Vertical, 0),
+                gtk::Box::new(gtk::Orientation::Vertical, 0),
+            ];
+            let values = anchors.each_ref().map(|anchor| {
+                let value = Rc::new(Cell::new(0.0));
+                let observed = value.clone();
+                manager.bind_preference(
+                    anchor,
+                    PreferenceManager::preview_volume,
+                    move |_, volume| observed.set(volume),
+                );
+                value
+            });
+            for volume in [0.2, 0.4, 0.8, 0.35] {
+                manager.set_preview_volume(volume);
+                for value in &values {
+                    assert_eq!(value.get(), volume);
+                }
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while manager.persistence_dirty.get() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "background save did not complete"
+                );
+                glib::MainContext::default().iteration(false);
+            }
+            assert_eq!(
+                read_preferences()
+                    .expect("background settings")
+                    .preview_volume,
+                0.35
+            );
+        },
+    );
+}
+
 #[test]
 fn bindings_initialize_deduplicate_and_release_destroyed_anchors() {
     gtk_test(
@@ -88,11 +137,17 @@ fn failed_saves_still_apply_and_retry_without_repeating_notifications() {
             fs::create_dir_all(settings_path()).expect("block settings file with a directory");
             manager.set_folder_peeking(true);
             assert_eq!(*values.borrow(), [false, true]);
+            manager.flush_preferences();
             assert!(manager.persistence_dirty.get());
             fs::remove_dir(settings_path()).expect("remove write failure fixture");
             manager.set_folder_peeking(true);
+            manager.flush_preferences();
             assert!(!manager.persistence_dirty.get());
-            assert!(read_preferences().expect("retried save").folder_peeking);
+            assert!(
+                read_saved_preferences()
+                    .expect("retried save")
+                    .folder_peeking
+            );
             assert_eq!(*values.borrow(), [false, true]);
         },
     );
