@@ -265,6 +265,7 @@ fn seed_settings(mode: &str, text_size: u32) {
 }
 
 fn persisted_settings() -> toml::Table {
+    PreferenceManager::shared().flush_preferences();
     let path = crate::ui::preferences::config_directory().join("settings.toml");
     toml::from_str(&std::fs::read_to_string(path).expect("persisted settings"))
         .expect("settings table")

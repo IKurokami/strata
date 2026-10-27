@@ -6,7 +6,12 @@ use super::*;
 fn bursts_persist_the_latest_snapshot_and_flush_waits_for_the_atomic_write() {
     let root = tempfile::tempdir().expect("settings fixture");
     let path = root.path().join("nested/settings.toml");
-    let writer = Writer::new().expect("writer");
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let pending = Arc::new(Mutex::new(None));
+    let writer = Writer {
+        sender,
+        pending: pending.clone(),
+    };
     let first = writer
         .save(1, path.clone(), Preferences::default())
         .expect("queue first");
@@ -18,6 +23,7 @@ fn bursts_persist_the_latest_snapshot_and_flush_waits_for_the_atomic_write() {
     let last = writer
         .save(2, path.clone(), expected.clone())
         .expect("queue latest");
+    let worker = thread::spawn(move || run(receiver, pending));
     let completion = writer.flush().expect("flush").expect("completion");
     assert_eq!(completion.revision, 2);
     assert!(completion.result.is_ok());
@@ -30,6 +36,32 @@ fn bursts_persist_the_latest_snapshot_and_flush_waits_for_the_atomic_write() {
             .expect("latest completion")
             .revision,
         2
+    );
+    drop(writer);
+    worker.join().expect("writer stopped");
+}
+
+#[test]
+fn a_stopped_worker_reports_a_localizable_connection_error() {
+    let root = tempfile::tempdir().expect("settings fixture");
+    let path = root.path().join("settings.toml");
+    let (sender, receiver) = mpsc::sync_channel(1);
+    drop(receiver);
+    let writer = Writer {
+        sender,
+        pending: Arc::new(Mutex::new(None)),
+    };
+    let error = writer
+        .save(1, path.clone(), Preferences::default())
+        .expect_err("stopped writer");
+    assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+    assert_eq!(
+        writer.flush().err().expect("stopped flush").kind(),
+        io::ErrorKind::ConnectionAborted
+    );
+    assert!(
+        !path.exists(),
+        "a stopped worker must never fall back to synchronous I/O"
     );
 }
 

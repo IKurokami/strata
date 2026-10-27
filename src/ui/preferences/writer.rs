@@ -58,7 +58,7 @@ impl Writer {
         let (done, receiver) = oneshot::channel();
         self.pending
             .lock()
-            .map_err(|_| io::Error::other("preference writer poisoned"))?
+            .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))?
             .replace(Box::new(Save {
                 revision,
                 path,
@@ -68,10 +68,7 @@ impl Writer {
         match self.sender.try_send(Command::Wake) {
             Ok(()) | Err(mpsc::TrySendError::Full(_)) => {}
             Err(mpsc::TrySendError::Disconnected(_)) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "preference writer stopped",
-                ));
+                return Err(io::ErrorKind::ConnectionAborted.into());
             }
         }
         Ok(receiver)
@@ -89,22 +86,19 @@ impl Writer {
                     thread::sleep(Duration::from_millis(2));
                 }
                 Err(mpsc::TrySendError::Full(_)) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "preference writer did not flush",
-                    ));
+                    return Err(io::ErrorKind::TimedOut.into());
                 }
                 Err(mpsc::TrySendError::Disconnected(_)) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "preference writer stopped",
-                    ));
+                    return Err(io::ErrorKind::ConnectionAborted.into());
                 }
             }
         }
         receiver
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|error| io::Error::new(io::ErrorKind::TimedOut, error))
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => io::ErrorKind::TimedOut.into(),
+                mpsc::RecvTimeoutError::Disconnected => io::ErrorKind::ConnectionAborted.into(),
+            })
     }
 }
 

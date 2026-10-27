@@ -671,6 +671,7 @@ fn window_buttons_load_and_follow_settings_across_open_and_later_windows() {
             for open in [&first, &second, &third] {
                 assert_buttons(open, [false, false, true]);
             }
+            manager.flush_preferences();
             let persisted: toml::Value = toml::from_str(
                 &std::fs::read_to_string(settings_file()).expect("persisted preferences"),
             )
@@ -792,6 +793,7 @@ fn browsing_control_and_shortcut_update_both_windows() {
             assert_controls(&first, true);
             assert_controls(&second, true);
             assert!(!second.content.footer().tag_visible());
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("tenxer_mode = false"));
         },
@@ -849,6 +851,7 @@ fn saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows() {
                 );
                 assert!(open.content.sidebar_visible());
             }
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_compact = true"), "{saved}");
         },
@@ -972,6 +975,7 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
                     || sidebar_report(&[&first, &second], &manager),
                 );
             }
+            PreferenceManager::shared().flush_preferences();
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_expanded = false"), "{saved}");
         },
@@ -2057,6 +2061,7 @@ fn customize_items(root: &std::path::Path, items: &[ItemCustomization]) {
 
 fn assert_item_customizations(root: &std::path::Path, expected: &[ItemCustomization], case: &str) {
     let manager = PreferenceManager::shared();
+    manager.flush_preferences();
     let saved = std::fs::read_to_string(settings_file()).unwrap_or_default();
     for (relative, color, icon) in expected {
         let path = root.join(relative);
