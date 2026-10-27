@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-use super::columns::{COLUMN_TRANSITION, ColumnSpan};
+use super::columns::ColumnSpan;
 use super::*;
-use crate::ui::motion::animations_enabled;
 
 impl ViewState {
     pub(super) fn column_span(&self, depth: usize) -> Option<ColumnSpan> {
@@ -70,10 +69,6 @@ fn column_width(column: &ColumnView) -> i32 {
 }
 
 impl BrowserView {
-    pub(in crate::ui) fn pointer_opens(&self, depth: usize, location: &Location) -> bool {
-        self.state.pointer_opens(depth, location)
-    }
-
     pub(in crate::ui) fn is_resizing_columns(&self) -> bool {
         self.state.column_resizing.get()
     }
@@ -95,18 +90,6 @@ impl BrowserView {
                 column.shell.set_size_request(limit, -1);
             }
         }
-    }
-
-    pub(in crate::ui) fn preview_occupied_width(&self, available: i32) -> i32 {
-        if self.view_mode() != BrowserMode::Columns {
-            return single_pane_preview_reservation(available);
-        }
-        self.state
-            .columns
-            .borrow()
-            .iter()
-            .map(column_width)
-            .fold(0, i32::saturating_add)
     }
 
     pub(in crate::ui) fn preview_navigated_width(&self, available: i32) -> i32 {
@@ -137,26 +120,8 @@ impl BrowserView {
             })
     }
 
-    pub(in crate::ui) fn preview_last_column_width(&self) -> i32 {
-        self.state
-            .columns
-            .borrow()
-            .last()
-            .map_or(COLUMN_WIDTH, column_width)
-    }
-
-    pub(in crate::ui) fn preserve_columns_for_viewport(&self, available: i32) {
-        if self.view_mode() != BrowserMode::Columns {
-            return;
-        }
-        let offset = self.state.scroller.hadjustment().value();
-        let occupied = self.preview_occupied_width(available);
-        let gap = if offset > 0.0 {
-            (offset + f64::from(available - occupied)).ceil().max(0.0) as i32
-        } else {
-            0
-        };
-        self.state.columns_widget.set_margin_end(gap);
+    pub(in crate::ui) fn release_preview_reservation(&self) {
+        self.state.columns_widget.set_margin_end(0);
         self.state.horizontal_scroll_generation.set(
             self.state
                 .horizontal_scroll_generation
@@ -167,57 +132,6 @@ impl BrowserView {
 
     pub(in crate::ui) fn clear_preview_scroll_space(&self) {
         self.state.columns_widget.set_margin_end(0);
-    }
-
-    // Shrinking the preserved margin re-clamps the scroll offset each frame,
-    // so columns slide into the reclaimed viewport instead of snapping.
-    fn release_preview_scroll_space(&self, preview: &glib::WeakRef<gtk::Revealer>) {
-        let margin = self.state.columns_widget.margin_end();
-        if margin <= 0 {
-            return;
-        }
-        let animation_id = self
-            .state
-            .horizontal_scroll_generation
-            .get()
-            .saturating_add(1);
-        self.state.horizontal_scroll_generation.set(animation_id);
-        if !animations_enabled() {
-            self.state.columns_widget.set_margin_end(0);
-            return;
-        }
-        let generation = self.state.horizontal_scroll_generation.clone();
-        let preview = preview.clone();
-        let weak = self.downgrade();
-        crate::ui::motion::animate(
-            &self.state.scroller,
-            Some("preview-scroll-space"),
-            COLUMN_TRANSITION,
-            move |_, elapsed| {
-                let Some(view) = weak.upgrade() else {
-                    return;
-                };
-                let reopened = preview
-                    .upgrade()
-                    .is_some_and(|preview| preview.reveals_child());
-                if reopened
-                    || generation.get() != animation_id
-                    || view.view_mode() != BrowserMode::Columns
-                {
-                    return;
-                }
-                let progress =
-                    (elapsed.as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
-                let eased = crate::ui::motion::smooth(progress);
-                view.state
-                    .columns_widget
-                    .set_margin_end((f64::from(margin) * (1.0 - eased)).round() as i32);
-                if progress >= 1.0 {
-                    view.state.columns_widget.set_margin_end(0);
-                }
-            },
-            || {},
-        );
     }
 
     pub(in crate::ui) fn bind_preview_scrolling(&self, preview: &gtk::Revealer) {
@@ -274,13 +188,7 @@ impl BrowserView {
                             }
                         }
                     } else if page_changed {
-                        // Closing can update the range before GTK expands the viewport.
-                        let maximum_gap = (adjustment.page_size() as i32
-                            - view.preview_last_column_width())
-                        .max(0);
-                        let gap = view.state.columns_widget.margin_end().min(maximum_gap);
-                        view.state.columns_widget.set_margin_end(gap);
-                        view.release_preview_scroll_space(&weak_preview);
+                        view.clear_preview_scroll_space();
                         if let Some(span) = view.state.focused_column_span() {
                             let target = span.reveal_target(
                                 adjustment.value(),

@@ -59,7 +59,14 @@ impl ModeViews {
                 self.clear_icons();
                 self.clear_list();
             }
-            BrowserEvent::ColumnsTruncated { .. } => self.rebuild_active_mode(),
+            // Replacement is immediately followed by ColumnAdded. Building here
+            // constructs the same pane twice before GTK can display either one.
+            BrowserEvent::ColumnsTruncated {
+                replacing: true, ..
+            } => {}
+            BrowserEvent::ColumnsTruncated {
+                replacing: false, ..
+            } => self.rebuild_active_mode(),
             BrowserEvent::ColumnsRelocated { from_depth } => {
                 if let Some(depth) = self
                     .browser

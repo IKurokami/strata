@@ -22,10 +22,15 @@ impl FrameTask {
         let timeout: Rc<RefCell<Option<glib::SourceId>>> = Default::default();
         let flag = cancelled.clone();
         let dispatch = move || {
-            glib::idle_add_local_once(move || {
-                if !flag.replace(true) {
+            let mut work = Some(work);
+            // Behind redraw (120), ahead of bulk default-idle work (200).
+            glib::idle_add_local_full(glib::Priority::from(130), move || {
+                if !flag.replace(true)
+                    && let Some(work) = work.take()
+                {
                     work();
                 }
+                glib::ControlFlow::Break
             });
         };
         if let Some(widget) = widget.filter(|widget| widget.is_mapped()) {

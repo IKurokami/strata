@@ -46,6 +46,7 @@ mod customization;
 pub(super) use customization::show_customize_modal;
 mod desktop;
 mod destination;
+mod diagnostics;
 mod dissolve_delete;
 mod entry;
 mod entry_animation;
@@ -273,6 +274,7 @@ pub(super) struct ViewState {
     delete_dissolve_request: Cell<Option<crate::services::OperationRequestId>>,
     deferred_delete_empty_depth: Cell<Option<usize>>,
     pending_navigate: RefCell<Option<Location>>,
+    ui_trace: RefCell<diagnostics::NavigationTrace>,
     pending_location_credentials: RefCell<Option<MountCredentials>>,
     pending_trash_lookup: RefCell<Option<LoadHandle>>,
     pending_empty_trash: RefCell<Option<LoadHandle>>,
@@ -350,6 +352,7 @@ impl BrowserView {
         multiple: bool,
         interactive: bool,
     ) -> Self {
+        let construction_started = std::time::Instant::now();
         let columns_widget = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         columns_widget.add_css_class("columns");
         columns_widget.set_halign(gtk::Align::Start);
@@ -663,6 +666,7 @@ impl BrowserView {
             delete_dissolve_request: Cell::new(None),
             deferred_delete_empty_depth: Cell::new(None),
             pending_navigate: RefCell::new(None),
+            ui_trace: RefCell::new(diagnostics::NavigationTrace::default()),
             pending_location_credentials: RefCell::new(None),
             pending_trash_lookup: RefCell::new(None),
             pending_empty_trash: RefCell::new(None),
@@ -852,6 +856,10 @@ impl BrowserView {
 
         let view = Self { state };
         view.bind_preferences(&preferences);
+        tracing::info!(
+            elapsed_us = construction_started.elapsed().as_micros() as u64,
+            "browser widgets and live bindings constructed"
+        );
         view
     }
 

@@ -11,12 +11,12 @@ use super::{Browser, BrowserEvent, RequestId, SelectionUpdate};
 
 /// Rows exposed immediately; larger publications continue within idle budgets.
 const FIRST_PUBLISH_COUNT: usize = 128;
-const STAGE_INLINE_LIMIT: usize = 512;
-const INITIAL_PUBLISH_CHUNK: usize = 512;
+const STAGE_INLINE_LIMIT: usize = 128;
+const INITIAL_PUBLISH_CHUNK: usize = 128;
 const MIN_PUBLISH_CHUNK: usize = 128;
-const MAX_PUBLISH_CHUNK: usize = 2048;
-const PUBLISH_CHUNK_BUDGET: Duration = Duration::from_millis(12);
-const PUBLISH_SLICE_BUDGET: Duration = Duration::from_millis(8);
+const MAX_PUBLISH_CHUNK: usize = 512;
+const PUBLISH_CHUNK_BUDGET: Duration = Duration::from_millis(4);
+const PUBLISH_SLICE_BUDGET: Duration = Duration::from_millis(4);
 
 pub(super) enum PublishTerminal {
     LoadFinished {
@@ -68,6 +68,8 @@ fn adjusted_chunk_size(current: usize, elapsed: Duration) -> usize {
 
 impl Browser {
     pub(super) fn publish_staged(self: &Rc<Self>, depth: usize, plan: PublicationPlan) {
+        tracing::info!(request_id = ?plan.request_id, depth, entries = plan.total,
+            "directory model ready for UI publication");
         self.drain_publish(depth);
         if self.preserving_refreshes.borrow_mut().remove(&depth) {
             if self.state.borrow().columns.get(depth).is_none() {

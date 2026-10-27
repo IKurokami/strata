@@ -60,7 +60,6 @@ const SOURCE_INSERT_CHUNK_LINES: usize = 64;
 pub(crate) const FOCUS_PREVIEW_DELAY: Duration = Duration::from_millis(75);
 const PREVIEW_SPINNER_DELAY: Duration = Duration::from_millis(120);
 const PRINT_TEXT_BYTE_LIMIT: usize = 16 * 1024 * 1024;
-const TRANSITION: Duration = crate::ui::motion::PANEL;
 const PDF_PAGE_GAP: i32 = 6;
 const HANDOFF_MARGIN_US: u64 = 1_000_000;
 const PDF_MIN_ZOOM: f64 = 1.0;
@@ -85,6 +84,30 @@ fn snapped_volume(volume: f64) -> f64 {
     ((volume / MEDIA_VOLUME_STEP).round() * MEDIA_VOLUME_STEP).clamp(0.0, 1.0)
 }
 
+fn is_named_text_file(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        [
+            "readme",
+            "license",
+            "copying",
+            "notice",
+            "authors",
+            "changelog",
+            "contributors",
+            "todo",
+            "makefile",
+            "dockerfile",
+            "containerfile",
+            "justfile",
+            "rakefile",
+            "gemfile",
+            "procfile",
+        ]
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+    })
+}
+
 pub(crate) fn preview_target(entry: Option<FileEntry>) -> Option<FileEntry> {
     entry.filter(entry_supports_quick_preview)
 }
@@ -100,7 +123,7 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
         return entry.location.native_path().is_some();
     }
 
-    let (content_type, uncertain) =
+    let (content_type, _) =
         gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
     let content = crate::services::content_family_for_file(&entry.native_name, &content_type);
     // Windows installations often lack a complete shared MIME database.
@@ -125,10 +148,9 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     {
         return true;
     }
-    // An uncertain name guess defers to the loader, which resolves the file's content type.
     extension_preview
         || !matches!(content, PreviewContent::Unsupported)
-        || uncertain
+        || is_named_text_file(&entry.native_name)
         || gio::content_type_is_a(&content_type, "text/plain")
         || crate::services::has_plain_text_extension(&entry.native_name)
         || crate::services::is_extensionless_dotfile(&entry.native_name)
@@ -178,11 +200,9 @@ struct PreviewState {
     revealer: gtk::Revealer,
     slot: gtk::Box,
     resize_grip: gtk::Box,
-    reserve_columns: Cell<bool>,
-    // Dismissing content stops selection-following without reclaiming its column slot.
+    // Selection-following may stay armed while the focused entry has no preview.
     enabled: Cell<bool>,
     dismissed: Cell<bool>,
-    child_pane: Cell<bool>,
     pane: gtk::Box,
     header_handle: gtk::Box,
     icon: gtk::Image,
@@ -236,8 +256,6 @@ struct PreviewState {
     focus_archive_request: Cell<Option<PreviewRequestId>>,
     enabled_action: gio::SimpleAction,
     animating: Cell<bool>,
-    /// A closed preview's drawer is still sliding out.
-    closing: Cell<bool>,
     animation_generation: Rc<Cell<u64>>,
     keyboard_view: RefCell<Option<super::browser::WeakBrowserView>>,
     claim_on_resume: Cell<bool>,
@@ -393,7 +411,7 @@ impl PreviewDrawer {
             .build();
 
         let slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        // The pane keeps its resting width while the drawer slides, so clip it here.
+        // Keep preview content clipped while the user resizes the pane.
         slot.set_overflow(gtk::Overflow::Hidden);
         revealer.set_hexpand(true);
         let resize_grip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -413,10 +431,8 @@ impl PreviewDrawer {
             revealer,
             slot,
             resize_grip,
-            reserve_columns: Cell::new(true),
             enabled: Cell::new(false),
             dismissed: Cell::new(false),
-            child_pane: Cell::new(false),
             pane,
             header_handle: header_handle.clone(),
             icon,
@@ -469,7 +485,6 @@ impl PreviewDrawer {
                 &false.to_variant(),
             ),
             animating: Cell::new(false),
-            closing: Cell::new(false),
             animation_generation: Rc::new(Cell::new(0)),
             keyboard_view: RefCell::new(None),
             audio: RefCell::new(None),
@@ -674,6 +689,9 @@ impl PreviewDrawer {
             return;
         }
         match event {
+            BrowserEvent::NavigationStarting { .. } | BrowserEvent::Reset if self.is_enabled() => {
+                self.clear_target();
+            }
             BrowserEvent::PreviewRequested { entry, automatic } => {
                 if *automatic && self.state.dismissed.get() {
                     return;
@@ -699,8 +717,6 @@ impl PreviewDrawer {
                 if let Some(entry) = entry.clone().and_then(|entry| preview_target(Some(entry))) {
                     self.show_after_focus_change(entry, Some(*depth));
                 } else {
-                    self.state
-                        .lend_slot_to_child(browser, *depth, entry.as_ref());
                     self.clear_target();
                 }
             }
@@ -712,10 +728,7 @@ impl PreviewDrawer {
             | BrowserEvent::SelectionSynced {
                 depth,
                 focused: None,
-            } if self.is_enabled() => {
-                self.state.lend_slot_to_child(browser, *depth, None);
-                self.clear_target()
-            }
+            } if self.is_enabled() => self.clear_target(),
             BrowserEvent::EntriesSpliced { depth, splices }
                 if self.is_enabled()
                     && self.state.current_depth.get() == Some(*depth)
@@ -775,7 +788,6 @@ impl PreviewDrawer {
     }
 
     pub fn show(&self, entry: FileEntry, depth: Option<usize>) {
-        self.state.reserve_columns.set(true);
         self.state.set_enabled(true);
         if let Some(entry) = preview_target(Some(entry)) {
             self.state.show(entry, depth);
@@ -785,7 +797,11 @@ impl PreviewDrawer {
     }
 
     pub fn show_after_focus_change(&self, entry: FileEntry, depth: Option<usize>) {
-        self.state.show_after_focus_change(entry, depth);
+        if let Some(entry) = preview_target(Some(entry)) {
+            self.state.show_after_focus_change(entry, depth);
+        } else {
+            self.state.clear_target();
+        }
     }
 
     pub fn close(&self) {
@@ -927,21 +943,6 @@ impl PreviewState {
         self.pending_show.replace(Some(source));
     }
 
-    // Mirroring also emits focus for the child beyond the active depth. A folder that a
-    // click is opening becomes the focused column, so lending to it would only flicker.
-    fn lend_slot_to_child(&self, browser: &Browser, depth: usize, entry: Option<&FileEntry>) {
-        let opening = entry.is_some_and(|entry| {
-            self.sizing
-                .browser()
-                .is_some_and(|view| view.pointer_opens(depth, &entry.location))
-        });
-        let child_pane = self.browsing_columns()
-            && !opening
-            && (entry.is_some_and(FileEntry::is_directory)
-                || browser.active_depth().is_some_and(|active| depth > active));
-        self.child_pane.set(child_pane);
-    }
-
     fn show(self: &Rc<Self>, entry: FileEntry, depth: Option<usize>) {
         if crate::services::file_mutations::blocks(&entry.location) {
             self.clear_target();
@@ -961,12 +962,9 @@ impl PreviewState {
             self.handed_off.take();
         }
         self.current_depth.set(depth);
-        self.reserve_columns.set(true);
         self.dismissed.set(false);
-        self.child_pane.set(false);
         self.set_enabled(true);
-        let reopening = self.closing.replace(false);
-        let was_open = (self.revealer.reveals_child() && !reopening) || self.sizing.is_suspended();
+        let was_open = self.revealer.reveals_child() || self.sizing.is_suspended();
         let already_showing =
             self.current.borrow().as_ref() == Some(&entry) && self.current_request.get().is_some();
         let split = self.split.borrow().clone();
@@ -1001,7 +999,6 @@ impl PreviewState {
 
     fn stop(&self) {
         self.set_enabled(false);
-        self.child_pane.set(false);
         self.clear_target();
         self.cancel_print();
         // Destroying a focused prompt does not always report a focus leave.
@@ -1024,38 +1021,20 @@ impl PreviewState {
                     })
             });
         // The preview closes now, so input such as the next Escape already
-        // reaches the files; only the drawer's slide out waits.
+        // reaches the files; closing never waits for an animation frame.
         let restore_focus = tree_focused || self.hide_intent();
-        // Closing the preview hides its content but keeps the reserved column
-        // slot. The appearance toggle clears `reserve_columns` before it
-        // calls close when the user explicitly releases that space.
+        // Every explicit close releases the slot as well as its content.
         // An explicit close suppresses selection-following until a later
         // explicit preview request reopens the drawer.
         self.dismissed.set(true);
         self.set_enabled(false);
-        self.child_pane.set(false);
         self.content.set_focusable(false);
         self.set_keyboard_owner(false);
         if restore_focus && let Some(browser) = self.sizing.browser() {
             browser.focus_file_view();
         }
-        if self.revealer.reveals_child()
-            && let Some(split) = self.split.borrow().clone()
-        {
-            self.closing.set(true);
-            self.animate_reveal(&split, false, |state| {
-                if state.closing.replace(false) {
-                    state.finish_close();
-                }
-            });
-        } else {
-            self.finish_close();
-        }
-    }
-
-    fn finish_close(&self) {
         self.stop();
-        self.pane.set_size_request(MIN_WIDTH, -1);
+        self.pane.set_size_request(0, -1);
     }
 
     fn print(self: &Rc<Self>) {
@@ -1844,10 +1823,8 @@ impl PreviewState {
                 self.render_archive(tree, focus);
             }
             PreviewContent::Unsupported => {
-                self.show_message(
-                    &crate::i18n::tr("No visual preview"),
-                    &crate::i18n::tr("Metadata is available for this file type."),
-                );
+                self.clear_target();
+                return;
             }
         }
         self.refresh_find();

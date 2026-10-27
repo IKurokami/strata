@@ -35,7 +35,7 @@ impl LoadPresentation {
         }
 
         let stack = gtk::Stack::builder()
-            .transition_type(gtk::StackTransitionType::Crossfade)
+            .transition_type(gtk::StackTransitionType::None)
             .transition_duration(100)
             .hexpand(true)
             .vexpand(true)

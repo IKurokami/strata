@@ -410,12 +410,12 @@ def test_something(strata):
     ...
 ```
 
-Columns reserves preview space by default, including while preview content is
-closed. Scenarios whose contract needs several parent columns visible at once
+Columns reserves preview space only for an actual previewable target. Scenarios
+whose contract needs the preview disabled and several parent columns visible
 may use `@pytest.mark.usefixtures("unreserved_columns")`. This fixture switches
 **Appearance → Preview panel** off through the UI and returns keyboard focus to
 the listing; it does not change saved preferences. Do not apply it to preview
-lifecycle scenarios or use it as a suite-wide default. Their reserved-space
+lifecycle scenarios or use it as a suite-wide default. Enabled-preview
 behavior and the default overflow baseline must remain covered. The layout
 rules those scenarios own are listed in
 [Preview panel and column layout](preview-panel-layout.md).

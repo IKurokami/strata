@@ -31,6 +31,10 @@ const MAX_BULK_REVEAL_SELECTION: usize = 64;
 
 impl ViewState {
     pub(super) fn handle(self: &Rc<Self>, event: &BrowserEvent) {
+        let dispatch_started = Instant::now();
+        if matches!(event, BrowserEvent::NavigationStarting { .. }) {
+            self.ui_trace.borrow_mut().begin();
+        }
         if matches!(
             event,
             BrowserEvent::NavigationStarting { .. }
@@ -1205,6 +1209,26 @@ impl ViewState {
                 _ => unreachable!(),
             };
             self.reconcile_pending_rename_after_load(depth);
+        }
+        let published = match event {
+            BrowserEvent::EntriesInserted { insertions, .. } => {
+                Some(insertions.iter().map(|item| item.entries.len()).sum())
+            }
+            BrowserEvent::EntriesReplaced { count, .. }
+            | BrowserEvent::EntriesPublished { count, .. } => Some(*count),
+            _ => None,
+        };
+        if let Some(entries) = published {
+            self.ui_trace.borrow_mut().published(
+                self.overlay.upcast_ref(),
+                entries,
+                dispatch_started,
+            );
+        } else if dispatch_started.elapsed().as_millis() >= 8 {
+            tracing::warn!(
+                elapsed_us = dispatch_started.elapsed().as_micros() as u64,
+                "browser UI event exceeded frame budget"
+            );
         }
     }
 

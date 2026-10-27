@@ -36,36 +36,24 @@ impl PreviewState {
     }
 
     pub(super) fn refresh_panel_action(&self) {
-        self.enabled_action
-            .set_state(&(self.is_enabled() || self.reserves_column_space()).to_variant());
+        let visible =
+            self.is_enabled() && self.revealer.reveals_child() && self.current.borrow().is_some();
+        self.enabled_action.set_state(&visible.to_variant());
     }
 
     pub(super) fn toggle_panel(self: &Rc<Self>, entry: Option<FileEntry>, depth: Option<usize>) {
-        let enabled = self.is_enabled() || self.reserves_column_space();
-        self.reserve_columns.set(!enabled);
-        if enabled {
-            self.dismissed.set(true);
-            self.close();
-        } else {
-            self.toggle(entry, depth);
-        }
+        self.toggle(entry, depth);
     }
 
     pub(super) fn toggle(self: &Rc<Self>, entry: Option<FileEntry>, depth: Option<usize>) {
-        if self.is_enabled() {
+        if self.revealer.reveals_child() {
             self.close();
-        } else {
-            self.reserve_columns.set(true);
+        } else if let Some(entry) = preview_target(entry) {
             self.dismissed.set(false);
-            self.set_enabled(true);
             self.focus_archive_on_ready.set(true);
-            let folder = entry.as_ref().is_some_and(FileEntry::is_directory);
-            if let Some(entry) = entry.and_then(|entry| preview_target(Some(entry))) {
-                self.show(entry, depth);
-            } else {
-                self.child_pane.set(folder && self.browsing_columns());
-                self.clear_target();
-            }
+            self.show(entry, depth);
+        } else {
+            self.close();
         }
     }
 
@@ -87,49 +75,7 @@ impl PreviewState {
         self.cancel_loading();
         self.pdf_loads.borrow_mut().clear();
         self.clear_content();
-        let reserves_empty_preview = self.reserves_empty_preview();
-        if reserves_empty_preview
-            && self
-                .split
-                .borrow()
-                .as_ref()
-                .is_none_or(|split| self.can_show_in(split))
-        {
-            self.show_placeholder();
-        } else {
-            self.hide_panel();
-            if !reserves_empty_preview && !self.reserves_column_space() {
-                self.sync_sidebar_without_preview();
-            }
-        }
-    }
-
-    pub(super) fn show_placeholder(&self) {
-        if self
-            .content
-            .first_child()
-            .is_some_and(|child| child.has_css_class("preview-placeholder"))
-        {
-            return;
-        }
-        self.clear_content();
-        self.title.set_text(&crate::i18n::tr(PREVIEW_LABEL));
-        crate::ui::accessibility::set_description(&self.title, None);
-        self.icon.set_visible(false);
-        self.metadata.set_visible(false);
-        self.open.set_sensitive(false);
-        self.header_handle.set_cursor_from_name(None);
-        let placeholder = gtk::Label::builder()
-            .label(crate::i18n::tr("No preview for this selection"))
-            .wrap(true)
-            .justify(gtk::Justification::Center)
-            .hexpand(true)
-            .vexpand(true)
-            .margin_start(24)
-            .margin_end(24)
-            .build();
-        placeholder.add_css_class("preview-placeholder");
-        placeholder.add_css_class("preview-feedback-detail");
-        self.content.append(&placeholder);
+        self.hide_panel();
+        self.sync_sidebar_without_preview();
     }
 }

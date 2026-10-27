@@ -526,13 +526,32 @@ fn permanently_delete_locations(
                 let outcome = if super::recycle_bin::is_item(&location) {
                     strata_win_shell::delete_recycled(&path)
                 } else if method == crate::services::PermanentDeleteMethod::Fast {
-                    strata_native_io::deletion::remove(&path, &worker_cancelled)
+                    match strata_native_io::deletion::remove(&path, &worker_cancelled) {
+                        Err(error)
+                            if error.raw_os_error() == Some(5)
+                                && !worker_cancelled.load(AtomicOrdering::Acquire) =>
+                        {
+                            // Permanent deletion was already confirmed. Let the
+                            // Shell handle read-only attributes or request UAC for
+                            // the remaining root, without changing its ACL ourselves.
+                            // Synthetic traversal-guard refusals must not be retried.
+                            tracing::info!(request_id = ?id,
+                                "fast deletion requires Windows Shell authorization");
+                            strata_win_shell::permanently_delete(&[path])
+                        }
+                        result => result,
+                    }
                 } else {
                     strata_win_shell::permanently_delete(&[path])
                 };
                 match outcome {
                     Ok(()) => deleted.push(location),
-                    Err(error) => failed.push((location, error)),
+                    Err(error) => {
+                        tracing::warn!(request_id = ?id, operation = "permanent-delete", ?method,
+                            error_kind = ?error.kind(), os_error = ?error.raw_os_error(),
+                            %error, "Windows file operation failed");
+                        failed.push((location, error));
+                    }
                 }
             }
             (deleted, failed, not_attempted)
@@ -1353,7 +1372,12 @@ fn recycle_locations(
                 }
                 match strata_win_shell::recycle(&[path]) {
                     Ok(_) => deleted.push(location),
-                    Err(error) => failed.push((location, error)),
+                    Err(error) => {
+                        tracing::warn!(request_id = ?id, operation = "recycle",
+                            error_kind = ?error.kind(), os_error = ?error.raw_os_error(),
+                            %error, "Windows file operation failed");
+                        failed.push((location, error));
+                    }
                 }
             }
             (deleted, failed, not_attempted)

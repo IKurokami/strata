@@ -2178,7 +2178,11 @@ impl ViewState {
         }
         self.refresh_active_path_rows();
         let swapped = self.swap_slot.take() == Some(depth);
-        animate_column_entry(&column, swapped);
+        // Navigation replaces data, not the whole page. Only a genuinely new
+        // child column receives arrival feedback; root/sibling swaps stay solid.
+        if depth > 0 && !swapped {
+            animate_column_entry(&column, false);
+        }
         self.reveal_column(shell);
     }
 

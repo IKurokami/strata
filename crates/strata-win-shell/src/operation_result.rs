@@ -14,7 +14,7 @@ use windows::{
     core::{Error, HRESULT},
 };
 
-fn error(code: HRESULT) -> io::Error {
+pub(super) fn error(code: HRESULT) -> io::Error {
     let kind = match code {
         E_ABORT | COPYENGINE_E_USER_CANCELLED => io::ErrorKind::Interrupted,
         COPYENGINE_E_ACCESS_DENIED_SRC | COPYENGINE_E_ACCESS_DENIED_DEST => {

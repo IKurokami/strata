@@ -50,9 +50,8 @@ shares the drawer code in `src/ui/preview.rs` and `src/ui/preview/layout.rs`.
 `sync_split` runs once per frame while the drawer is enabled or reserving space.
 It owns the slot's visibility, minimum width, and divider position; nothing else
 should position the divider except the user's drag and `animate_reveal`, which
-slides an unreserved drawer open or closed with the pane pinned at its resting
-width. A slot that Columns reserves never slides: content appears in it and
-leaves it in place.
+allocates the destination once and fades the arriving content. This avoids
+relaying out the file grid on every animation frame.
 
 ## Terms
 
@@ -63,8 +62,9 @@ leaves it in place.
   deeper columns open.
 - **Right pane**: everything to the right of the navigated columns. It shows a
   trailing child column, the preview, or reserved empty space.
-- **Reserved**: Columns keeps the preview slot from startup even when nothing is
-  previewed, so toggling a preview never moves the columns under the pointer.
+- **Reserved**: only an actual preview target reserves space. Folders,
+  unsupported files, empty selections, and a disabled or dismissed preview
+  leave the full browser viewport to the file columns.
 - **Enabled**: the drawer follows the selection. **Dismissed**: the user closed
   it on purpose.
 
@@ -131,9 +131,8 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
   threshold.
 - **Narrow windows**: the file view has priority. The preview shrinks to its
   minimum, then its content hides when less than 240 px would remain beside
-  the focused column. In Columns the reserved slot itself never disappears: it
-  keeps whatever remains beside the focused column, down to zero, so the
-  columns keep their offset at every width. A hidden preview pauses media and
+  the focused column. A suspended preview releases its slot completely, so
+  the file columns use the full viewport. A hidden preview pauses media and
   defers loading; widening the window restores it with the same selection and
   manual width. The sidebar
   collapses to a rail while a preview is present and space is short, with 24 px
@@ -155,30 +154,23 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
 
 ## The right pane in Columns
 
-1. **Reservation.** Columns reserves the slot from startup. **Space**, **i**,
-   **Esc**, and the close button dismiss the content without reclaiming the
-   space. **Appearance → Preview panel** off releases it; any explicit preview
-   reserves it again. The reservation is window-local, is not a saved
-   preference, does not enable automatic previews by itself, and never yields
-   to a narrow window (the slot just gets as narrow as the space allows).
-2. **A focused folder hands the right pane to its child column.** The drawer
-   hides its pane (no placeholder) and the empty slot lends the child column
-   exactly its width. The columns scroller and its content grow by the same
-   amount, so the scroll offset is unchanged and the focused column does not
-   move. The same applies to deeper columns left open after **Left**. A folder
-   that a click is opening is the exception: from the press until its column
-   takes focus it lends nothing, and the columns beyond it borrow nothing, so
-   the strip does not shift and shift back. Switching to a sibling folder swaps
-   its column in place: the new column fades in where the old one stood, and
-   any deeper columns of the old branch shrink away, so the strip slides once
-   if it must move at all.
-3. **A focused file takes the right pane back.** The mirror closes the child
-   column, the slot grows by the same amount, and the preview fills it. The
-   focused column still does not move. Deleting the focused entry mirrors and
-   reveals whatever takes its place, folder or file, even when the pointer
-   started the deletion.
-4. **Files with no preview and empty selections** keep the "No preview for this
-   selection" placeholder in Columns and Icons. List hides the drawer instead.
+1. **Reservation.** Columns reserves the slot only for a previewable target.
+   **Space**, **i**, **Esc**, the close button, and **Appearance → Preview panel**
+   off release it when they close the preview. Closing also clears obsolete
+   scroll padding and cancels scroll movement toward the old, smaller viewport.
+   An explicit preview enables selection-following again. Reservation is
+   window-local, is not a saved preference, and yields down to zero in a narrow window.
+2. **A focused folder releases the right pane.** No placeholder or empty slot
+   remains. Child columns use the browser viewport, and an already visible
+   column stays in place unless revealing the new column requires scrolling.
+3. **A focused previewable file restores the panel.** Automatic hiding does
+   not dismiss selection-following. An explicit close still blocks automatic
+   preview until the user reopens it. Password prompts and load errors for
+   supported formats retain their feedback. The View checkbox reflects the
+   panel's actual visibility, including after automatic hiding. Space, the
+   View toggle and the close button share the same explicit close path.
+4. **Files with no preview and empty selections** hide the panel in Columns,
+   Icons and List. A provider result of `Unsupported` also releases the slot.
 5. **When the focused column does move.** Only when the user descends or
    ascends with **Right**, **Left**, or **Enter**, or clicks a folder into its
    column, and that column does not fit beside the reserved slot, or when the
@@ -274,8 +266,8 @@ instead.
 | Blank clicks and disabled controls in a showing preview keep the selection; the empty reserved slot clears; preview drags still marquee | `tests/e2e/scenarios/test_background_selection.py::test_preview_blank_click_keeps_the_selection_and_a_drag_still_selects`, `::test_disabled_transport_click_keeps_the_selection`, `::test_clicking_beside_the_last_column_clears_selection`, `src/ui/marquee/tests.rs::keeping_origins_clear_only_outside_the_content_they_show`, `::chrome_origin_click_policy_decides_when_a_plain_click_clears` |
 | Disabled controls are rejected like enabled ones on every chrome origin | `src/ui/marquee/tests.rs::disabled_controls_are_rejected_like_enabled_ones` |
 
-Scenarios that need several parent columns visible at once opt out of the
-reservation with the `unreserved_columns` fixture; see
+Scenarios that need the preview disabled use the conditional
+`unreserved_columns` fixture; see
 [E2E testing](e2e-testing.md).
 
 ## Manual check

@@ -171,6 +171,7 @@ fn run_udiskie_hook(arguments: &[OsString]) -> gtk::glib::ExitCode {
 }
 
 fn main() -> gtk::glib::ExitCode {
+    metrics::initialize();
     let arguments: Vec<OsString> = std::env::args_os().collect();
     let mode = launch_mode(&arguments);
     #[cfg(windows)]
@@ -237,14 +238,15 @@ fn main() -> gtk::glib::ExitCode {
 
     #[cfg(windows)]
     startup_windows::configure_runtime_environment();
+    logging::initialize();
+    metrics::startup_checkpoint("runtime-environment-ready");
     #[cfg(windows)]
     let activation = match ui::windows_runtime::claim(&arguments) {
         Ok(server) => server,
         Err(code) => return code,
     };
     install_application_identity();
-    metrics::initialize();
-    logging::initialize();
+    metrics::startup_checkpoint("activation-and-identity-ready");
     // Windows GTK uses its platform renderer; do not spawn/re-exec the
     // application or probe a Linux backend during cold startup.
     #[cfg(target_os = "linux")]
@@ -292,7 +294,7 @@ fn main() -> gtk::glib::ExitCode {
     }
     #[cfg(windows)]
     startup_windows::configure_font_map();
-    tracing::debug!(
+    tracing::info!(
         elapsed_ms = assets_started.elapsed().as_millis() as u64,
         total_elapsed_ms = launched.elapsed().as_millis() as u64,
         "startup bundled assets prepared"
@@ -309,12 +311,13 @@ fn main() -> gtk::glib::ExitCode {
     if let Some(server) = activation {
         ui::windows_runtime::install(&application, server);
     }
-    tracing::debug!(
+    tracing::info!(
         elapsed_ms = launched.elapsed().as_millis() as u64,
         "startup application constructed"
     );
     application.connect_startup(move |_| {
-        tracing::debug!(
+        metrics::install_main_loop_monitor();
+        tracing::info!(
             elapsed_ms = launched.elapsed().as_millis() as u64,
             "startup GTK initialized and application registered"
         );

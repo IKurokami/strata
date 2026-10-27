@@ -157,6 +157,65 @@ impl crate::services::FileSource for EmptySource {
 }
 
 #[test]
+fn unsupported_focus_hides_preview_without_dismissing_selection_following() {
+    crate::test_support::gtk_test(
+        "ui::preview::tests::unsupported_focus_hides_preview_without_dismissing_selection_following",
+        || {
+            let provider = Rc::new(Provider::default());
+            let drawer = PreviewDrawer::new(provider.clone(), false);
+            for unsupported in [EntryKind::Directory, EntryKind::File] {
+                drawer.show(entry("supported.txt"), None);
+                assert!(drawer.is_open());
+                let requests = provider.0.borrow().len();
+                let mut target = entry("unsupported.strata-unknown-binary");
+                target.kind = unsupported;
+                drawer.show_after_focus_change(target, None);
+                assert!(!drawer.is_open());
+                assert!(drawer.is_enabled());
+                assert!(
+                    !drawer
+                        .action()
+                        .state()
+                        .expect("preview action state")
+                        .get::<bool>()
+                        .expect("boolean preview action state")
+                );
+                assert_eq!(provider.0.borrow().len(), requests);
+                drawer.handle_browser_event(
+                    &Browser::new(Rc::new(EmptySource)),
+                    &BrowserEvent::PreviewRequested {
+                        entry: entry("next.json"),
+                        automatic: true,
+                    },
+                );
+                assert!(drawer.is_open());
+                assert!(
+                    drawer
+                        .action()
+                        .state()
+                        .expect("preview action state")
+                        .get::<bool>()
+                        .expect("boolean preview action state")
+                );
+                assert_eq!(provider.0.borrow().len(), requests + 1);
+                drawer.toggle(Some(entry("next.json")), None);
+                assert!(!drawer.is_open());
+                assert!(!drawer.is_enabled());
+                assert!(
+                    !drawer
+                        .action()
+                        .state()
+                        .expect("preview action state")
+                        .get::<bool>()
+                        .expect("boolean preview action state")
+                );
+            }
+            drawer.close();
+        },
+    );
+}
+
+#[test]
 fn an_explicit_close_blocks_automatic_previews_until_reopened() {
     crate::test_support::gtk_test(
         "ui::preview::tests::an_explicit_close_blocks_automatic_previews_until_reopened",
@@ -214,8 +273,24 @@ fn an_explicit_close_blocks_automatic_previews_until_reopened() {
             let content = gtk::Paned::new(gtk::Orientation::Horizontal);
             released.attach_split(&split, &content, &view, None);
             assert!(!released.is_enabled());
-            assert!(released.state.reserves_column_space());
-            released.state.toggle_panel(None, None);
+            assert!(
+                !released
+                    .action()
+                    .state()
+                    .expect("preview action state")
+                    .get::<bool>()
+                    .expect("boolean preview action state")
+            );
+            released.action().activate(None);
+            assert!(!released.is_enabled());
+            assert!(
+                !released
+                    .action()
+                    .state()
+                    .expect("preview action state")
+                    .get::<bool>()
+                    .expect("boolean preview action state")
+            );
             released.handle_browser_event(&browser, &automatic);
             assert!(
                 !released.is_enabled(),
