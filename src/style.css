@@ -6113,6 +6113,152 @@ two-column presentation. */
   margin: -6px 4px 12px;
 }
 
+
+/* Smart Search shares Settings' controls, but only exposes relevant actions. */
+.smart-settings-details {
+  margin-top: 18px;
+}
+
+.smart-settings-folder-group {
+  padding-top: 4px;
+}
+
+.smart-settings-folder {
+  padding: 8px 14px;
+  min-height: 44px;
+}
+
+.smart-settings-folder + .smart-settings-folder {
+  border-top: 1px solid alpha(@strata_border, 0.30);
+}
+
+.smart-settings-path {
+  color: @strata_text;
+  font-size: 0.94em;
+}
+
+.smart-settings-actions,
+.smart-settings-advanced-actions {
+  padding: 9px 14px;
+}
+
+.smart-settings-folder-group > box + .smart-settings-actions {
+  border-top: 1px solid alpha(@strata_border, 0.30);
+}
+
+.smart-settings-action {
+  background: alpha(@strata_bg, 0.38);
+  background-image: none;
+  border: 1px solid alpha(@strata_border, 0.5);
+  border-radius: 8px;
+  box-shadow: none;
+  color: @strata_text;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.smart-settings-action:hover {
+  background: alpha(@strata_accent, 0.1);
+  border-color: alpha(@strata_accent, 0.5);
+}
+
+.smart-settings-action:active {
+  background: alpha(@strata_accent, 0.16);
+}
+
+.smart-settings-action:focus-visible,
+.smart-settings-remove:focus-visible {
+  outline: 2px solid alpha(@strata_accent, 0.55);
+  outline-offset: 2px;
+}
+
+.smart-settings-primary {
+  background: alpha(@strata_accent, 0.13);
+  border-color: alpha(@strata_accent, 0.38);
+}
+
+.smart-settings-remove {
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  box-shadow: none;
+  color: @strata_dim_text;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 5px;
+}
+
+.smart-settings-remove:hover {
+  background: alpha(@strata_accent, 0.1);
+  color: @strata_text;
+}
+
+.smart-settings-model {
+  margin-top: 16px;
+}
+
+.smart-settings-model-row {
+  padding: 12px 14px;
+}
+
+.smart-settings-progress {
+  margin: 0 14px 12px;
+  min-height: 3px;
+}
+
+.smart-settings-progress trough {
+  background: alpha(@strata_border, 0.35);
+  border-radius: 3px;
+}
+
+.smart-settings-progress progress {
+  background: @strata_accent;
+  border-radius: 3px;
+}
+
+.smart-settings-indexing {
+  padding: 10px 4px;
+  color: @strata_dim_text;
+}
+
+.smart-settings-indexing spinner {
+  color: @strata_accent;
+}
+
+.smart-settings-advanced {
+  margin-top: 14px;
+  color: @strata_text;
+}
+
+.smart-settings-advanced > title {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: @strata_dim_text;
+}
+
+.smart-settings-advanced > title:hover {
+  background: alpha(@strata_accent, 0.08);
+  color: @strata_text;
+}
+
+.smart-settings-advanced > title > arrow {
+  color: @strata_accent;
+}
+
+.smart-settings-advanced > box.settings-group {
+  margin-top: 8px;
+}
+
+.smart-settings-advanced-actions {
+  border-top: 1px solid alpha(@strata_border, 0.3);
+}
+
+.smart-settings-subtle {
+  border: none;
+  background: transparent;
+  color: @strata_dim_text;
+}
+
 .settings-group {
   background: mix(@strata_bg, @strata_muted, 0.25);
   border: 1px solid alpha(@strata_border, 0.55);
