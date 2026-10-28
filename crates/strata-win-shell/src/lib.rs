@@ -61,6 +61,33 @@ pub fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
     Ok((info.dwVolumeSerialNumber, index))
 }
 
+/// Volume identity and the full native 128-bit ID, including directory handles.
+pub fn directory_identity(path: &Path) -> io::Result<(u64, [u8; 16])> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FileIdInfo,
+        GetFileInformationByHandleEx,
+    };
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0x80)
+        .share_mode(7)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    let handle = windows::Win32::Foundation::HANDLE(file.as_raw_handle() as *mut _);
+    let mut info = FILE_ID_INFO::default();
+    // SAFETY: The owned handle stays open and the output buffer has the exact API structure size.
+    unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            &mut info as *mut _ as *mut _,
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    }
+    .map_err(io::Error::other)?;
+    Ok((info.VolumeSerialNumber, info.FileId.Identifier))
+}
+
 use windows::{
     Win32::{
         Foundation::{E_FAIL, HWND},

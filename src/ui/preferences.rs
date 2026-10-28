@@ -1516,7 +1516,9 @@ impl PreferenceManager {
                 preferences.icons_file_clicks,
                 preferences.icons_folder_clicks,
             ),
-            BrowserMode::List | BrowserMode::DiskUsage => (preferences.list_file_clicks, preferences.list_folder_clicks),
+            BrowserMode::List | BrowserMode::DiskUsage => {
+                (preferences.list_file_clicks, preferences.list_folder_clicks)
+            }
         };
         let defaults = ClickActivation::default_for(mode);
         ClickActivation {

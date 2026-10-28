@@ -1,5 +1,9 @@
 # Preference lifecycle
 
+Normal browser view modes are now exact-folder overrides with Columns as the
+fallback, independently of optional remembered sort/icon size. See [Disk Usage](disk-usage.md)
+for migration, chooser isolation and cache behavior.
+
 `fast_raw_preview` and `smart_search_enabled` default to true, including missing
 fields in upgraded settings. Smart Search roots default to an empty list;
 `smart_search_include_code`, `smart_search_index_on_battery` and

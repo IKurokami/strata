@@ -9,10 +9,9 @@ use crate::ui::{
     browser::{
         ViewState,
         clipboard::{
-            ClipboardMark, PreparedFileDrop, clipboard_mark,
-            drag_actions_for_modifiers, drag_preview_icon, file_drag_content,
-            file_drag_hover_target, file_drop_action, file_drop_commit,
-            locations_from_file_list_value, prepare_file_drop_target,
+            ClipboardMark, PreparedFileDrop, clipboard_mark, drag_actions_for_modifiers,
+            drag_preview_icon, file_drag_content, file_drag_hover_target, file_drop_action,
+            file_drop_commit, locations_from_file_list_value, prepare_file_drop_target,
         },
         collection::{ViewMap, activate_recursive_search_result},
         entry::{

@@ -20,13 +20,25 @@ pub struct DragState {
 
 /// Read native input state on the calling UI thread without changing activation.
 pub fn drag_state(origin: isize) -> DragState {
-    use windows::Win32::{System::Threading::GetCurrentThreadId, UI::{Input::KeyboardAndMouse::GetCapture, WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId}}};
+    use windows::Win32::{
+        System::Threading::GetCurrentThreadId,
+        UI::{
+            Input::KeyboardAndMouse::GetCapture,
+            WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
+        },
+    };
     // SAFETY: These read-only APIs accept a nullable window and owned stack output.
     unsafe {
         let foreground = GetForegroundWindow();
         let mut foreground_pid = 0;
         let _ = GetWindowThreadProcessId(foreground, Some(&mut foreground_pid));
-        DragState { origin, foreground: foreground.0 as isize, capture_on_caller: GetCapture().0 as isize, foreground_pid, caller_thread: GetCurrentThreadId() }
+        DragState {
+            origin,
+            foreground: foreground.0 as isize,
+            capture_on_caller: GetCapture().0 as isize,
+            foreground_pid,
+            caller_thread: GetCurrentThreadId(),
+        }
     }
 }
 

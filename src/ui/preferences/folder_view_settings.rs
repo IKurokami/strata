@@ -206,17 +206,30 @@ impl PreferenceManager {
     }
 
     /// Changes whenever a saved folder sort may have changed, for bindings that resolve one.
-    pub(in crate::ui) fn folder_mode(&self, location: Option<&Location>) -> crate::ui::browser_modes::BrowserMode {
-        location.and_then(key_for_location)
+    pub(in crate::ui) fn folder_mode(
+        &self,
+        location: Option<&Location>,
+    ) -> crate::ui::browser_modes::BrowserMode {
+        location
+            .and_then(key_for_location)
             .and_then(|key| self.folder_view_store().views.borrow().view(&key).mode)
             .unwrap_or_default()
     }
 
-    pub(in crate::ui) fn set_folder_mode(&self, location: &Location, mode: crate::ui::browser_modes::BrowserMode) {
-        let Some(key) = key_for_location(location) else { return; };
-        self.change_folder_views(Affects::Sorts, |views| views.update(&key, |view| {
-            view.mode = (mode != crate::ui::browser_modes::BrowserMode::Columns).then_some(mode);
-        }));
+    pub(in crate::ui) fn set_folder_mode(
+        &self,
+        location: &Location,
+        mode: crate::ui::browser_modes::BrowserMode,
+    ) {
+        let Some(key) = key_for_location(location) else {
+            return;
+        };
+        self.change_folder_views(Affects::Sorts, |views| {
+            views.update(&key, |view| {
+                view.mode =
+                    (mode != crate::ui::browser_modes::BrowserMode::Columns).then_some(mode);
+            })
+        });
     }
 
     pub(in crate::ui) fn folder_sorts_revision(&self) -> u64 {

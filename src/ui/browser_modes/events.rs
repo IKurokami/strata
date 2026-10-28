@@ -15,9 +15,6 @@ use crate::{
 
 impl ModeViews {
     pub(crate) fn handle_with_deferred_empty(&mut self, event: &BrowserEvent, defer_empty: bool) {
-        if self.mode == BrowserMode::DiskUsage {
-            self.disk_usage.refresh();
-        }
         #[cfg(windows)]
         if self
             .browser
@@ -25,9 +22,32 @@ impl ModeViews {
             .and_then(|depth| self.browser.location_at(depth))
             .is_some_and(|location| crate::adapters::computer::is_root(&location))
         {
+            self.disk_usage.stop();
             self.show_mode(self.mode);
             if matches!(event, BrowserEvent::ColumnReloading { .. }) {
                 self.computer_view().refresh();
+            }
+            return;
+        }
+        if self.mode == BrowserMode::DiskUsage {
+            match event {
+                BrowserEvent::NavigationStarting { .. } => {
+                    self.cancel_rename();
+                }
+                BrowserEvent::Reset => self.disk_usage.stop(),
+                BrowserEvent::ColumnAdded { .. }
+                | BrowserEvent::ColumnsTruncated {
+                    replacing: false, ..
+                }
+                | BrowserEvent::ColumnsRelocated { .. } => {
+                    self.show_mode(self.mode);
+                    self.disk_usage.refresh();
+                }
+                BrowserEvent::ColumnReloading { .. } => self.disk_usage.invalidate(),
+                BrowserEvent::FocusChanged { .. }
+                | BrowserEvent::SelectionSetChanged { .. }
+                | BrowserEvent::SelectionSynced { .. } => self.disk_usage.update_selection(),
+                _ => {}
             }
             return;
         }

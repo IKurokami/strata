@@ -233,7 +233,7 @@ fn active_drag_locations(target: &gtk::DropTarget) -> Option<Rc<[Location]>> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) fn clear_active_drag() {
     ACTIVE_DRAG.with(|cell| {
         cell.borrow_mut().take();
@@ -242,8 +242,13 @@ pub(crate) fn clear_active_drag() {
 
 pub(crate) fn finish_file_drag(content: &gtk::gdk::ContentProvider) {
     ACTIVE_DRAG.with(|cell| {
-        let matches = cell.borrow().as_ref().is_some_and(|active| active.content.upgrade().as_ref() == Some(content));
-        if matches { cell.borrow_mut().take(); }
+        let matches = cell
+            .borrow()
+            .as_ref()
+            .is_some_and(|active| active.content.upgrade().as_ref() == Some(content));
+        if matches {
+            cell.borrow_mut().take();
+        }
     });
 }
 
@@ -786,6 +791,19 @@ pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk
         providers
     };
     let content = gtk::gdk::ContentProvider::new_union(&providers);
+    content.add_weak_ref_notify(|| {
+        glib::idle_add_once(|| {
+            ACTIVE_DRAG.with(|cell| {
+                let dead = cell
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|active| active.content.upgrade().is_none());
+                if dead {
+                    cell.borrow_mut().take();
+                }
+            });
+        });
+    });
     let locations = entries.iter().map(|entry| entry.location.clone()).collect();
     ACTIVE_DRAG.with(|cell| {
         *cell.borrow_mut() = Some(ActiveDrag {

@@ -32,10 +32,22 @@ const MAX_BULK_REVEAL_SELECTION: usize = 64;
 impl ViewState {
     pub(super) fn handle(self: &Rc<Self>, event: &BrowserEvent) {
         let dispatch_started = Instant::now();
-        if matches!(event, BrowserEvent::ColumnAdded { .. } | BrowserEvent::ColumnsTruncated { replacing: false, .. } | BrowserEvent::ColumnsRelocated { .. })
-            && !self.browser.is_chooser_mode() {
-            let mode = super::super::preferences::PreferenceManager::shared().folder_mode(self.browser.active_location().as_ref());
-            super::BrowserView { state: self.clone() }.set_view_mode(mode);
+        if matches!(
+            event,
+            BrowserEvent::ColumnAdded { .. }
+                | BrowserEvent::ColumnsTruncated {
+                    replacing: false,
+                    ..
+                }
+                | BrowserEvent::ColumnsRelocated { .. }
+        ) && !self.browser.is_chooser_mode()
+        {
+            let mode = super::super::preferences::PreferenceManager::shared()
+                .folder_mode(self.browser.active_location().as_ref());
+            super::BrowserView {
+                state: self.clone(),
+            }
+            .set_view_mode(mode);
         }
         if matches!(event, BrowserEvent::NavigationStarting { .. }) {
             self.ui_trace.borrow_mut().begin();

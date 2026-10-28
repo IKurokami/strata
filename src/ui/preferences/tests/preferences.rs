@@ -1917,31 +1917,56 @@ fn smart_search_and_flashraw_preferences_apply_before_settings_across_views_and_
 
 #[test]
 fn exact_folder_modes_apply_across_views_and_rebuild_without_parent_inheritance() {
-    gtk_test("ui::preferences::tests::preferences::exact_folder_modes_apply_across_views_and_rebuild_without_parent_inheritance", || {
-        use crate::ui::browser::{BrowserView, PeekBehavior};
-        seed_saved_preferences_for_test();
-        let manager = PreferenceManager::shared();
-        let directory = tempfile::tempdir().expect("folder modes");
-        std::fs::create_dir(directory.path().join("child")).expect("child folder");
-        let location = crate::model::Location::local(directory.path());
-        manager.set_browser_mode(BrowserMode::Icons);
-        manager.set_folder_mode(&location, BrowserMode::DiskUsage);
-        let views: Vec<_> = (0..2).map(|_| BrowserView::new(Rc::new(crate::adapters::LocalFileSource), PeekBehavior::default())).collect();
-        for view in &views { view.browser().navigate(location.clone()); }
-        wait_for_theme(|| views.iter().all(|view| view.view_mode() == BrowserMode::DiskUsage));
-        manager.set_folder_mode(&location, BrowserMode::List);
-        assert!(views.iter().all(|view| view.view_mode() == BrowserMode::List));
-        views[0].browser().navigate(crate::model::Location::local(directory.path().join("child")));
-        wait_for_theme(|| views[0].view_mode() == BrowserMode::Columns);
-        assert_eq!(views[1].view_mode(), BrowserMode::List);
-        manager.flush_folder_views();
-        let restored = PreferenceManager::load();
-        assert_eq!(restored.folder_mode(Some(&location)), BrowserMode::List);
-        drop(views);
-        let rebuilt = BrowserView::new(Rc::new(crate::adapters::LocalFileSource), PeekBehavior::default());
-        rebuilt.browser().navigate(location.clone());
-        wait_for_theme(|| rebuilt.view_mode() == BrowserMode::List);
-        manager.set_folder_mode(&location, BrowserMode::Columns);
-        assert_eq!(rebuilt.view_mode(), BrowserMode::Columns);
-    });
+    gtk_test(
+        "ui::preferences::tests::preferences::exact_folder_modes_apply_across_views_and_rebuild_without_parent_inheritance",
+        || {
+            use crate::ui::browser::{BrowserView, PeekBehavior};
+            seed_saved_preferences_for_test();
+            let manager = PreferenceManager::shared();
+            let directory = tempfile::tempdir().expect("folder modes");
+            std::fs::create_dir(directory.path().join("child")).expect("child folder");
+            let location = crate::model::Location::local(directory.path());
+            manager.set_browser_mode(BrowserMode::Icons);
+            manager.set_folder_mode(&location, BrowserMode::DiskUsage);
+            let views: Vec<_> = (0..2)
+                .map(|_| {
+                    BrowserView::new(
+                        Rc::new(crate::adapters::LocalFileSource),
+                        PeekBehavior::default(),
+                    )
+                })
+                .collect();
+            for view in &views {
+                view.browser().navigate(location.clone());
+            }
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| view.view_mode() == BrowserMode::DiskUsage)
+            });
+            manager.set_folder_mode(&location, BrowserMode::List);
+            assert!(
+                views
+                    .iter()
+                    .all(|view| view.view_mode() == BrowserMode::List)
+            );
+            views[0].browser().navigate(crate::model::Location::local(
+                directory.path().join("child"),
+            ));
+            wait_for_theme(|| views[0].view_mode() == BrowserMode::Columns);
+            assert_eq!(views[1].view_mode(), BrowserMode::List);
+            manager.flush_folder_views();
+            let restored = PreferenceManager::load();
+            assert_eq!(restored.folder_mode(Some(&location)), BrowserMode::List);
+            drop(views);
+            let rebuilt = BrowserView::new(
+                Rc::new(crate::adapters::LocalFileSource),
+                PeekBehavior::default(),
+            );
+            rebuilt.browser().navigate(location.clone());
+            wait_for_theme(|| rebuilt.view_mode() == BrowserMode::List);
+            manager.set_folder_mode(&location, BrowserMode::Columns);
+            assert_eq!(rebuilt.view_mode(), BrowserMode::Columns);
+        },
+    );
 }

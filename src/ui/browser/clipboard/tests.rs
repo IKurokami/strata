@@ -1029,3 +1029,38 @@ fn a_cached_internal_drag_never_replaces_another_drops_sources() {
         },
     );
 }
+
+#[test]
+fn old_drag_completion_and_provider_finalization_preserve_a_new_live_drag() {
+    crate::test_support::gtk_test(
+        "ui::browser::clipboard::tests::old_drag_completion_and_provider_finalization_preserve_a_new_live_drag",
+        || {
+            let entry =
+                crate::test_support::operations::entry(Location::local("/fixture/file.txt"));
+            let old = file_drag_content(std::slice::from_ref(&entry)).unwrap();
+            let current = file_drag_content(&[entry]).unwrap();
+            finish_file_drag(&old);
+            assert!(
+                ACTIVE_DRAG.with(|cell| cell.borrow().as_ref().unwrap().content.upgrade()
+                    == Some(current.clone()))
+            );
+            drop(old);
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            assert!(ACTIVE_DRAG.with(|cell| cell.borrow().is_some()));
+            finish_file_drag(&current);
+            finish_file_drag(&current);
+            assert!(ACTIVE_DRAG.with(|cell| cell.borrow().is_none()));
+            let orphan = file_drag_content(&[crate::test_support::operations::entry(
+                Location::local("/fixture/orphan.txt"),
+            )])
+            .unwrap();
+            drop(orphan);
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            assert!(ACTIVE_DRAG.with(|cell| cell.borrow().is_none()));
+        },
+    );
+}

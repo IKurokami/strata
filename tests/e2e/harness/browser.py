@@ -34,6 +34,7 @@ VIEW_DESCRIPTIONS = {
     "Columns view": "Columns",
     "Icons view": "Icons",
     "List view": "List",
+    "Disk Usage": "Disk Usage",
 }
 # `ui::accessibility::describe_entry_container` marks the list or grid itself.
 ENTRY_CONTAINER_DESCRIPTION = "Files"
@@ -43,7 +44,7 @@ SEARCH_RESULTS_LABEL = "Search results"
 PREVIEW_LABEL = "Preview"
 # `ui::browser::peek::PEEK_LABEL`.
 PEEK_LABEL = "Folder peek"
-VIEW_MENU_LABELS = {"Columns": "Columns", "Icons": "Icons", "List": "List"}
+VIEW_MENU_LABELS = {"Columns": "Columns", "Icons": "Icons", "List": "List", "Disk Usage": "Disk Usage"}
 
 
 @dataclass

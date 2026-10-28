@@ -18,7 +18,6 @@ fn volume(uuid: &str, relative: &str) -> FolderKey {
 }
 
 fn sorted(key: SortKey, direction: SortDirection) -> FolderView {
-        mode: None,
     FolderView {
         mode: None,
         sort: Some((key, direction)),
@@ -45,7 +44,7 @@ fn saved_views_round_trip_through_the_state_file() {
         &mut views,
         &photos,
         FolderView {
-        mode: None,
+            mode: None,
             sort: Some((SortKey::Size, SortDirection::Ascending)),
             icons_size: Some(208),
         },
@@ -54,7 +53,7 @@ fn saved_views_round_trip_through_the_state_file() {
         &mut views,
         &drive_root,
         FolderView {
-        mode: None,
+            mode: None,
             sort: None,
             icons_size: Some(64),
         },
@@ -140,7 +139,7 @@ fn invalid_entries_and_fields_are_skipped_while_valid_ones_load() {
     assert_eq!(
         views.view(&local("/unknown-sort-keeps-size")),
         FolderView {
-        mode: None,
+            mode: None,
             sort: None,
             icons_size: Some(128),
         }
@@ -218,7 +217,7 @@ fn defaults_prune_matching_values_without_touching_other_fields() {
     assert_eq!(
         views.view(&local("/default-sort-and-size")),
         FolderView {
-        mode: None,
+            mode: None,
             sort: None,
             icons_size: Some(160),
         }
@@ -533,7 +532,11 @@ fn modes_survive_roundtrip_and_ephemeral_lru_without_inheriting_to_children() {
     let mut views = FolderViews::default();
     let parent = local("/large-parent");
     views.update(&parent, |view| view.mode = Some(BrowserMode::DiskUsage));
-    for index in 0..=FOLDER_VIEWS_LIMIT { views.update(&local(&format!("/temporary-{index}")), |view| view.icons_size = Some(96)); }
+    for index in 0..=FOLDER_VIEWS_LIMIT {
+        views.update(&local(&format!("/temporary-{index}")), |view| {
+            view.icons_size = Some(96)
+        });
+    }
     assert_eq!(views.view(&parent).mode, Some(BrowserMode::DiskUsage));
     let (loaded, repaired) = FolderViews::parse(&views.to_toml().unwrap()).unwrap();
     assert!(!repaired);
@@ -551,8 +554,13 @@ fn unknown_mode_keeps_sort_and_mode_changes_merge_with_other_process_sort() {
     ours.mark_saved();
     ours.update(&key, |view| view.mode = Some(BrowserMode::DiskUsage));
     let mut theirs = FolderViews::default();
-    theirs.update(&key, |view| view.sort = Some((SortKey::Size, SortDirection::Descending)));
+    theirs.update(&key, |view| {
+        view.sort = Some((SortKey::Size, SortDirection::Descending))
+    });
     let merged = ours.merged_over(theirs);
     assert_eq!(merged.view(&key).mode, Some(BrowserMode::DiskUsage));
-    assert_eq!(merged.view(&key).sort, Some((SortKey::Size, SortDirection::Descending)));
+    assert_eq!(
+        merged.view(&key).sort,
+        Some((SortKey::Size, SortDirection::Descending))
+    );
 }

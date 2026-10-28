@@ -2,10 +2,10 @@
 
 pub(crate) mod actions;
 pub(crate) mod camera_preview;
+pub(crate) mod disk_usage;
 mod document;
 pub(crate) mod document_media;
 pub(crate) mod docx;
-pub(crate) mod disk_usage;
 pub(crate) mod file_mutations;
 #[cfg(not(windows))]
 pub(crate) mod file_providers;

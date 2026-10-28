@@ -73,15 +73,15 @@ mod transfer;
 mod trash;
 
 #[cfg(test)]
-pub(super) use crate::ui::browser::clipboard::{clipboard_mark, clear_active_drag};
+pub(super) use crate::ui::browser::clipboard::clipboard_mark;
 pub(in crate::ui) use crate::ui::browser::clipboard::drag_preview_icon;
 pub(super) use crate::ui::browser::clipboard::{
     ClipboardMark, ClipboardMarks, file_drag_content, mark_in, set_mark_result_style,
 };
 pub(crate) use crate::ui::browser::clipboard::{
-    PreparedFileDrop, arm_spring_load_navigation, finish_file_drag, drag_actions_for_modifiers,
-    file_drag_hover_target, file_drop_action, file_drop_commit, locations_from_file_list_value,
-    prepare_file_drop_target,
+    PreparedFileDrop, arm_spring_load_navigation, drag_actions_for_modifiers,
+    file_drag_hover_target, file_drop_action, file_drop_commit, finish_file_drag,
+    locations_from_file_list_value, prepare_file_drop_target,
 };
 pub(crate) use crate::ui::browser::collection::{
     ActivePaneFilter, bind_listing_filter, detach_collection_view, filter_placeholder,
@@ -978,7 +978,9 @@ impl BrowserView {
         self.state.mode_views.borrow().refresh_source_filter();
     }
 
-    pub(in crate::ui) fn from_state(state: Rc<ViewState>) -> Self { Self { state } }
+    pub(in crate::ui) fn from_state(state: Rc<ViewState>) -> Self {
+        Self { state }
+    }
 
     pub fn browser(&self) -> Rc<Browser> {
         self.state.browser.clone()
@@ -1090,7 +1092,10 @@ impl BrowserView {
         });
     }
 
-    pub(in crate::ui) fn disk_usage_key(&self, press: &super::keys::KeyPress) -> bool { self.state.mode_views.borrow().disk_usage_key(press) }
+    pub(in crate::ui) fn disk_usage_key(&self, press: &super::keys::KeyPress) -> bool {
+        let view = self.state.mode_views.borrow().disk_usage_view();
+        view.is_some_and(|view| view.key(press))
+    }
 
     pub fn view_mode(&self) -> BrowserMode {
         self.state.mode.get()

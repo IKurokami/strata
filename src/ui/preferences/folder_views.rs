@@ -211,7 +211,9 @@ impl FolderViews {
         if view == previous {
             return false;
         }
-        let fields = u8::from(view.sort != previous.sort) | (u8::from(view.icons_size != previous.icons_size) << 1) | (u8::from(view.mode != previous.mode) << 2);
+        let fields = u8::from(view.sort != previous.sort)
+            | (u8::from(view.icons_size != previous.icons_size) << 1)
+            | (u8::from(view.mode != previous.mode) << 2);
         *self.fields.entry(key.clone()).or_default() |= fields;
         self.changed.insert(key.clone());
         if view.is_empty() {
@@ -348,21 +350,46 @@ impl FolderViews {
                 Some(entry) => {
                     let mut value = merged.view(key);
                     if let Some(fields) = self.fields.get(key) {
-                        if fields & 1 != 0 { value.sort = entry.view.sort; }
-                        if fields & 2 != 0 { value.icons_size = entry.view.icons_size; }
-                        if fields & 4 != 0 { value.mode = entry.view.mode; }
-                    } else { value = entry.view; }
-                    merged.entries.insert(key.clone(), Entry { view: value, used: entry.used });
+                        if fields & 1 != 0 {
+                            value.sort = entry.view.sort;
+                        }
+                        if fields & 2 != 0 {
+                            value.icons_size = entry.view.icons_size;
+                        }
+                        if fields & 4 != 0 {
+                            value.mode = entry.view.mode;
+                        }
+                    } else {
+                        value = entry.view;
+                    }
+                    merged.entries.insert(
+                        key.clone(),
+                        Entry {
+                            view: value,
+                            used: entry.used,
+                        },
+                    );
                 }
                 None => {
                     if let Some(fields) = self.fields.get(key) {
                         let mut value = merged.view(key);
-                        if fields & 1 != 0 { value.sort = None; }
-                        if fields & 2 != 0 { value.icons_size = None; }
-                        if fields & 4 != 0 { value.mode = None; }
-                        if value.is_empty() { merged.entries.remove(key); }
-                        else if let Some(entry) = merged.entries.get_mut(key) { entry.view = value; }
-                    } else { merged.entries.remove(key); }
+                        if fields & 1 != 0 {
+                            value.sort = None;
+                        }
+                        if fields & 2 != 0 {
+                            value.icons_size = None;
+                        }
+                        if fields & 4 != 0 {
+                            value.mode = None;
+                        }
+                        if value.is_empty() {
+                            merged.entries.remove(key);
+                        } else if let Some(entry) = merged.entries.get_mut(key) {
+                            entry.view = value;
+                        }
+                    } else {
+                        merged.entries.remove(key);
+                    }
                 }
             }
         }
@@ -409,7 +436,11 @@ impl FolderViews {
     }
 
     fn evict_to(&mut self, limit: usize) {
-        let ephemeral = self.entries.values().filter(|entry| entry.view.mode.is_none()).count();
+        let ephemeral = self
+            .entries
+            .values()
+            .filter(|entry| entry.view.mode.is_none())
+            .count();
         if ephemeral <= limit {
             return;
         }
@@ -471,7 +502,13 @@ impl FolderViews {
                 }
             }
         }
-        if views.entries.values().filter(|entry| entry.view.mode.is_none()).count() > FOLDER_VIEWS_LIMIT {
+        if views
+            .entries
+            .values()
+            .filter(|entry| entry.view.mode.is_none())
+            .count()
+            > FOLDER_VIEWS_LIMIT
+        {
             repaired = true;
             views.evict_to(FOLDER_VIEWS_LIMIT);
         }
@@ -590,12 +627,18 @@ fn parse_entry(value: &toml::Value) -> Option<(FolderKey, Entry, bool)> {
     let mode = match table.get("mode") {
         None => None,
         Some(value) => {
-            let parsed = value.as_str().and_then(crate::ui::browser_modes::BrowserMode::from_stored);
+            let parsed = value
+                .as_str()
+                .and_then(crate::ui::browser_modes::BrowserMode::from_stored);
             clean &= parsed.is_some();
             parsed.filter(|mode| *mode != crate::ui::browser_modes::BrowserMode::Columns)
         }
     };
-    let view = FolderView { sort, icons_size, mode };
+    let view = FolderView {
+        sort,
+        icons_size,
+        mode,
+    };
     if view.is_empty() {
         return None;
     }

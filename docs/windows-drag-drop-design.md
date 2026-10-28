@@ -5,6 +5,27 @@ applications when foreground changes. It does not establish that a particular
 foreground/capture defect has been reproduced. Keep separate evidence for
 serialization, GTK/OLE lifetime and physical cross-window input.
 
+## Branch diagnostics
+
+`ui::file_drag` now observes the file sources for Columns, List/Icons, inline
+search, preview and Disk Usage. Sidebar and tab reordering remain separate.
+Set `STRATA_DND_DIAGNOSTICS=1` before starting a build containing this helper;
+enable the `strata::ui::file_drag=info` logging target if the current logging
+filter would suppress it. Restart the existing retained process for changed
+environment variables to take effect.
+
+Events contain a monotonic timestamp, sequence/session IDs, source category,
+action/format information and native origin/foreground/calling-thread capture
+state. The bounded logging lane reports dropped records and does not log file
+names or contents. Session IDs follow the actual GdkDrag through cancel/end;
+cleanup compares provider identity. Provider finalization also retires orphaned
+internal associations on the GTK context.
+
+These app-level observations do not instrument the exact native SetCapture call
+or prove a successful physical drop. No activation/capture runtime patch is
+justified by them alone. The native trace, target harness and installed-artifact
+gates below remain necessary before claiming the foreground bug is fixed.
+
 ## Existing ownership
 
 Columns (`browser/columns/rows.rs`), List/Icons (`browser_modes.rs`), inline search

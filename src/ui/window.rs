@@ -761,7 +761,9 @@ pub(super) fn apply_browser_mode(
     preferences: &super::preferences::PreferenceManager,
     mode: BrowserMode,
 ) {
-    if view.browser().is_chooser_mode() && mode == BrowserMode::DiskUsage { return; }
+    if view.browser().is_chooser_mode() && mode == BrowserMode::DiskUsage {
+        return;
+    }
     view.set_view_mode(mode);
     if view.browser().is_chooser_mode() {
         preferences.set_browser_mode(mode);
@@ -775,7 +777,10 @@ pub(super) fn browser_mode_for_digit(press: &KeyPress) -> Option<BrowserMode> {
         (VIEW_COLUMNS, BrowserMode::Columns),
         (VIEW_ICONS, BrowserMode::Icons),
         (VIEW_LIST, BrowserMode::List),
-        (crate::ui::keys::bindings::VIEW_DISK_USAGE, BrowserMode::DiskUsage),
+        (
+            crate::ui::keys::bindings::VIEW_DISK_USAGE,
+            BrowserMode::DiskUsage,
+        ),
     ]
     .into_iter()
     .find(|(view, _)| press.is(*view))
@@ -830,8 +835,11 @@ pub(super) fn build_appearance_menu(
         gtk::AccessibleRole::MenuItemRadio,
     );
     let (disk_usage, disk_check, _) = appearance_option(
-        crate::assets::icons::HARD_DRIVE, "Disk Usage", current_mode == BrowserMode::DiskUsage,
-        true, gtk::AccessibleRole::MenuItemRadio,
+        crate::assets::icons::HARD_DRIVE,
+        "Disk Usage",
+        current_mode == BrowserMode::DiskUsage,
+        true,
+        gtk::AccessibleRole::MenuItemRadio,
     );
     disk_usage.set_visible(!controller.is_chooser_mode());
     let grouped = preferences.group_by_type();

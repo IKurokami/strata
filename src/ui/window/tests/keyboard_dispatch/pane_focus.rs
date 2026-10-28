@@ -195,6 +195,9 @@ fn default_map_tab_leaves_the_listing_in_one_press() {
                             fixture.view.header_actions_have_focus()
                         }
                         BrowserMode::Columns => !file_panes_have_focus(&fixture),
+                        BrowserMode::DiskUsage => {
+                            unreachable!("canvas focus has separate coverage")
+                        }
                     };
                 assert!(
                     left,

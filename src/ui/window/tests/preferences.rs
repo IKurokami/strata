@@ -366,6 +366,9 @@ fn columns_size_visibility_loads_and_updates_across_windows_and_rebuilds() {
                     let row_class = match mode {
                         BrowserMode::List => "list-row",
                         BrowserMode::Icons => "icons-card",
+                        BrowserMode::DiskUsage => {
+                            unreachable!("canvas metadata uses snapshot coverage")
+                        }
                         BrowserMode::Columns => "file-row",
                     };
                     wait_until(|| !column_loading(open, 0));
@@ -508,6 +511,9 @@ fn folder_item_counts_fill_visible_rows_in_each_view() {
                     BrowserMode::Columns => "file-row",
                     BrowserMode::List => "list-row",
                     BrowserMode::Icons => "icons-card",
+                    BrowserMode::DiskUsage => {
+                        unreachable!("canvas metadata uses snapshot coverage")
+                    }
                 };
                 for (name, count) in [("empty", 0), ("one", 1), ("several", 4)] {
                     let expected = if count == 0 {

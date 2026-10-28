@@ -59,6 +59,7 @@ fn digit(mode: BrowserMode) -> Key {
         BrowserMode::Columns => Key::_1,
         BrowserMode::Icons => Key::_2,
         BrowserMode::List => Key::_3,
+        BrowserMode::DiskUsage => Key::_4,
     }
 }
 
@@ -450,6 +451,7 @@ fn mode_label(mode: BrowserMode) -> &'static str {
         BrowserMode::Columns => "Columns",
         BrowserMode::Icons => "Icons",
         BrowserMode::List => "List",
+        BrowserMode::DiskUsage => "Disk Usage",
     }
 }
 

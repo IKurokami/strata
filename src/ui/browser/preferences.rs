@@ -60,7 +60,16 @@ impl BrowserView {
             move |manager| (manager.folder_sorts_revision(), manager.browser_mode()),
             |view, _| {
                 let manager = PreferenceManager::shared();
-                let mode = if view.browser().is_chooser_mode() { let mode = manager.browser_mode(); if mode == BrowserMode::DiskUsage { BrowserMode::Columns } else { mode } } else { manager.folder_mode(view.browser().active_location().as_ref()) };
+                let mode = if view.browser().is_chooser_mode() {
+                    let mode = manager.browser_mode();
+                    if mode == BrowserMode::DiskUsage {
+                        BrowserMode::Columns
+                    } else {
+                        mode
+                    }
+                } else {
+                    manager.folder_mode(view.browser().active_location().as_ref())
+                };
                 view.set_view_mode(mode);
             },
         );
