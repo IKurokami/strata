@@ -1511,9 +1511,14 @@ fn set_slot_path_icon(image: &ThumbnailSlot, path: Option<&Path>, icon: &str) ->
     let placeholder = crate::assets::sized_icon_paintable(generic, &color, size, scale, context);
     image.set_fallback(icon, placeholder.as_ref());
     let generation = image.fallback_generation();
-    let visible = viewport::near_viewport(image);
     let weak = image.downgrade();
     let task = glib::MainContext::default().spawn_local(async move {
+        // Factory bind may still own a floating GTK item widget. Traverse its
+        // ancestors only after returning to the main context.
+        let visible = {
+            let Some(image) = weak.upgrade() else { return };
+            viewport::near_viewport(&image)
+        };
         if let Some(texture) =
             crate::assets::file_icon_texture(resolved, color, size, scale, context, visible).await
             && let Some(image) = weak.upgrade()

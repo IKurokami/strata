@@ -2766,10 +2766,9 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
             (&content_click, false, slow_click),
         );
         item.set_child(Some(&card));
-        if let Some(parent) = card.parent() {
-            parent.set_halign(gtk::Align::Center);
-            parent.set_valign(gtk::Align::Start);
-        }
+        // GTK may not have sunk its internal item widget during factory setup.
+        // Borrowing that floating parent can release it when the Rust wrapper drops.
+        card.set_halign(gtk::Align::Center);
         let field = super::icons_cell::ensure_rename_field(&card).expect("card editor");
         let edit = super::collection_edit::EditWidgets::new(&field, &rename_label);
         register_bound_mode_item(&bound_items_for_setup, item, &card, &rename_label, edit);
