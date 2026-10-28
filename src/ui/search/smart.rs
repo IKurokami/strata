@@ -10,6 +10,8 @@ use crate::services::{
 use gtk::{gio, glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
+    path::Path,
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -35,13 +37,10 @@ pub(super) struct Panel {
     generation: Cell<u64>,
     submitted: Cell<std::time::Instant>,
     phase: Cell<Option<SearchPhase>>,
-    mode: Cell<usize>,
     query: RefCell<String>,
-    scope: RefCell<Option<std::path::PathBuf>>,
-    kind: Cell<usize>,
     drawer: RefCell<Option<super::super::preview::PreviewDrawer>>,
     preview_slot: gtk::Box,
-    preview_enabled: Cell<bool>,
+    results_column: gtk::Overlay,
     reconciling: Cell<bool>,
     preview_key: RefCell<Option<PreviewKey>>,
     status: gtk::Label,
@@ -49,9 +48,9 @@ pub(super) struct Panel {
 
 impl Panel {
     pub fn new(activate: Rc<dyn Fn(SearchItem)>) -> Rc<Self> {
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        root.append(&controls);
+
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("search-smart-panel");
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let selection = gtk::SingleSelection::new(Some(store.clone()));
         selection.set_autoselect(false);
@@ -61,14 +60,21 @@ impl Panel {
             let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
-            let row = gtk::Box::new(gtk::Orientation::Vertical, 3);
-            row.add_css_class("search-result");
-            for _ in 0..3 {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            row.add_css_class("search-smart-result");
+            let icon = crate::assets::primary_icon(crate::assets::icons::DOCUMENTS, 20);
+            icon.set_valign(gtk::Align::Center);
+            row.append(&icon);
+            let labels = gtk::Box::new(gtk::Orientation::Vertical, 3);
+            labels.set_hexpand(true);
+            for class in ["search-result-name", "search-result-path", "search-smart-excerpt"] {
                 let label = gtk::Label::new(None);
                 label.set_xalign(0.0);
-                label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                row.append(&label);
+                label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+                label.add_css_class(class);
+                labels.append(&label);
             }
+            row.append(&labels);
             item.set_child(Some(&row));
         });
         factory.connect_bind(|_, object| {
@@ -82,7 +88,13 @@ impl Panel {
             let Some(row) = item.child().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(title) = row.first_child().and_downcast::<gtk::Label>() else {
+            let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+                return;
+            };
+            let Some(labels) = icon.next_sibling().and_downcast::<gtk::Box>() else {
+                return;
+            };
+            let Some(title) = labels.first_child().and_downcast::<gtk::Label>() else {
                 return;
             };
             let Some(detail) = title.next_sibling().and_downcast::<gtk::Label>() else {
@@ -91,47 +103,57 @@ impl Panel {
             let Some(excerpt) = detail.next_sibling().and_downcast::<gtk::Label>() else {
                 return;
             };
+            crate::assets::set_primary_icon(
+                &icon,
+                if value.is_directory {
+                    crate::assets::icons::FOLDER
+                } else {
+                    crate::ui::browser::icon_for_name(&value.name)
+                },
+            );
             title.set_text(&value.name);
-            detail.set_text(&value.path.to_string_lossy());
-            detail.add_css_class("search-result-path");
-            if let Some(hit) = &value.content_hit {
-                excerpt.set_text(&format!(
-                    "{} · {}",
-                    crate::i18n::tr(if hit.weak {
-                        "Related match"
-                    } else {
-                        "Content match"
-                    }),
-                    if hit.excerpt.is_empty() {
-                        hit.locator.anchor().unwrap_or("")
-                    } else {
-                        &hit.excerpt
-                    }
-                ));
-            } else {
-                excerpt.set_text(&crate::i18n::tr("Filename match"));
-            }
+            let visible_path = display_search_path(&value.path);
+            detail.set_text(&visible_path);
+            let snippet = value
+                .content_hit
+                .as_ref()
+                .map(|hit| hit.excerpt.split_whitespace().take(32).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            excerpt.set_text(&snippet);
+            excerpt.set_visible(!snippet.is_empty());
+            crate::ui::accessibility::set_label(&row, &visible_path);
         });
         let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
+        list.add_css_class("search-smart-list");
         list.set_single_click_activate(false);
-        let body = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        body.set_vexpand(true);
         let scroll = gtk::ScrolledWindow::builder()
             .child(&list)
             .hexpand(true)
             .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
-        body.append(&scroll);
+        let results_column = gtk::Overlay::new();
+        results_column.set_hexpand(true);
+        results_column.set_vexpand(true);
+        results_column.set_child(Some(&scroll));
+        let status = gtk::Label::new(Some(&crate::i18n::tr("No results")));
+        status.add_css_class("search-smart-empty");
+        status.set_halign(gtk::Align::Center);
+        status.set_valign(gtk::Align::Center);
+        status.set_visible(false);
+        results_column.add_overlay(&status);
         let preview_slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        preview_slot.set_width_request(340);
+        preview_slot.add_css_class("search-smart-preview");
+        preview_slot.set_hexpand(true);
+        preview_slot.set_vexpand(true);
+        preview_slot.set_overflow(gtk::Overflow::Hidden);
         preview_slot.set_visible(false);
+        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        body.set_vexpand(true);
+        body.set_hexpand(true);
+        body.append(&results_column);
         body.append(&preview_slot);
         root.append(&body);
-        let status = gtk::Label::new(None);
-        status.set_xalign(0.0);
-        status.add_css_class("search-status");
-        root.append(&status);
         let state = Rc::new(Self {
             root,
             store,
@@ -144,133 +166,14 @@ impl Panel {
             generation: Cell::new(0),
             submitted: Cell::new(std::time::Instant::now()),
             phase: Cell::new(None),
-            mode: Cell::new(0),
             query: RefCell::new(String::new()),
-            scope: RefCell::new(None),
-            kind: Cell::new(0),
             drawer: RefCell::new(None),
             preview_slot,
-            preview_enabled: Cell::new(true),
+            results_column,
             reconciling: Cell::new(false),
             preview_key: RefCell::new(None),
             status,
         });
-        let (modes, buttons) =
-            super::super::controls::segmented_control(&["All", "Name", "Content", "Smart"], 0);
-        controls.append(&modes);
-        let all = buttons[0].clone();
-        super::super::preferences::PreferenceManager::shared().bind_preference(
-            &buttons[3],
-            super::super::preferences::PreferenceManager::smart_search_enabled,
-            move |widget, enabled| {
-                widget.set_sensitive(enabled);
-                if !enabled {
-                    all.set_active(true);
-                }
-            },
-        );
-        for (index, button) in buttons.into_iter().enumerate() {
-            let weak = Rc::downgrade(&state);
-            button.connect_toggled(move |button| {
-                if button.is_active()
-                    && let Some(state) = weak.upgrade()
-                {
-                    state.mode.set(index);
-                    state.refresh_content();
-                }
-            });
-        }
-        let kinds = gtk::MenuButton::builder()
-            .label(crate::i18n::tr("File type"))
-            .build();
-        let menu = gtk::Popover::new();
-        menu.set_has_arrow(false);
-        menu.add_css_class("column-popover");
-        let choices = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        for (index, label) in [
-            "All",
-            "Documents",
-            "Images",
-            "Audio",
-            "Video",
-            "Source code",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let (button, _) = super::super::controls::menu_option(&crate::i18n::tr(label), false);
-            let weak = Rc::downgrade(&state);
-            let popup = menu.downgrade();
-            button.connect_clicked(move |_| {
-                if let Some(state) = weak.upgrade() {
-                    state.kind.set(index);
-                    state.refresh_content();
-                }
-                if let Some(menu) = popup.upgrade() {
-                    menu.popdown();
-                }
-            });
-            choices.append(&button);
-        }
-        menu.set_child(Some(&choices));
-        kinds.set_popover(Some(&menu));
-        controls.append(&kinds);
-        kinds.add_css_class("column-menu-option");
-        let preview = gtk::ToggleButton::with_label(&crate::i18n::tr("Preview"));
-        preview.add_css_class("segmented-control-option");
-        preview.set_active(true);
-        let weak = Rc::downgrade(&state);
-        preview.connect_toggled(move |button| {
-            if let Some(state) = weak.upgrade() {
-                state.preview_enabled.set(button.is_active());
-                state.preview_selected();
-            }
-        });
-        controls.append(&preview);
-        let scope = gtk::MenuButton::builder()
-            .label(crate::i18n::tr("Indexed folders"))
-            .build();
-        let popup = gtk::Popover::new();
-        popup.set_has_arrow(false);
-        popup.add_css_class("column-popover");
-        let folders = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        popup.set_child(Some(&folders));
-        scope.set_popover(Some(&popup));
-        scope.add_css_class("column-menu-option");
-        controls.append(&scope);
-        let weak = Rc::downgrade(&state);
-        let bound_popup = popup.downgrade();
-        super::super::preferences::PreferenceManager::shared().bind_preference(
-            &folders,
-            super::super::preferences::PreferenceManager::smart_search_roots,
-            move |widget, roots| {
-                let Some(folders) = widget.downcast_ref::<gtk::Box>() else {
-                    return;
-                };
-                while let Some(child) = folders.first_child() {
-                    folders.remove(&child);
-                }
-                for root in std::iter::once(None).chain(roots.into_iter().map(Some)) {
-                    let label = root.as_ref().map_or_else(
-                        || crate::i18n::tr("All"),
-                        |path| path.to_string_lossy().into_owned(),
-                    );
-                    let (button, _) = super::super::controls::menu_option(&label, false);
-                    let weak = weak.clone();
-                    let popup = bound_popup.clone();
-                    button.connect_clicked(move |_| {
-                        if let Some(state) = weak.upgrade() {
-                            state.scope.replace(root.clone());
-                            state.refresh_content();
-                        }
-                        if let Some(popup) = popup.upgrade() {
-                            popup.popdown();
-                        }
-                    });
-                    folders.append(&button);
-                }
-            },
-        );
         let weak = Rc::downgrade(&state);
         super::super::preferences::PreferenceManager::shared().bind_preference(
             &state.root,
@@ -282,12 +185,8 @@ impl Panel {
                 paused: manager.smart_search_paused(),
             },
             move |_, config| {
-                let enabled = config.enabled;
                 smart_search::configure(config);
                 if let Some(state) = weak.upgrade() {
-                    if !enabled && state.mode.get() == 3 {
-                        state.mode.set(0);
-                    }
                     state.refresh_content();
                 }
             },
@@ -337,24 +236,11 @@ impl Panel {
     fn refresh_content(&self) {
         self.phase.set(None);
         self.hits.borrow_mut().clear();
-        if self
-            .scope
-            .borrow()
-            .as_ref()
-            .is_some_and(|root| !smart_search::configured_roots().contains(root))
-        {
-            self.scope.take();
-        }
-        let roots = self
-            .scope
-            .borrow()
-            .clone()
-            .map_or_else(smart_search::configured_roots, |root| vec![root]);
         self.generation.set(self.session.query(
             &self.query.borrow(),
-            roots,
-            self.mode.get(),
-            smart_search::result::SearchKind::from_index(self.kind.get()),
+            smart_search::configured_roots(),
+            0,
+            smart_search::result::SearchKind::Any,
         ));
         self.render();
     }
@@ -395,38 +281,11 @@ impl Panel {
         }
         self.preview_slot.set_visible(false);
     }
+
     fn render(&self) {
-        let selected = self.selected();
-        let mut rows = Vec::new();
-        if self.mode.get() <= 1 {
-            rows.extend(self.names.borrow().iter().cloned());
-        }
-        if self.mode.get() != 1 {
-            rows.extend(
-                self.hits
-                    .borrow()
-                    .iter()
-                    .cloned()
-                    .map(|hit| SearchItem::for_hit(Arc::new(hit))),
-            );
-        }
-        let kind = smart_search::result::SearchKind::from_index(self.kind.get());
-        let scope = self.scope.borrow();
-        rows.retain(|row| {
-            (self.kind.get() == 0 || !row.is_directory)
-                && kind.accepts(&row.path)
-                && scope
-                    .as_ref()
-                    .is_none_or(|root| smart_search::policy::within(&row.path, root))
-        });
-        rows.truncate(200);
-        self.status.set_text(&crate::i18n::tr(if rows.is_empty() {
-            "No results"
-        } else if self.phase.get() == Some(SearchPhase::Semantic) {
-            "Local semantic and keyword results"
-        } else {
-            "Filename and keyword results"
-        }));
+        let selected_key = self.selected().map(|item| result_key(&item.path));
+        let rows = unique_rows(&self.names.borrow(), &self.hits.borrow());
+        self.status.set_visible(rows.is_empty());
         if *self.rows.borrow() == rows {
             return;
         }
@@ -448,38 +307,20 @@ impl Panel {
         self.rows.replace(rows);
         self.reconciling.set(true);
         self.store.splice(prefix as u32, removed as u32, &additions);
-        let retained = selected.and_then(|selected| {
-            self.rows.borrow().iter().position(|row| {
-                row.path == selected.path
-                    && row.content_hit.as_ref().map(|hit| hit.identity())
-                        == selected.content_hit.as_ref().map(|hit| hit.identity())
-            })
+        let retained = selected_key.and_then(|key| {
+            self.rows.borrow().iter().position(|row| result_key(&row.path) == key)
         });
         self.selection
             .set_selected(retained.map_or(gtk::INVALID_LIST_POSITION, |position| position as u32));
         self.reconciling.set(false);
         self.preview_selected();
-        tracing::debug!(generation=self.generation.get(),rows=self.rows.borrow().len(),phase=?self.phase.get(),elapsed_micros=self.submitted.get().elapsed().as_micros(),"search results published to virtual list");
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            let submitted = self.submitted.get();
-            let generation = self.generation.get();
-            self.list.add_tick_callback(move |_, _| {
-                tracing::debug!(
-                    generation,
-                    elapsed_micros = submitted.elapsed().as_micros(),
-                    "search result frame ready"
-                );
-                glib::ControlFlow::Break
-            });
-        }
-        self.status
-            .set_text(&crate::i18n::tr(if self.rows.borrow().is_empty() {
-                "No results"
-            } else if self.phase.get() == Some(SearchPhase::Semantic) {
-                "Local semantic and keyword results"
-            } else {
-                "Filename and keyword results"
-            }));
+        tracing::debug!(
+            generation = self.generation.get(),
+            rows = self.rows.borrow().len(),
+            phase = ?self.phase.get(),
+            elapsed_micros = self.submitted.get().elapsed().as_micros(),
+            "search results published to virtual list"
+        );
     }
     fn preview_selected(&self) {
         if self.reconciling.get() {
@@ -490,7 +331,9 @@ impl Panel {
             .as_ref()
             .map(SearchItem::preview_entry)
             .filter(super::super::preview::entry_supports_quick_preview);
-        if !self.preview_enabled.get() || entry.is_none() {
+        if entry.is_none() {
+            self.results_column.set_width_request(-1);
+            self.results_column.set_hexpand(true);
             self.preview_key.take();
             if let Some(drawer) = self.drawer.borrow().as_ref() {
                 drawer.close();
@@ -525,6 +368,8 @@ impl Panel {
             self.preview_slot.append(&widget);
             self.drawer.replace(Some(drawer));
         }
+        self.results_column.set_width_request(375);
+        self.results_column.set_hexpand(false);
         self.preview_slot.set_visible(true);
         if let (Some(drawer), Some(entry)) = (self.drawer.borrow().as_ref(), entry) {
             if let Some(hit) = selected.and_then(|item| item.content_hit) {
@@ -534,6 +379,61 @@ impl Panel {
             }
         }
     }
+}
+
+pub(super) fn display_search_path(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let raw = raw.as_ref();
+    for (prefix, replacement) in [
+        (r"\\?\UNC\", r"\\"),
+        ("//?/UNC/", "//"),
+        (r"\\?\", ""),
+        ("//?/", ""),
+    ] {
+        if let Some(rest) = raw.strip_prefix(prefix) {
+            return format!("{replacement}{rest}");
+        }
+    }
+    raw.to_owned()
+}
+
+fn result_key(path: &Path) -> String {
+    let visible = display_search_path(path);
+    if cfg!(windows) {
+        visible.to_lowercase()
+    } else {
+        visible
+    }
+}
+
+fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
+    let mut positions: HashMap<String, usize> = HashMap::with_capacity(names.len() + hits.len());
+    let mut rows = Vec::with_capacity(names.len() + hits.len());
+    for item in names {
+        let key = result_key(&item.path);
+        if !positions.contains_key(&key) {
+            positions.insert(key, rows.len());
+            rows.push(item.clone());
+        }
+    }
+    for hit in hits {
+        let item = SearchItem::for_hit(Arc::new(hit.clone()));
+        let key = result_key(&item.path);
+        if let Some(&position) = positions.get(&key) {
+            let replace = rows[position].content_hit.as_ref().is_none_or(|previous| {
+                (previous.weak && !hit.weak)
+                    || (previous.weak == hit.weak && hit.score > previous.score)
+            });
+            if replace {
+                rows[position] = item;
+            }
+        } else {
+            positions.insert(key, rows.len());
+            rows.push(item);
+        }
+    }
+    rows.truncate(200);
+    rows
 }
 
 #[cfg(all(test, not(windows)))]

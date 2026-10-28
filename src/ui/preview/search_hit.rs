@@ -64,13 +64,6 @@ impl PreviewState {
             video.view.set_match_range(range);
         }
         let Some(hit) = hit else { return };
-        if let Some((start, end)) = range {
-            self.content.append(&document_notice(&rust_i18n::t!(
-                "Approximate match: %{start}–%{end}",
-                start = audio::clock(start.min(i64::MAX as u64) as i64),
-                end = audio::clock(end.min(i64::MAX as u64) as i64)
-            )));
-        }
         let request = self.current_request.get();
         let epoch = self.interaction_epoch.get();
         let weak = Rc::downgrade(self);
@@ -125,7 +118,6 @@ impl PreviewState {
                             state.show_document_view(DocumentView::Source);
                             return glib::ControlFlow::Continue;
                         }
-                        state.content.append(&document_notice(&crate::i18n::tr("Match location is shown in the search excerpt; this viewer cannot jump to it")));
                         return glib::ControlFlow::Break;
                     }
                     if let Some(virtualized) = state.source_preview.virtual_state.borrow().clone() {
@@ -168,9 +160,7 @@ impl PreviewState {
                         return glib::ControlFlow::Continue;
                     }
                 }
-                ContentLocator::Slide { .. } | ContentLocator::Sheet { .. } => {
-                    state.content.append(&document_notice(&crate::i18n::tr("Match location is shown in the search excerpt; this viewer cannot jump to it")));
-                }
+                ContentLocator::Slide { .. } | ContentLocator::Sheet { .. } => {}
                 _ => {}
             }
             glib::ControlFlow::Break

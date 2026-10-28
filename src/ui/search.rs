@@ -86,7 +86,7 @@ impl SearchDialog {
         panel.add_css_class("search-dialog");
         panel.set_halign(gtk::Align::Center);
         panel.set_valign(gtk::Align::Center);
-        panel.set_size_request(760, 452);
+        panel.set_size_request(920, 500);
         panel.set_vexpand(false);
         panel.set_overflow(gtk::Overflow::Hidden);
 
@@ -720,7 +720,7 @@ fn result_row(state: &Rc<SearchState>, item: &SearchItem) -> gtk::ListBoxRow {
     name.add_css_class("search-result-name");
     name.set_xalign(0.0);
     name.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-    let full_path = item.path.to_string_lossy();
+    let full_path = smart::display_search_path(&item.path);
     crate::ui::accessibility::set_label(&row, &full_path);
     let path = gtk::Label::new(Some(&full_path));
     path.add_css_class("search-result-path");
