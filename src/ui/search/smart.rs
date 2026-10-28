@@ -547,8 +547,8 @@ fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
     let mut rows = Vec::with_capacity(names.len() + hits.len());
     for item in names {
         let key = result_key(&item.path);
-        if !positions.contains_key(&key) {
-            positions.insert(key, rows.len());
+        if let std::collections::hash_map::Entry::Vacant(entry) = positions.entry(key) {
+            entry.insert(rows.len());
             rows.push(item.clone());
         }
     }

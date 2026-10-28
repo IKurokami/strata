@@ -78,17 +78,31 @@ fn multiple_segments_share_one_row_and_keep_selected_file_across_updates() {
                 panel.rows.borrow()[0]
                     .content_hit
                     .as_ref()
-                    .unwrap()
+                    .expect("selected semantic result")
                     .segment_id,
                 2
             );
             panel.move_selection(1);
-            assert_eq!(panel.selected().expect("selection").path, path);
+            assert_eq!(
+                panel.selected().expect("selection").path,
+                std::path::Path::new(path)
+            );
             panel.hits.replace(vec![hit(path, 4, 20, false)]);
             panel.render();
             assert_eq!(panel.store.n_items(), 2);
-            assert_eq!(panel.selected().expect("stable selection").path, path);
-            assert_eq!(panel.selected().unwrap().content_hit.unwrap().segment_id, 4);
+            assert_eq!(
+                panel.selected().expect("stable selection").path,
+                std::path::Path::new(path)
+            );
+            assert_eq!(
+                panel
+                    .selected()
+                    .expect("selected semantic result")
+                    .content_hit
+                    .expect("selected semantic result")
+                    .segment_id,
+                4
+            );
             panel.cancel();
         },
     );
@@ -106,7 +120,14 @@ fn only_distinct_files_are_shown_for_semantic_segments() {
     );
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].path, std::path::PathBuf::from("/files/video.mp4"));
-    assert_eq!(rows[0].content_hit.as_ref().unwrap().segment_id, 2);
+    assert_eq!(
+        rows[0]
+            .content_hit
+            .as_ref()
+            .expect("selected semantic result")
+            .segment_id,
+        2
+    );
     assert_eq!(rows[1].path, std::path::PathBuf::from("/files/audio.mp3"));
 }
 

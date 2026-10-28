@@ -46,3 +46,33 @@ def test_disk_usage_ctrl_shortcut_and_reset_to_columns(strata):
     _navigate(strata, root / "documents")
     _navigate(strata, root)
     strata.wait_for_view("Columns")
+
+
+def test_disk_usage_uses_shared_inline_rename(strata):
+    source = strata.fixture.path("readme.md")
+    contents = source.read_text()
+    strata.switch_view("Disk Usage")
+    item = strata.wait(
+        lambda: next(
+            (node for node in strata.pane().find_all(role="list item")
+             if node.name.startswith("readme.md · ")),
+            None,
+        ),
+        "the source file in the usage snapshot",
+    )
+    strata.pointer.click(item)
+    strata.keyboard.press("F2")
+    strata.wait(
+        lambda: strata.window.find(role="text", name="Rename", states={"editable", "focused"}),
+        "the shared inline rename editor",
+    )
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text("renamed.md")
+    strata.keyboard.press("Return")
+    destination = strata.fixture.path("renamed.md")
+    strata.wait(lambda: destination.exists() and not source.exists(), "the shared rename operation")
+    assert destination.read_text() == contents
+    strata.wait(
+        lambda: any(node.name.startswith("renamed.md · ") for node in strata.pane().find_all(role="list item")),
+        "the usage snapshot to reconcile the rename",
+    )

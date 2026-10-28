@@ -578,11 +578,11 @@ fn run(events: mpsc::Receiver<Message>, changes: mpsc::SyncSender<Message>, data
                 }
             }
             Ok(Message::Changed(paths)) => {
-                if paths.is_empty() {
-                    if let Some(watcher) = watcher.as_mut() {
-                        for path in watched.drain(..) {
-                            let _ = watcher.unwatch(&path);
-                        }
+                if paths.is_empty()
+                    && let Some(watcher) = watcher.as_mut()
+                {
+                    for path in watched.drain(..) {
+                        let _ = watcher.unwatch(&path);
                     }
                 }
                 for (root, snapshot) in &mut cache {
@@ -599,11 +599,11 @@ fn run(events: mpsc::Receiver<Message>, changes: mpsc::SyncSender<Message>, data
                     scans.retain(|scan| {
                         !scan.contains(path) && !path.starts_with(&scan.nodes[0].path)
                     });
-                    if let Some(snapshot) = cache.get(path) {
-                        if let Some(senders) = subscribers.get(path) {
-                            for sender in senders {
-                                let _ = sender.force_send(snapshot.clone());
-                            }
+                    if let Some(snapshot) = cache.get(path)
+                        && let Some(senders) = subscribers.get(path)
+                    {
+                        for sender in senders {
+                            let _ = sender.force_send(snapshot.clone());
                         }
                     }
                 }

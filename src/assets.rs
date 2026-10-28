@@ -32,7 +32,6 @@ pub mod icons {
     pub const COPY: &str = "strata-copy";
     pub const COPY_PLUS: &str = "strata-copy-plus";
     pub const COG: &str = "strata-cog";
-    pub const CORNER_DOWN_LEFT: &str = "strata-corner-down-left";
     pub const DISC: &str = "strata-disc";
     pub const DOCUMENTS: &str = "strata-file-text";
     pub const DOWNLOADS: &str = "strata-download";

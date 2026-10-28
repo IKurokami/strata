@@ -101,6 +101,12 @@ pub(in crate::ui) struct FolderView {
 }
 
 impl FolderView {
+    fn changed_fields(self, previous: Self) -> u8 {
+        u8::from(self.sort != previous.sort)
+            | (u8::from(self.icons_size != previous.icons_size) << 1)
+            | (u8::from(self.mode != previous.mode) << 2)
+    }
+
     fn is_empty(&self) -> bool {
         self.sort.is_none() && self.icons_size.is_none() && self.mode.is_none()
     }
@@ -211,9 +217,7 @@ impl FolderViews {
         if view == previous {
             return false;
         }
-        let fields = u8::from(view.sort != previous.sort)
-            | (u8::from(view.icons_size != previous.icons_size) << 1)
-            | (u8::from(view.mode != previous.mode) << 2);
+        let fields = view.changed_fields(previous);
         *self.fields.entry(key.clone()).or_default() |= fields;
         self.changed.insert(key.clone());
         if view.is_empty() {
@@ -248,6 +252,7 @@ impl FolderViews {
             let previous = entry.view;
             change(&mut entry.view);
             if entry.view != previous {
+                *self.fields.entry(key.clone()).or_default() |= entry.view.changed_fields(previous);
                 changed.push(key.clone());
             }
             !entry.view.is_empty()
@@ -288,6 +293,7 @@ impl FolderViews {
             for stale in self.keys_within(to) {
                 if !from.contains(&stale) {
                     self.entries.remove(&stale);
+                    self.fields.remove(&stale);
                     self.changed.insert(stale);
                 }
             }
@@ -303,6 +309,9 @@ impl FolderViews {
             self.fields.remove(&old);
             self.changed.insert(old);
             moved.extend(new.map(|new| (new, entry)));
+        }
+        for (key, _) in &moved {
+            self.fields.remove(key);
         }
         self.changed
             .extend(moved.iter().map(|(key, _)| key.clone()));
@@ -332,6 +341,7 @@ impl FolderViews {
         taken.0.sort_unstable_by_key(|(_, entry)| entry.used);
         for (key, mut entry) in taken.0 {
             entry.used = self.tick();
+            self.fields.remove(&key);
             self.changed.insert(key.clone());
             self.entries.insert(key, entry);
         }
@@ -453,6 +463,7 @@ impl FolderViews {
         by_use.sort_unstable();
         for (_, key) in by_use.into_iter().take(ephemeral - limit) {
             self.entries.remove(&key);
+            *self.fields.entry(key.clone()).or_default() |= 3;
             self.changed.insert(key);
         }
     }

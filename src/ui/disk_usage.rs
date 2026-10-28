@@ -14,6 +14,7 @@ use std::{
 
 mod accessibility;
 mod layout;
+type ContextTrigger = Rc<dyn Fn(f64, f64)>;
 #[cfg(test)]
 mod tests;
 
@@ -36,7 +37,7 @@ pub(super) struct DiskUsageView {
     transition: Cell<Option<std::time::Instant>>,
     tick: RefCell<Option<gtk::TickCallbackId>>,
     context: RefCell<Option<Weak<super::browser::ViewState>>>,
-    context_trigger: RefCell<Option<Rc<dyn Fn(f64, f64)>>>,
+    context_trigger: RefCell<Option<ContextTrigger>>,
 }
 
 impl DiskUsageView {
@@ -50,7 +51,8 @@ impl DiskUsageView {
         status.set_xalign(0.0);
         status.add_css_class("dim-label");
         status.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        let widget = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let widget = super::accessibility::pane_box();
+        widget.set_spacing(6);
         let stage = gtk::Overlay::new();
         stage.set_child(Some(&canvas));
         widget.append(&stage);

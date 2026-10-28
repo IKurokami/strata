@@ -10,11 +10,11 @@ fn measure(path: &Path, known: &HashMap<PathBuf, Snapshot>) -> Vec<Snapshot> {
 
 #[test]
 fn aggregates_nested_files_and_reuses_completed_subtrees() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary scan directory");
     let child = directory.path().join("child");
-    fs::create_dir(&child).unwrap();
-    fs::write(child.join("first"), [1; 20]).unwrap();
-    fs::write(directory.path().join("second"), [2; 7]).unwrap();
+    fs::create_dir(&child).expect("nested scan directory");
+    fs::write(child.join("first"), [1; 20]).expect("scan fixture or snapshot");
+    fs::write(directory.path().join("second"), [2; 7]).expect("scan fixture or snapshot");
     let known: HashMap<_, _> = measure(&child, &HashMap::new())
         .into_iter()
         .map(|snapshot| (snapshot.root.clone(), snapshot))
@@ -23,7 +23,7 @@ fn aggregates_nested_files_and_reuses_completed_subtrees() {
     let root = snapshots
         .iter()
         .find(|snapshot| snapshot.root == directory.path())
-        .unwrap();
+        .expect("scan fixture or snapshot");
     assert_eq!(
         (root.total, root.files, root.coverage),
         (27, 2, Coverage::Exact)
@@ -32,15 +32,18 @@ fn aggregates_nested_files_and_reuses_completed_subtrees() {
         !snapshots.iter().any(|snapshot| snapshot.root == child),
         "cached subtree is not scanned or replaced with an empty snapshot"
     );
-    fs::write(child.join("first"), [1; 25]).unwrap();
+    fs::write(child.join("first"), [1; 25]).expect("scan fixture or snapshot");
     let mut stale = known;
-    stale.get_mut(&child).unwrap().coverage = Coverage::Stale;
+    stale
+        .get_mut(&child)
+        .expect("cached child snapshot")
+        .coverage = Coverage::Stale;
     let updated = measure(directory.path(), &stale);
     assert_eq!(
         updated
             .iter()
             .find(|snapshot| snapshot.root == directory.path())
-            .unwrap()
+            .expect("scan fixture or snapshot")
             .total,
         32
     );
@@ -48,9 +51,9 @@ fn aggregates_nested_files_and_reuses_completed_subtrees() {
 
 #[test]
 fn partial_publication_and_unavailable_roots_do_not_report_exact_zero() {
-    let directory = tempfile::tempdir().unwrap();
-    fs::create_dir(directory.path().join("pending")).unwrap();
-    fs::write(directory.path().join("pending/file"), [0; 13]).unwrap();
+    let directory = tempfile::tempdir().expect("temporary scan directory");
+    fs::create_dir(directory.path().join("pending")).expect("scan fixture or snapshot");
+    fs::write(directory.path().join("pending/file"), [0; 13]).expect("scan fixture or snapshot");
     let mut scan = Scan::new(directory.path().to_path_buf(), 9);
     assert!(!scan.step(&HashMap::new()));
     assert_eq!(scan.snapshots(false)[0].coverage, Coverage::Partial);
@@ -63,12 +66,14 @@ fn partial_publication_and_unavailable_roots_do_not_report_exact_zero() {
 #[cfg(unix)]
 #[test]
 fn symbolic_links_never_follow_cycles_or_escape_the_scope() {
-    let directory = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    fs::write(outside.path().join("private"), [0; 33]).unwrap();
-    fs::write(directory.path().join("local"), [0; 7]).unwrap();
-    std::os::unix::fs::symlink(directory.path(), directory.path().join("cycle")).unwrap();
-    std::os::unix::fs::symlink(outside.path(), directory.path().join("outside")).unwrap();
+    let directory = tempfile::tempdir().expect("temporary scan directory");
+    let outside = tempfile::tempdir().expect("temporary scan directory");
+    fs::write(outside.path().join("private"), [0; 33]).expect("scan fixture or snapshot");
+    fs::write(directory.path().join("local"), [0; 7]).expect("scan fixture or snapshot");
+    std::os::unix::fs::symlink(directory.path(), directory.path().join("cycle"))
+        .expect("scan fixture or snapshot");
+    std::os::unix::fs::symlink(outside.path(), directory.path().join("outside"))
+        .expect("scan fixture or snapshot");
     let snapshots = measure(directory.path(), &HashMap::new());
     assert_eq!(snapshots[0].total, 7);
     assert_eq!(snapshots[0].coverage, Coverage::Partial);
@@ -77,9 +82,10 @@ fn symbolic_links_never_follow_cycles_or_escape_the_scope() {
 
 #[test]
 fn bounded_child_groups_preserve_all_known_bytes() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary scan directory");
     for index in 0..605 {
-        fs::write(directory.path().join(index.to_string()), [0; 2]).unwrap();
+        fs::write(directory.path().join(index.to_string()), [0; 2])
+            .expect("scan fixture or snapshot");
     }
     let mut scan = Scan::new(directory.path().to_path_buf(), 1);
     assert!(
@@ -108,33 +114,33 @@ fn bounded_child_groups_preserve_all_known_bytes() {
 
 #[test]
 fn persistent_snapshots_roundtrip_and_corruption_keeps_scanning_available() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary scan directory");
     let source = directory.path().join("source");
-    fs::create_dir(&source).unwrap();
-    fs::write(source.join("file"), [0; 9]).unwrap();
+    fs::create_dir(&source).expect("source directory");
+    fs::write(source.join("file"), [0; 9]).expect("scan fixture or snapshot");
     let snapshot = measure(&source, &HashMap::new()).remove(0);
     let database = directory.path().join("usage.sqlite");
-    let db = connect(&database).unwrap();
+    let db = connect(&database).expect("snapshot database");
     db.execute(
         "INSERT INTO snapshots VALUES(?,?,0)",
         params![
             source.to_string_lossy(),
-            serde_json::to_vec(&snapshot).unwrap()
+            serde_json::to_vec(&snapshot).expect("serialized snapshot")
         ],
     )
-    .unwrap();
+    .expect("scan fixture or snapshot");
     drop(db);
-    let db = connect(&database).unwrap();
+    let db = connect(&database).expect("snapshot database");
     let bytes: Vec<u8> = db
         .query_row("SELECT data FROM snapshots", [], |row| row.get(0))
-        .unwrap();
-    let restored: Snapshot = serde_json::from_slice(&bytes).unwrap();
+        .expect("scan fixture or snapshot");
+    let restored: Snapshot = serde_json::from_slice(&bytes).expect("persisted snapshot");
     assert_eq!(
         (restored.total, restored.files, restored.coverage),
         (9, 1, Coverage::Exact)
     );
     let broken = directory.path().join("broken.sqlite");
-    fs::write(&broken, b"not a database").unwrap();
+    fs::write(&broken, b"not a database").expect("scan fixture or snapshot");
     assert!(connect(&broken).is_err());
     assert_eq!(measure(&source, &HashMap::new())[0].total, 9);
 }

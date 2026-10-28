@@ -1037,13 +1037,17 @@ fn old_drag_completion_and_provider_finalization_preserve_a_new_live_drag() {
         || {
             let entry =
                 crate::test_support::operations::entry(Location::local("/fixture/file.txt"));
-            let old = file_drag_content(std::slice::from_ref(&entry)).unwrap();
-            let current = file_drag_content(&[entry]).unwrap();
+            let old = file_drag_content(std::slice::from_ref(&entry)).expect("live drag provider");
+            let current = file_drag_content(&[entry]).expect("live drag provider");
             finish_file_drag(&old);
-            assert!(
-                ACTIVE_DRAG.with(|cell| cell.borrow().as_ref().unwrap().content.upgrade()
-                    == Some(current.clone()))
-            );
+            assert!(ACTIVE_DRAG.with(|cell| {
+                cell.borrow()
+                    .as_ref()
+                    .expect("live drag provider")
+                    .content
+                    .upgrade()
+                    == Some(current.clone())
+            }));
             drop(old);
             while glib::MainContext::default().pending() {
                 glib::MainContext::default().iteration(false);
@@ -1055,7 +1059,7 @@ fn old_drag_completion_and_provider_finalization_preserve_a_new_live_drag() {
             let orphan = file_drag_content(&[crate::test_support::operations::entry(
                 Location::local("/fixture/orphan.txt"),
             )])
-            .unwrap();
+            .expect("live drag provider");
             drop(orphan);
             while glib::MainContext::default().pending() {
                 glib::MainContext::default().iteration(false);

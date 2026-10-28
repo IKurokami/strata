@@ -140,7 +140,7 @@ impl Canvas {
         self.imp().nodes.replace(nodes);
     }
 
-    pub fn set_bounds(&self, rectangles: &[super::layout::Rect]) {
+    pub(super) fn set_bounds(&self, rectangles: &[super::layout::Rect]) {
         for (node, rect) in self.imp().nodes.borrow().iter().zip(rectangles) {
             node.imp().bounds.set(Some((
                 rect.x as i32,

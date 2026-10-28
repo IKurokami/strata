@@ -538,7 +538,8 @@ fn modes_survive_roundtrip_and_ephemeral_lru_without_inheriting_to_children() {
         });
     }
     assert_eq!(views.view(&parent).mode, Some(BrowserMode::DiskUsage));
-    let (loaded, repaired) = FolderViews::parse(&views.to_toml().unwrap()).unwrap();
+    let (loaded, repaired) = FolderViews::parse(&views.to_toml().expect("valid folder settings"))
+        .expect("valid folder settings");
     assert!(!repaired);
     assert_eq!(loaded.view(&parent).mode, Some(BrowserMode::DiskUsage));
     assert_eq!(loaded.view(&local("/large-parent/child")).mode, None);
@@ -547,7 +548,7 @@ fn modes_survive_roundtrip_and_ephemeral_lru_without_inheriting_to_children() {
 #[test]
 fn unknown_mode_keeps_sort_and_mode_changes_merge_with_other_process_sort() {
     use crate::ui::browser_modes::BrowserMode;
-    let (mut ours, repaired) = FolderViews::parse("[[folder]]\npath = \"/shared\"\nmode = \"future-mode\"\nsort = \"name\"\ndirection = \"ascending\"\n").unwrap();
+    let (mut ours, repaired) = FolderViews::parse("[[folder]]\npath = \"/shared\"\nmode = \"future-mode\"\nsort = \"name\"\ndirection = \"ascending\"\n").expect("valid folder settings");
     assert!(repaired);
     let key = local("/shared");
     assert!(ours.view(&key).sort.is_some());
@@ -563,4 +564,60 @@ fn unknown_mode_keeps_sort_and_mode_changes_merge_with_other_process_sort() {
         merged.view(&key).sort,
         Some((SortKey::Size, SortDirection::Descending))
     );
+}
+
+#[test]
+fn pruning_defaults_preserves_concurrent_modes_and_tracks_all_changed_fields() {
+    use crate::ui::browser_modes::BrowserMode;
+    let key = local("/shared");
+    let sort = (SortKey::Size, SortDirection::Descending);
+    let mut ours = FolderViews::default();
+    ours.update(&key, |view| view.sort = Some(sort));
+    ours.mark_saved();
+    ours.update(&key, |view| view.icons_size = Some(96));
+    ours.prune_default_sort(sort);
+    let mut theirs = FolderViews::default();
+    theirs.update(&key, |view| {
+        view.sort = Some(sort);
+        view.mode = Some(BrowserMode::DiskUsage);
+    });
+    let merged = ours.merged_over(theirs);
+    assert_eq!(merged.view(&key).sort, None);
+    assert_eq!(merged.view(&key).icons_size, Some(96));
+    assert_eq!(merged.view(&key).mode, Some(BrowserMode::DiskUsage));
+}
+
+#[test]
+fn relocation_replaces_previously_edited_destination_fields_as_one_entry() {
+    use crate::ui::browser_modes::BrowserMode;
+    let from = local("/from");
+    let to = local("/to");
+    let mut ours = FolderViews::default();
+    ours.update(&from, |view| view.mode = Some(BrowserMode::DiskUsage));
+    ours.update(&to, |view| view.icons_size = Some(96));
+    assert!(ours.relocate(&from, Some(&to), false));
+    let mut theirs = FolderViews::default();
+    theirs.update(&to, |view| view.mode = Some(BrowserMode::Icons));
+    let merged = ours.merged_over(theirs);
+    assert_eq!(merged.view(&to).mode, Some(BrowserMode::DiskUsage));
+    assert_eq!(merged.view(&to).icons_size, None);
+    assert_eq!(merged.view(&from), FolderView::default());
+}
+
+#[test]
+fn ephemeral_eviction_preserves_a_mode_saved_by_another_process() {
+    use crate::ui::browser_modes::BrowserMode;
+    let key = local("/shared");
+    let mut ours = FolderViews::default();
+    ours.update(&key, |view| view.icons_size = Some(96));
+    ours.mark_saved();
+    ours.evict_to(0);
+    let mut theirs = FolderViews::default();
+    theirs.update(&key, |view| {
+        view.icons_size = Some(96);
+        view.mode = Some(BrowserMode::DiskUsage);
+    });
+    let merged = ours.merged_over(theirs);
+    assert_eq!(merged.view(&key).mode, Some(BrowserMode::DiskUsage));
+    assert_eq!(merged.view(&key).icons_size, None);
 }

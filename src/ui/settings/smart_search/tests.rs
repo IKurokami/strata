@@ -9,7 +9,6 @@ fn status(models_ready: bool, downloading: bool, failed: bool) -> smart_search::
         downloaded: 0,
         total: 100,
         indexed: 0,
-        skipped: 0,
         running: false,
         failed,
         folder_counts: std::collections::HashMap::new(),

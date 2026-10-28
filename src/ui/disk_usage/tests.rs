@@ -15,7 +15,12 @@ fn canvas_exposes_real_accessible_items_and_replaces_the_old_accessibility_tree(
             assert!(second.next_accessible_sibling().is_none());
             canvas.set_selected(Some(1));
             canvas.set_items(&["Replacement · 3 B".into()]);
-            assert_ne!(canvas.first_accessible_child().unwrap(), first);
+            assert_ne!(
+                canvas
+                    .first_accessible_child()
+                    .expect("replacement accessible item"),
+                first
+            );
             assert!(
                 first.accessible_parent().is_none(),
                 "retired accessible cannot retain a stale parent"
