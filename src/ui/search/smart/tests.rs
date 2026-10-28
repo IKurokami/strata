@@ -14,6 +14,14 @@ fn smart_search_keeps_filename_results_when_content_changes_and_preview_starts_o
             assert_eq!(panel.store.n_items(), 1);
             assert!(panel.drawer.borrow().is_none());
             assert!(panel.selected().is_none());
+            assert_eq!(
+                panel
+                    .activation_target()
+                    .expect("default action target")
+                    .path,
+                filename.path
+            );
+            assert!(panel.drawer.borrow().is_none());
             panel.move_selection(1);
             assert_eq!(panel.selected().expect("selection").path, filename.path);
             panel.refresh_content();

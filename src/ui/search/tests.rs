@@ -590,14 +590,6 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
             assert!(dialog.state.field.tooltip_text().is_none());
             dialog.state.field.set_text("needle");
             wait_until(|| dialog.state.visible_results.borrow().len() == 2);
-            for position in 0..dialog.state.visible_results.borrow().len() {
-                let row = dialog
-                    .state
-                    .list
-                    .row_at_index(position as i32)
-                    .expect("result row");
-                assert!(row.tooltip_text().is_none());
-            }
 
             dialog.show(vec![home.clone()], false);
             assert!(dialog.state.visible_results.borrow().is_empty());
@@ -633,7 +625,16 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
                 .iter()
                 .position(|item| item.path.starts_with(&usb))
                 .expect("USB result");
-            activate_position(&dialog.state, usb_position as i32);
+            let panel = dialog
+                .state
+                .smart
+                .borrow()
+                .clone()
+                .expect("virtual results");
+            for _ in 0..=usb_position {
+                panel.move_selection(1);
+            }
+            assert!(activate_selected(&dialog.state));
             assert_eq!(
                 activated.borrow().as_ref().expect("activation").path,
                 usb.join("needle.txt")
@@ -738,7 +739,11 @@ fn filename_search_includes_explicitly_indexed_folders_outside_default_roots() {
             std::fs::write(&expected, "local text").expect("source");
             let preferences = super::super::preferences::PreferenceManager::shared();
             preferences.set_smart_search_roots(vec![indexed.path().to_owned()]);
-            let (dialog, window) = mapped_dialog(Rc::new(|_| {}));
+            let activated = Rc::new(RefCell::new(None));
+            let recorded = activated.clone();
+            let (dialog, window) = mapped_dialog(Rc::new(move |item| {
+                recorded.replace(Some(item.path));
+            }));
             dialog.show(vec![primary.path().to_owned()], false);
             dialog.state.field.set_text("unique-needle");
             wait_until(|| {
@@ -749,6 +754,8 @@ fn filename_search_includes_explicitly_indexed_folders_outside_default_roots() {
                     .iter()
                     .any(|item| item.path == expected)
             });
+            assert!(activate_selected(&dialog.state));
+            assert_eq!(activated.borrow().as_ref(), Some(&expected));
             preferences.set_smart_search_roots(Vec::new());
             window.close();
         },

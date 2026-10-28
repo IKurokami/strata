@@ -368,6 +368,10 @@ impl Panel {
             .get(self.selection.selected() as usize)
             .cloned()
     }
+    pub fn activation_target(&self) -> Option<SearchItem> {
+        self.selected()
+            .or_else(|| self.rows.borrow().first().cloned())
+    }
     pub fn move_selection(&self, direction: i32) {
         let count = self.rows.borrow().len() as i32;
         if count == 0 {
@@ -414,9 +418,6 @@ impl Panel {
                 && scope
                     .as_ref()
                     .is_none_or(|root| smart_search::policy::within(&row.path, root))
-                && (self.mode.get() != 0
-                    || row.content_hit.is_some()
-                    || !self.hits.borrow().iter().any(|hit| hit.path == row.path))
         });
         rows.truncate(200);
         self.status.set_text(&crate::i18n::tr(if rows.is_empty() {

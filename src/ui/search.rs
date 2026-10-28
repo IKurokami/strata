@@ -260,7 +260,7 @@ impl SearchDialog {
                 if state.history.borrow().is_none()
                     && let Some(panel) = state.smart.borrow().as_ref()
                 {
-                    if let Some(item) = panel.selected() {
+                    if let Some(item) = panel.activation_target() {
                         reveal_result(&state, item);
                     }
                     return glib::Propagation::Stop;
@@ -917,7 +917,7 @@ fn activate_selected(state: &Rc<SearchState>) -> bool {
     if state.history.borrow().is_none()
         && let Some(panel) = state.smart.borrow().as_ref()
     {
-        if let Some(item) = panel.selected() {
+        if let Some(item) = panel.activation_target() {
             skip_focus_restore(state);
             hide(state);
             (state.activate)(item);
