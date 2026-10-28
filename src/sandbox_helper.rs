@@ -1479,7 +1479,7 @@ fn search_media(path: &Path, kind: &str, start_ms: i32) -> Result<Vec<u8>, Strin
                 "-v",
                 "error",
                 "-show_entries",
-                "format=duration",
+                "format=duration:format_tags=title,artist,album,comment,description,synopsis,lyrics,purl",
                 "-of",
                 "json",
             ])
@@ -1500,7 +1500,7 @@ fn search_media(path: &Path, kind: &str, start_ms: i32) -> Result<Vec<u8>, Strin
                 "-filter_threads",
                 "1",
                 "-vf",
-                "scale=640:640:force_original_aspect_ratio=decrease",
+                "scale=1080:1080:force_original_aspect_ratio=decrease",
                 "-f",
                 "image2pipe",
                 "-c:v",

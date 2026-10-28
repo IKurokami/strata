@@ -56,12 +56,6 @@ const TARGETS: &[Target] = &[
         aliases: "search raw preview models folders content index local",
     },
     Target {
-        id: "delete-content-index",
-        page: "smart-search",
-        title: "Delete content index",
-        aliases: "search raw preview models folders content index local",
-    },
-    Target {
         id: "rebuild-content-index",
         page: "smart-search",
         title: "Rebuild content index",

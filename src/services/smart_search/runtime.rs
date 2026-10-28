@@ -23,15 +23,25 @@ pub(super) struct Embedder {
 pub(super) fn executable() -> Option<PathBuf> {
     let name = if cfg!(windows) { "digup.exe" } else { "digup" };
     let parent = std::env::current_exe().ok()?.parent()?.to_owned();
-    [
+    let mut candidates = vec![
         parent.join("smart-search").join(name),
         parent.join("../embedding-runtime").join(name),
         parent.join("../../embedding-runtime").join(name),
         parent.join("../lib/strata/smart-search").join(name),
         parent.join("../libexec/strata/smart-search").join(name),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
+    ];
+    #[cfg(windows)]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(local_app_data)
+                .join("Programs")
+                .join("Strata")
+                .join("bin")
+                .join("smart-search")
+                .join(name),
+        );
+    }
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 impl Embedder {
@@ -51,10 +61,14 @@ impl Embedder {
         command
             .env("DIGUP_MODELS", super::model::folder(data))
             .env("DIGUP_DEVICE", "cpu");
+        let threads = std::thread::available_parallelism()
+            .map(|count| (count.get() / 2).clamp(2, 6))
+            .unwrap_or(4)
+            .to_string();
         command
-            .env("DIGUP_THREADS", "2")
-            .env("GGML_N_THREADS", "2")
-            .env("OMP_NUM_THREADS", "2");
+            .env("DIGUP_THREADS", &threads)
+            .env("GGML_N_THREADS", &threads)
+            .env("OMP_NUM_THREADS", &threads);
         command
             .current_dir(artifacts)
             .stdin(Stdio::piped())

@@ -7,13 +7,73 @@ use crate::services::{
         result::{SearchHit, SearchPhase},
     },
 };
-use gtk::{gio, glib, prelude::*};
+use gtk::{gio, glib, prelude::*, subclass::prelude::*};
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
+    path::Path,
     rc::Rc,
     sync::Arc,
     time::Duration,
 };
+
+mod imp {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct SearchSlotLayout;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for SearchSlotLayout {
+        const NAME: &'static str = "StrataSearchSlotLayout";
+        type Type = super::SearchSlotLayout;
+        type ParentType = gtk::LayoutManager;
+    }
+
+    impl ObjectImpl for SearchSlotLayout {}
+
+    impl LayoutManagerImpl for SearchSlotLayout {
+        fn measure(
+            &self,
+            widget: &gtk::Widget,
+            orientation: gtk::Orientation,
+            _for_size: i32,
+        ) -> (i32, i32, i32, i32) {
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if current.should_layout() {
+                    let _ = current.measure(orientation, -1);
+                }
+                child = current.next_sibling();
+            }
+            (0, 0, -1, -1)
+        }
+
+        fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, _baseline: i32) {
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if current.should_layout() {
+                    current.size_allocate(
+                        &gtk::Allocation::new(0, 0, width.max(0), height.max(0)),
+                        -1,
+                    );
+                }
+                child = current.next_sibling();
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct SearchSlotLayout(ObjectSubclass<imp::SearchSlotLayout>)
+        @extends gtk::LayoutManager;
+}
+
+impl Default for SearchSlotLayout {
+    fn default() -> Self {
+        glib::Object::new()
+    }
+}
 
 type PreviewKey = (
     std::path::PathBuf,
@@ -35,13 +95,9 @@ pub(super) struct Panel {
     generation: Cell<u64>,
     submitted: Cell<std::time::Instant>,
     phase: Cell<Option<SearchPhase>>,
-    mode: Cell<usize>,
     query: RefCell<String>,
-    scope: RefCell<Option<std::path::PathBuf>>,
-    kind: Cell<usize>,
     drawer: RefCell<Option<super::super::preview::PreviewDrawer>>,
     preview_slot: gtk::Box,
-    preview_enabled: Cell<bool>,
     reconciling: Cell<bool>,
     preview_key: RefCell<Option<PreviewKey>>,
     status: gtk::Label,
@@ -49,9 +105,8 @@ pub(super) struct Panel {
 
 impl Panel {
     pub fn new(activate: Rc<dyn Fn(SearchItem)>) -> Rc<Self> {
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        root.append(&controls);
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("search-smart-panel");
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let selection = gtk::SingleSelection::new(Some(store.clone()));
         selection.set_autoselect(false);
@@ -61,14 +116,33 @@ impl Panel {
             let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
-            let row = gtk::Box::new(gtk::Orientation::Vertical, 3);
-            row.add_css_class("search-result");
-            for _ in 0..3 {
-                let label = gtk::Label::new(None);
-                label.set_xalign(0.0);
-                label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                row.append(&label);
-            }
+
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+            row.add_css_class("search-smart-result");
+            let thumbnail = super::super::thumbnail::ThumbnailSlot::new(36);
+            thumbnail.add_css_class("search-smart-thumbnail");
+            thumbnail.set_valign(gtk::Align::Center);
+            row.append(&thumbnail);
+            let labels = gtk::Box::new(gtk::Orientation::Vertical, 3);
+            labels.set_hexpand(true);
+            let heading = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            let title = gtk::Label::new(None);
+            title.set_xalign(0.0);
+            title.set_hexpand(true);
+            title.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+            title.add_css_class("search-result-name");
+            heading.append(&title);
+            let place = gtk::Label::new(None);
+            place.add_css_class("search-smart-place");
+            place.set_valign(gtk::Align::Center);
+            heading.append(&place);
+            labels.append(&heading);
+            let detail = gtk::Label::new(None);
+            detail.set_xalign(0.0);
+            detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            detail.add_css_class("search-smart-secondary");
+            labels.append(&detail);
+            row.append(&labels);
             item.set_child(Some(&row));
         });
         factory.connect_bind(|_, object| {
@@ -82,56 +156,112 @@ impl Panel {
             let Some(row) = item.child().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(title) = row.first_child().and_downcast::<gtk::Label>() else {
+            let Some(thumbnail) = row
+                .first_child()
+                .and_downcast::<super::super::thumbnail::ThumbnailSlot>()
+            else {
                 return;
             };
-            let Some(detail) = title.next_sibling().and_downcast::<gtk::Label>() else {
+            let Some(labels) = thumbnail.next_sibling().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(excerpt) = detail.next_sibling().and_downcast::<gtk::Label>() else {
+            let Some(heading) = labels.first_child().and_downcast::<gtk::Box>() else {
                 return;
             };
-            title.set_text(&value.name);
-            detail.set_text(&value.path.to_string_lossy());
-            detail.add_css_class("search-result-path");
-            if let Some(hit) = &value.content_hit {
-                excerpt.set_text(&format!(
-                    "{} · {}",
-                    crate::i18n::tr(if hit.weak {
-                        "Related match"
-                    } else {
-                        "Content match"
-                    }),
-                    if hit.excerpt.is_empty() {
-                        hit.locator.anchor().unwrap_or("")
-                    } else {
-                        &hit.excerpt
-                    }
-                ));
+            let Some(title) = heading.first_child().and_downcast::<gtk::Label>() else {
+                return;
+            };
+            let Some(place) = title.next_sibling().and_downcast::<gtk::Label>() else {
+                return;
+            };
+            let Some(detail) = heading.next_sibling().and_downcast::<gtk::Label>() else {
+                return;
+            };
+            let fallback = if value.is_directory {
+                crate::assets::icons::FOLDER
             } else {
-                excerpt.set_text(&crate::i18n::tr("Filename match"));
+                crate::ui::browser::icon_for_name(&value.name)
+            };
+            if value.is_directory {
+                super::super::thumbnail::show_customized_icon(
+                    &thumbnail,
+                    &value.path,
+                    fallback,
+                    22,
+                );
+            } else {
+                super::super::thumbnail::set_thumbnail_or_icon_for_path(
+                    &thumbnail,
+                    &value.path,
+                    fallback,
+                    22,
+                    36,
+                );
             }
+            title.set_text(&value.name);
+            detail.set_text(&result_secondary(&value));
+            let position = value
+                .content_hit
+                .as_ref()
+                .and_then(|hit| hit.locator.time_range())
+                .map(|(start, _)| format_match_time(start));
+            place.set_visible(position.is_some());
+            if let Some(position) = position {
+                place.set_text(&position);
+            }
+            let visible_path = display_search_path(&value.path);
+            crate::ui::accessibility::set_label(&row, &visible_path);
+        });
+        factory.connect_unbind(|_, object| {
+            super::super::thumbnail::cancel_list_item_thumbnails(object);
         });
         let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
+        list.add_css_class("search-smart-list");
         list.set_single_click_activate(false);
-        let body = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        body.set_vexpand(true);
         let scroll = gtk::ScrolledWindow::builder()
             .child(&list)
             .hexpand(true)
             .vexpand(true)
+            .propagate_natural_width(false)
+            .propagate_natural_height(false)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
-        body.append(&scroll);
+        let results_column = gtk::Overlay::new();
+        results_column.set_width_request(352);
+        results_column.set_hexpand(false);
+        results_column.set_vexpand(true);
+        results_column.set_child(Some(&scroll));
+        let status = gtk::Label::new(Some(&crate::i18n::tr("No results")));
+        status.add_css_class("search-smart-empty");
+        status.set_halign(gtk::Align::Center);
+        status.set_valign(gtk::Align::Center);
+        status.set_visible(false);
+        results_column.add_overlay(&status);
         let preview_slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        preview_slot.set_width_request(340);
+        preview_slot.add_css_class("search-smart-preview");
+        preview_slot.set_hexpand(true);
+        preview_slot.set_vexpand(true);
+        preview_slot.set_overflow(gtk::Overflow::Hidden);
         preview_slot.set_visible(false);
-        body.append(&preview_slot);
+        let preview_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        preview_area.add_css_class("search-smart-preview-area");
+        preview_area.set_hexpand(true);
+        preview_area.set_vexpand(true);
+        preview_area.set_overflow(gtk::Overflow::Hidden);
+        preview_area.set_layout_manager(Some(SearchSlotLayout::default()));
+        preview_area.append(&preview_slot);
+        let body = gtk::Paned::new(gtk::Orientation::Horizontal);
+        body.add_css_class("search-smart-split");
+        body.set_vexpand(true);
+        body.set_hexpand(true);
+        body.set_resize_start_child(false);
+        body.set_resize_end_child(true);
+        body.set_shrink_start_child(false);
+        body.set_shrink_end_child(true);
+        body.set_start_child(Some(&results_column));
+        body.set_end_child(Some(&preview_area));
+        body.set_position(352);
         root.append(&body);
-        let status = gtk::Label::new(None);
-        status.set_xalign(0.0);
-        status.add_css_class("search-status");
-        root.append(&status);
         let state = Rc::new(Self {
             root,
             store,
@@ -144,133 +274,13 @@ impl Panel {
             generation: Cell::new(0),
             submitted: Cell::new(std::time::Instant::now()),
             phase: Cell::new(None),
-            mode: Cell::new(0),
             query: RefCell::new(String::new()),
-            scope: RefCell::new(None),
-            kind: Cell::new(0),
             drawer: RefCell::new(None),
             preview_slot,
-            preview_enabled: Cell::new(true),
             reconciling: Cell::new(false),
             preview_key: RefCell::new(None),
             status,
         });
-        let (modes, buttons) =
-            super::super::controls::segmented_control(&["All", "Name", "Content", "Smart"], 0);
-        controls.append(&modes);
-        let all = buttons[0].clone();
-        super::super::preferences::PreferenceManager::shared().bind_preference(
-            &buttons[3],
-            super::super::preferences::PreferenceManager::smart_search_enabled,
-            move |widget, enabled| {
-                widget.set_sensitive(enabled);
-                if !enabled {
-                    all.set_active(true);
-                }
-            },
-        );
-        for (index, button) in buttons.into_iter().enumerate() {
-            let weak = Rc::downgrade(&state);
-            button.connect_toggled(move |button| {
-                if button.is_active()
-                    && let Some(state) = weak.upgrade()
-                {
-                    state.mode.set(index);
-                    state.refresh_content();
-                }
-            });
-        }
-        let kinds = gtk::MenuButton::builder()
-            .label(crate::i18n::tr("File type"))
-            .build();
-        let menu = gtk::Popover::new();
-        menu.set_has_arrow(false);
-        menu.add_css_class("column-popover");
-        let choices = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        for (index, label) in [
-            "All",
-            "Documents",
-            "Images",
-            "Audio",
-            "Video",
-            "Source code",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let (button, _) = super::super::controls::menu_option(&crate::i18n::tr(label), false);
-            let weak = Rc::downgrade(&state);
-            let popup = menu.downgrade();
-            button.connect_clicked(move |_| {
-                if let Some(state) = weak.upgrade() {
-                    state.kind.set(index);
-                    state.refresh_content();
-                }
-                if let Some(menu) = popup.upgrade() {
-                    menu.popdown();
-                }
-            });
-            choices.append(&button);
-        }
-        menu.set_child(Some(&choices));
-        kinds.set_popover(Some(&menu));
-        controls.append(&kinds);
-        kinds.add_css_class("column-menu-option");
-        let preview = gtk::ToggleButton::with_label(&crate::i18n::tr("Preview"));
-        preview.add_css_class("segmented-control-option");
-        preview.set_active(true);
-        let weak = Rc::downgrade(&state);
-        preview.connect_toggled(move |button| {
-            if let Some(state) = weak.upgrade() {
-                state.preview_enabled.set(button.is_active());
-                state.preview_selected();
-            }
-        });
-        controls.append(&preview);
-        let scope = gtk::MenuButton::builder()
-            .label(crate::i18n::tr("Indexed folders"))
-            .build();
-        let popup = gtk::Popover::new();
-        popup.set_has_arrow(false);
-        popup.add_css_class("column-popover");
-        let folders = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        popup.set_child(Some(&folders));
-        scope.set_popover(Some(&popup));
-        scope.add_css_class("column-menu-option");
-        controls.append(&scope);
-        let weak = Rc::downgrade(&state);
-        let bound_popup = popup.downgrade();
-        super::super::preferences::PreferenceManager::shared().bind_preference(
-            &folders,
-            super::super::preferences::PreferenceManager::smart_search_roots,
-            move |widget, roots| {
-                let Some(folders) = widget.downcast_ref::<gtk::Box>() else {
-                    return;
-                };
-                while let Some(child) = folders.first_child() {
-                    folders.remove(&child);
-                }
-                for root in std::iter::once(None).chain(roots.into_iter().map(Some)) {
-                    let label = root.as_ref().map_or_else(
-                        || crate::i18n::tr("All"),
-                        |path| path.to_string_lossy().into_owned(),
-                    );
-                    let (button, _) = super::super::controls::menu_option(&label, false);
-                    let weak = weak.clone();
-                    let popup = bound_popup.clone();
-                    button.connect_clicked(move |_| {
-                        if let Some(state) = weak.upgrade() {
-                            state.scope.replace(root.clone());
-                            state.refresh_content();
-                        }
-                        if let Some(popup) = popup.upgrade() {
-                            popup.popdown();
-                        }
-                    });
-                    folders.append(&button);
-                }
-            },
-        );
         let weak = Rc::downgrade(&state);
         super::super::preferences::PreferenceManager::shared().bind_preference(
             &state.root,
@@ -282,12 +292,8 @@ impl Panel {
                 paused: manager.smart_search_paused(),
             },
             move |_, config| {
-                let enabled = config.enabled;
                 smart_search::configure(config);
                 if let Some(state) = weak.upgrade() {
-                    if !enabled && state.mode.get() == 3 {
-                        state.mode.set(0);
-                    }
                     state.refresh_content();
                 }
             },
@@ -337,24 +343,11 @@ impl Panel {
     fn refresh_content(&self) {
         self.phase.set(None);
         self.hits.borrow_mut().clear();
-        if self
-            .scope
-            .borrow()
-            .as_ref()
-            .is_some_and(|root| !smart_search::configured_roots().contains(root))
-        {
-            self.scope.take();
-        }
-        let roots = self
-            .scope
-            .borrow()
-            .clone()
-            .map_or_else(smart_search::configured_roots, |root| vec![root]);
         self.generation.set(self.session.query(
             &self.query.borrow(),
-            roots,
-            self.mode.get(),
-            smart_search::result::SearchKind::from_index(self.kind.get()),
+            smart_search::configured_roots(),
+            0,
+            smart_search::result::SearchKind::Any,
         ));
         self.render();
     }
@@ -395,38 +388,11 @@ impl Panel {
         }
         self.preview_slot.set_visible(false);
     }
+
     fn render(&self) {
-        let selected = self.selected();
-        let mut rows = Vec::new();
-        if self.mode.get() <= 1 {
-            rows.extend(self.names.borrow().iter().cloned());
-        }
-        if self.mode.get() != 1 {
-            rows.extend(
-                self.hits
-                    .borrow()
-                    .iter()
-                    .cloned()
-                    .map(|hit| SearchItem::for_hit(Arc::new(hit))),
-            );
-        }
-        let kind = smart_search::result::SearchKind::from_index(self.kind.get());
-        let scope = self.scope.borrow();
-        rows.retain(|row| {
-            (self.kind.get() == 0 || !row.is_directory)
-                && kind.accepts(&row.path)
-                && scope
-                    .as_ref()
-                    .is_none_or(|root| smart_search::policy::within(&row.path, root))
-        });
-        rows.truncate(200);
-        self.status.set_text(&crate::i18n::tr(if rows.is_empty() {
-            "No results"
-        } else if self.phase.get() == Some(SearchPhase::Semantic) {
-            "Local semantic and keyword results"
-        } else {
-            "Filename and keyword results"
-        }));
+        let selected_key = self.selected().map(|item| result_key(&item.path));
+        let rows = unique_rows(&self.names.borrow(), &self.hits.borrow());
+        self.status.set_visible(rows.is_empty());
         if *self.rows.borrow() == rows {
             return;
         }
@@ -448,38 +414,23 @@ impl Panel {
         self.rows.replace(rows);
         self.reconciling.set(true);
         self.store.splice(prefix as u32, removed as u32, &additions);
-        let retained = selected.and_then(|selected| {
-            self.rows.borrow().iter().position(|row| {
-                row.path == selected.path
-                    && row.content_hit.as_ref().map(|hit| hit.identity())
-                        == selected.content_hit.as_ref().map(|hit| hit.identity())
-            })
+        let retained = selected_key.and_then(|key| {
+            self.rows
+                .borrow()
+                .iter()
+                .position(|row| result_key(&row.path) == key)
         });
         self.selection
             .set_selected(retained.map_or(gtk::INVALID_LIST_POSITION, |position| position as u32));
         self.reconciling.set(false);
         self.preview_selected();
-        tracing::debug!(generation=self.generation.get(),rows=self.rows.borrow().len(),phase=?self.phase.get(),elapsed_micros=self.submitted.get().elapsed().as_micros(),"search results published to virtual list");
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            let submitted = self.submitted.get();
-            let generation = self.generation.get();
-            self.list.add_tick_callback(move |_, _| {
-                tracing::debug!(
-                    generation,
-                    elapsed_micros = submitted.elapsed().as_micros(),
-                    "search result frame ready"
-                );
-                glib::ControlFlow::Break
-            });
-        }
-        self.status
-            .set_text(&crate::i18n::tr(if self.rows.borrow().is_empty() {
-                "No results"
-            } else if self.phase.get() == Some(SearchPhase::Semantic) {
-                "Local semantic and keyword results"
-            } else {
-                "Filename and keyword results"
-            }));
+        tracing::debug!(
+            generation = self.generation.get(),
+            rows = self.rows.borrow().len(),
+            phase = ?self.phase.get(),
+            elapsed_micros = self.submitted.get().elapsed().as_micros(),
+            "search results published to virtual list"
+        );
     }
     fn preview_selected(&self) {
         if self.reconciling.get() {
@@ -490,7 +441,7 @@ impl Panel {
             .as_ref()
             .map(SearchItem::preview_entry)
             .filter(super::super::preview::entry_supports_quick_preview);
-        if !self.preview_enabled.get() || entry.is_none() {
+        if entry.is_none() {
             self.preview_key.take();
             if let Some(drawer) = self.drawer.borrow().as_ref() {
                 drawer.close();
@@ -534,6 +485,91 @@ impl Panel {
             }
         }
     }
+}
+
+fn format_match_time(start_us: u64) -> String {
+    let seconds = start_us / 1_000_000;
+    let hours = seconds / 3600;
+    let minutes = (seconds / 60) % 60;
+    let seconds = seconds % 60;
+    if hours == 0 {
+        format!("{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    }
+}
+
+fn result_secondary(item: &SearchItem) -> String {
+    if let Some(hit) = &item.content_hit {
+        let excerpt = hit
+            .excerpt
+            .split_whitespace()
+            .take(24)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !excerpt.is_empty() {
+            return excerpt;
+        }
+    }
+    item.path
+        .parent()
+        .map(display_search_path)
+        .unwrap_or_default()
+}
+
+pub(super) fn display_search_path(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let raw = raw.as_ref();
+    for (prefix, replacement) in [
+        (r"\\?\UNC\", r"\\"),
+        ("//?/UNC/", "//"),
+        (r"\\?\", ""),
+        ("//?/", ""),
+    ] {
+        if let Some(rest) = raw.strip_prefix(prefix) {
+            return format!("{replacement}{rest}");
+        }
+    }
+    raw.to_owned()
+}
+
+fn result_key(path: &Path) -> String {
+    let visible = display_search_path(path);
+    if cfg!(windows) {
+        visible.to_lowercase()
+    } else {
+        visible
+    }
+}
+
+fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
+    let mut positions: HashMap<String, usize> = HashMap::with_capacity(names.len() + hits.len());
+    let mut rows = Vec::with_capacity(names.len() + hits.len());
+    for item in names {
+        let key = result_key(&item.path);
+        if !positions.contains_key(&key) {
+            positions.insert(key, rows.len());
+            rows.push(item.clone());
+        }
+    }
+    for hit in hits {
+        let item = SearchItem::for_hit(Arc::new(hit.clone()));
+        let key = result_key(&item.path);
+        if let Some(&position) = positions.get(&key) {
+            let replace = rows[position].content_hit.as_ref().is_none_or(|previous| {
+                (previous.weak && !hit.weak)
+                    || (previous.weak == hit.weak && hit.score > previous.score)
+            });
+            if replace {
+                rows[position] = item;
+            }
+        } else {
+            positions.insert(key, rows.len());
+            rows.push(item);
+        }
+    }
+    rows.truncate(200);
+    rows
 }
 
 #[cfg(all(test, not(windows)))]

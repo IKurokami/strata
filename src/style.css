@@ -671,19 +671,21 @@ headerbar.browser-header menubutton.header-action > button {
 
 .search-dialog {
   background: @strata_surface;
-  border: 1px solid alpha(@strata_border, 0.6);
-  border-radius: 9px;
-  box-shadow: 0 0 14px alpha(@strata_glow, 0.24);
-  min-height: 452px;
-  min-width: 760px;
+  border: none;
+  border-radius: 15px;
+  box-shadow: none;
+  outline: none;
+  min-width: 980px;
+  min-height: 580px;
 }
 
 .search-bar {
-  border-bottom: 1px solid alpha(@strata_border, 0.55);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  min-height: 58px;
-  padding: 0 18px;
+  border: none;
+  box-shadow: none;
+  border-top-left-radius: 15px;
+  border-top-right-radius: 15px;
+  min-height: 64px;
+  padding: 0 22px;
 }
 
 .search-field,
@@ -711,18 +713,133 @@ headerbar.browser-header menubutton.header-action > button {
   padding: 28px 24px;
 }
 
-.search-results-scroll {
+.search-results-stack,
+.search-results-scroll,
+.search-results-scroll > viewport,
+.search-results-scroll overshoot,
+.search-results-scroll undershoot {
   background: @strata_surface;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-results-scroll {
   min-height: 360px;
+}
+
+.search-smart-panel {
+  padding: 8px 0;
+}
+
+.search-smart-split > separator,
+.search-smart-split > separator:hover {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-width: 0;
+}
+
+.search-smart-list,
+.search-smart-list > row,
+.search-smart-list:focus,
+.search-smart-list:focus-visible,
+.search-smart-list > row:focus,
+.search-smart-list > row:focus-visible {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-smart-list > row {
+  margin: 2px 8px;
+  border-radius: 9px;
+}
+
+.search-smart-result {
+  border: none;
+  box-shadow: none;
+  outline: none;
+  border-radius: 9px;
+  padding: 7px 9px;
+  min-height: 50px;
+  color: @strata_text;
+}
+
+.search-smart-thumbnail {
+  border-radius: 7px;
+}
+
+.search-smart-secondary {
+  color: @strata_dim_text;
+  font-size: 0.83em;
+}
+
+.search-smart-place {
+  background: alpha(@strata_accent, 0.12);
+  color: @strata_text;
+  border-radius: 7px;
+  padding: 2px 6px;
+  font-size: 0.78em;
+  font-weight: 600;
+}
+
+.search-smart-list > row:hover .search-smart-result {
+  background: alpha(@strata_accent, 0.07);
+}
+
+.search-smart-list > row:selected .search-smart-result,
+.search-smart-list > row:focus-visible .search-smart-result {
+  background: alpha(@strata_accent, 0.15);
+}
+
+.search-smart-preview-area,
+.search-smart-preview {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-smart-preview {
+  padding: 0 12px 12px 8px;
+}
+
+.search-smart-preview .preview-pane,
+.search-smart-preview .preview-header,
+.search-smart-preview .preview-content,
+.search-smart-preview .preview-media-bar {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-smart-preview .preview-close,
+.search-smart-preview .preview-resize-grip {
+  min-width: 0;
+  min-height: 0;
+  opacity: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.search-smart-empty {
+  color: @strata_dim_text;
 }
 
 .search-results,
 .search-results > row {
   background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .search-result {
-  border-bottom: 1px solid alpha(@strata_border, 0.28);
+  border: none;
+  box-shadow: none;
+  outline: none;
   color: @strata_text;
   padding: 0;
 }
@@ -739,8 +856,9 @@ headerbar.browser-header menubutton.header-action > button {
 .search-result:focus-visible {
   background: alpha(@strata_highlight, 0.72);
   color: @strata_text;
-  outline: 1px solid alpha(@strata_accent, 0.72);
-  outline-offset: -1px;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .search-result-thumbnail {
@@ -764,11 +882,10 @@ headerbar.browser-header menubutton.header-action > button {
 }
 
 .search-footer {
-  background: alpha(@strata_bg, 0.18);
-  border-top: 1px solid alpha(@strata_border, 0.5);
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  min-height: 34px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-height: 0;
   padding: 0 18px;
 }
 
@@ -6047,6 +6164,162 @@ two-column presentation. */
   color: @strata_dim_text;
   font-size: 0.9375em;
   margin: -6px 4px 12px;
+}
+
+
+/* Smart Search shares Settings' controls, but only exposes relevant actions. */
+.smart-settings-details {
+  margin-top: 18px;
+}
+
+.smart-settings-folder-group {
+  padding-top: 4px;
+}
+
+.smart-settings-folder {
+  padding: 8px 14px;
+  min-height: 44px;
+}
+
+.smart-settings-folder + .smart-settings-folder {
+  border-top: 1px solid alpha(@strata_border, 0.30);
+}
+
+.smart-settings-path {
+  color: @strata_text;
+  font-size: 0.94em;
+}
+
+.smart-settings-count {
+  background: alpha(@strata_accent, 0.12);
+  border: 1px solid alpha(@strata_accent, 0.32);
+  border-radius: 999px;
+  color: @strata_accent;
+  font-size: 0.8em;
+  font-weight: 600;
+  padding: 2px 9px;
+}
+
+.smart-settings-actions,
+.smart-settings-advanced-actions {
+  padding: 9px 14px;
+}
+
+.smart-settings-folder-group > box + .smart-settings-actions {
+  border-top: 1px solid alpha(@strata_border, 0.30);
+}
+
+.smart-settings-action {
+  background: alpha(@strata_bg, 0.38);
+  background-image: none;
+  border: 1px solid alpha(@strata_border, 0.5);
+  border-radius: 8px;
+  box-shadow: none;
+  color: @strata_text;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.smart-settings-action:hover {
+  background: alpha(@strata_accent, 0.1);
+  border-color: alpha(@strata_accent, 0.5);
+}
+
+.smart-settings-action:active {
+  background: alpha(@strata_accent, 0.16);
+}
+
+.smart-settings-action:focus-visible,
+.smart-settings-remove:focus-visible {
+  outline: 2px solid alpha(@strata_accent, 0.55);
+  outline-offset: 2px;
+}
+
+.smart-settings-primary {
+  background: alpha(@strata_accent, 0.13);
+  border-color: alpha(@strata_accent, 0.38);
+}
+
+.smart-settings-remove {
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  box-shadow: none;
+  color: @strata_dim_text;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 5px;
+}
+
+.smart-settings-remove:hover {
+  background: alpha(@strata_accent, 0.1);
+  color: @strata_text;
+}
+
+.smart-settings-model {
+  margin-top: 16px;
+}
+
+.smart-settings-model-row {
+  padding: 12px 14px;
+}
+
+.smart-settings-progress {
+  margin: 0 14px 12px;
+  min-height: 3px;
+}
+
+.smart-settings-progress trough {
+  background: alpha(@strata_border, 0.35);
+  border-radius: 3px;
+}
+
+.smart-settings-progress progress {
+  background: @strata_accent;
+  border-radius: 3px;
+}
+
+.smart-settings-indexing {
+  padding: 10px 4px;
+  color: @strata_dim_text;
+}
+
+.smart-settings-indexing spinner {
+  color: @strata_accent;
+}
+
+.smart-settings-advanced {
+  margin-top: 14px;
+  color: @strata_text;
+}
+
+.smart-settings-advanced > title {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: @strata_dim_text;
+}
+
+.smart-settings-advanced > title:hover {
+  background: alpha(@strata_accent, 0.08);
+  color: @strata_text;
+}
+
+.smart-settings-advanced > title > arrow {
+  color: @strata_accent;
+}
+
+.smart-settings-advanced > box.settings-group {
+  margin-top: 8px;
+}
+
+.smart-settings-advanced-actions {
+  border-top: 1px solid alpha(@strata_border, 0.3);
+}
+
+.smart-settings-subtle {
+  border: none;
+  background: transparent;
+  color: @strata_dim_text;
 }
 
 .settings-group {

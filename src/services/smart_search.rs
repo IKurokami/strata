@@ -5,6 +5,7 @@
 
 use arc_swap::{ArcSwap, ArcSwapOption};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex, OnceLock,
@@ -52,6 +53,19 @@ pub(crate) struct Status {
     pub skipped: usize,
     pub running: bool,
     pub failed: bool,
+    pub folder_counts: HashMap<PathBuf, usize>,
+}
+
+impl Status {
+    pub fn folder_indexed_count(&self, folder: &Path) -> usize {
+        if let Some(&count) = self.folder_counts.get(folder) {
+            return count;
+        }
+        let normalized = policy::normalize_path(
+            &std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf()),
+        );
+        self.folder_counts.get(&normalized).copied().unwrap_or(0)
+    }
 }
 
 pub(super) struct Control {
@@ -70,6 +84,7 @@ pub(super) struct Control {
     model_probe_at: AtomicU64,
     indexed: AtomicUsize,
     skipped: AtomicUsize,
+    folder_counts: ArcSwap<HashMap<PathBuf, usize>>,
     indexing: AtomicBool,
     failed: AtomicBool,
     data: PathBuf,
@@ -103,6 +118,7 @@ fn control() -> &'static Arc<Control> {
             model_probe_at: AtomicU64::new(0),
             indexed: AtomicUsize::new(0),
             skipped: AtomicUsize::new(0),
+            folder_counts: ArcSwap::from_pointee(HashMap::new()),
             indexing: AtomicBool::new(false),
             failed: AtomicBool::new(false),
             data: glib::user_cache_dir()
@@ -147,15 +163,11 @@ fn ensure_indexer() {
 pub(crate) fn note_interaction() {
     let shared = control();
     shared.interaction.store(clock(), Ordering::Release);
-    if let Ok(parsing) = shared.parsing.try_lock()
-        && let Some(cancellation) = parsing.as_ref()
-    {
-        cancellation.cancel();
-    }
 }
 
 pub(crate) fn status() -> Status {
     let shared = control();
+    ensure_indexer();
     if !shared.downloading.load(Ordering::Acquire)
         && clock().saturating_sub(shared.model_probe_at.load(Ordering::Relaxed)) >= 5000
         && !shared.model_probe.swap(true, Ordering::AcqRel)
@@ -184,6 +196,7 @@ pub(crate) fn status() -> Status {
         skipped: shared.skipped.load(Ordering::Relaxed),
         running: shared.indexing.load(Ordering::Acquire),
         failed: shared.failed.load(Ordering::Acquire),
+        folder_counts: (**shared.folder_counts.load()).clone(),
     }
 }
 
@@ -505,18 +518,32 @@ fn run_lane(state: Arc<SessionState>, semantic: bool) {
                 let Some(artifacts) = artifacts.as_ref() else {
                     continue;
                 };
-                embedder =
-                    match runtime::Embedder::start(&shared.data, artifacts.path(), true, &cancel) {
-                        Ok(worker) => {
-                            shared.failed.store(false, Ordering::Release);
-                            Some(worker)
-                        }
-                        Err(error) => {
+                let worker_cancel = || {
+                    state.stop.load(Ordering::Acquire)
+                        || !shared.config.load().enabled
+                        || shared.reset.load(Ordering::Acquire)
+                };
+                embedder = match runtime::Embedder::start(
+                    &shared.data,
+                    artifacts.path(),
+                    true,
+                    &worker_cancel,
+                ) {
+                    Ok(worker) => {
+                        shared.failed.store(false, Ordering::Release);
+                        Some(worker)
+                    }
+                    Err(error) => {
+                        if !worker_cancel() {
                             shared.failed.store(true, Ordering::Release);
-                            tracing::debug!(reason=%error,"Semantic query runtime unavailable");
-                            None
                         }
-                    };
+                        tracing::debug!(reason=%error,"Semantic query runtime unavailable");
+                        None
+                    }
+                };
+                if cancelled(&state, &request) {
+                    continue;
+                }
             }
             let Some(worker) = embedder.as_mut() else {
                 continue;

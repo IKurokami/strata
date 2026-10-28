@@ -71,6 +71,22 @@ pub(super) fn connect(path: &Path, write: bool) -> Result<Connection, String> {
         connection
             .execute_batch(&format!("BEGIN IMMEDIATE;{migration}{SCHEMA}COMMIT;"))
             .map_err(|error| error.to_string())?;
+        let migrated: Option<String> = connection
+            .query_row(
+                "SELECT value FROM index_meta WHERE key='media_ocr_v2'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if migrated.as_deref() != Some("1") {
+            let _ = connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 DELETE FROM files WHERE path LIKE '\\\\?\\%' OR id IN (SELECT DISTINCT file FROM segments WHERE modality IN ('video','image','audio'));
+                 INSERT OR REPLACE INTO index_meta(key,value) VALUES('media_ocr_v2','1');
+                 COMMIT;",
+            );
+        }
     }
     Ok(connection)
 }
@@ -253,7 +269,7 @@ fn hit(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchHit> {
     Ok(SearchHit {
         file_id: row.get(0)?,
         segment_id: row.get(1)?,
-        path: PathBuf::from(row.get::<_, String>(2)?),
+        path: super::policy::normalize_path(Path::new(&row.get::<_, String>(2)?)),
         revision: FileRevision {
             size: row.get::<_, i64>(3)?.max(0) as u64,
             modified_ns: row.get::<_, i64>(4)?.max(0) as u64,

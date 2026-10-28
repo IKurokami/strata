@@ -63,6 +63,20 @@ pub(super) fn sensitive(path: &Path) -> bool {
         })
 }
 
+pub(crate) fn normalize_path(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(tail) = raw.strip_prefix(r"\\?\UNC\") {
+            return std::path::PathBuf::from(format!(r"\\{tail}"));
+        }
+        if let Some(tail) = raw.strip_prefix(r"\\?\") {
+            return std::path::PathBuf::from(tail);
+        }
+    }
+    path.to_path_buf()
+}
+
 pub(crate) fn within(path: &Path, root: &Path) -> bool {
     #[cfg(windows)]
     {

@@ -8,7 +8,7 @@ use super::{
 };
 use notify::{RecursiveMode, Watcher};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering, mpsc},
@@ -68,6 +68,7 @@ pub(super) fn run(shared: Arc<Control>) {
             }
             shared.indexed.store(0, Ordering::Relaxed);
             shared.skipped.store(0, Ordering::Relaxed);
+            shared.folder_counts.store(Arc::new(HashMap::new()));
             shared.reset.store(false, Ordering::Release);
             shared.database_revision.fetch_add(1, Ordering::AcqRel);
             revision = 0;
@@ -85,7 +86,9 @@ pub(super) fn run(shared: Arc<Control>) {
             roots = config
                 .roots
                 .iter()
-                .map(|root| fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+                .map(|root| {
+                    policy::normalize_path(&fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+                })
                 .filter(|root| !policy::sensitive(root))
                 .collect();
             for root in &roots {
@@ -108,6 +111,7 @@ pub(super) fn run(shared: Arc<Control>) {
             for connection in [&regular, &code].into_iter().flatten() {
                 let _ = store::reconcile(connection, &roots, &HashSet::new(), &[]);
             }
+            refresh_counts(&shared, &config, &regular, &code);
             shared
                 .models_ready
                 .store(model::ready(&shared.data), Ordering::Release);
@@ -190,23 +194,7 @@ pub(super) fn run(shared: Arc<Control>) {
                     let _ = connection.execute_batch("PRAGMA wal_checkpoint(PASSIVE)");
                 }
                 complete.clear();
-                let count = |state: &str| {
-                    [&regular, &code]
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|connection| {
-                            connection
-                                .query_row(
-                                    "SELECT count(*) FROM files WHERE state=?1",
-                                    [state],
-                                    |row| row.get::<_, i64>(0).map(|count| count.max(0) as usize),
-                                )
-                                .ok()
-                        })
-                        .sum()
-                };
-                shared.indexed.store(count("indexed"), Ordering::Relaxed);
-                shared.skipped.store(count("skipped"), Ordering::Relaxed);
+                refresh_counts(&shared, &config, &regular, &code);
                 shared.database_revision.fetch_add(1, Ordering::AcqRel);
             }
             if reconcile.elapsed() > Duration::from_secs(120) {
@@ -237,6 +225,7 @@ pub(super) fn run(shared: Arc<Control>) {
                             [path.to_string_lossy().as_ref()],
                         );
                     }
+                    refresh_counts(&shared, &config, &regular, &code);
                     shared.database_revision.fetch_add(1, Ordering::AcqRel);
                 }
                 if error.kind() != std::io::ErrorKind::NotFound {
@@ -275,7 +264,6 @@ pub(super) fn run(shared: Arc<Control>) {
         let cancelled = || {
             shared.revision.load(Ordering::Acquire) != revision
                 || shared.reset.load(Ordering::Acquire)
-                || clock().saturating_sub(shared.interaction.load(Ordering::Acquire)) < 750
         };
         let cancellation = crate::sandbox::Cancellation::default();
         *shared
@@ -301,7 +289,7 @@ pub(super) fn run(shared: Arc<Control>) {
             .take();
         match outcome {
             Ok(next) => {
-                shared.indexed.fetch_add(1, Ordering::Relaxed);
+                refresh_counts(&shared, &config, &regular, &code);
                 shared.database_revision.fetch_add(1, Ordering::AcqRel);
                 if next && backfill.len() < MAX_FILES {
                     backfill.push_back(path);
@@ -314,14 +302,70 @@ pub(super) fn run(shared: Arc<Control>) {
                 }
             }
             Err(error) => {
-                embedder = None;
+                if error != "unsupported-format" && error != "models-not-ready" {
+                    embedder = None;
+                }
                 let _ = store::mark(connection, &root, &path, &file_revision, &error);
-                shared.skipped.fetch_add(1, Ordering::Relaxed);
+                refresh_counts(&shared, &config, &regular, &code);
                 tracing::debug!(reason=%error,"content indexing skipped one file");
             }
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn refresh_counts(
+    shared: &Control,
+    config: &Config,
+    regular: &Option<rusqlite::Connection>,
+    code: &Option<rusqlite::Connection>,
+) {
+    let mut indexed = 0usize;
+    let mut skipped = 0usize;
+    let mut by_root: HashMap<String, usize> = HashMap::new();
+    let connections = if config.include_code {
+        [regular.as_ref(), code.as_ref()]
+    } else {
+        [regular.as_ref(), None]
+    };
+    for connection in connections.into_iter().flatten() {
+        if let Ok(mut statement) =
+            connection.prepare("SELECT root, state, count(*) FROM files GROUP BY root, state")
+            && let Ok(rows) = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?.max(0) as usize,
+                ))
+            })
+        {
+            for (root, state, count) in rows.flatten() {
+                match state.as_str() {
+                    "indexed" => {
+                        indexed += count;
+                        let key = policy::normalize_path(Path::new(&root))
+                            .to_string_lossy()
+                            .into_owned();
+                        *by_root.entry(key).or_insert(0) += count;
+                    }
+                    "skipped" => skipped += count,
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut folder_counts = HashMap::new();
+    for root in &config.roots {
+        let normalized =
+            policy::normalize_path(&fs::canonicalize(root).unwrap_or_else(|_| root.clone()));
+        let key = normalized.to_string_lossy();
+        let count = by_root.get(key.as_ref()).copied().unwrap_or(0);
+        folder_counts.insert(root.clone(), count);
+        folder_counts.insert(normalized, count);
+    }
+    shared.indexed.store(indexed, Ordering::Relaxed);
+    shared.skipped.store(skipped, Ordering::Relaxed);
+    shared.folder_counts.store(Arc::new(folder_counts));
 }
 
 fn walk(root: &Path) -> ignore::Walk {
@@ -361,11 +405,14 @@ fn index_file(
     cancelled: &impl Fn() -> bool,
 ) -> Result<bool, String> {
     let cursor = store::cursor(connection, path, revision)?;
+    let mut prepared_image = None;
     let extraction = if policy::image(path) {
+        let (file, ocr_text) = prepare_image(path, artifacts, cancellation)?;
+        prepared_image = Some(file);
         Extraction {
             segments: vec![ExtractedSegment {
                 locator: ContentLocator::Image,
-                text: String::new(),
+                text: ocr_text,
                 modality: "image".into(),
             }],
             next: None,
@@ -429,7 +476,10 @@ fn index_file(
                     fs::write(&file, output.data).map_err(|error| error.to_string())?;
                     ("image", vec![file.to_string_lossy().into_owned()])
                 } else if policy::image(path) {
-                    let file = prepare_image(path, artifacts, cancellation)?;
+                    let file = match &prepared_image {
+                        Some(file) => file.clone(),
+                        None => prepare_image(path, artifacts, cancellation)?.0,
+                    };
                     ("image", vec![file.to_string_lossy().into_owned()])
                 } else {
                     (
@@ -502,7 +552,7 @@ fn prepare_image(
     path: &Path,
     artifacts: &Path,
     cancellation: &crate::sandbox::Cancellation,
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, String), String> {
     let output = crate::sandbox::parse(
         path,
         crate::sandbox::ParseOperation::PreviewImage,
@@ -513,6 +563,11 @@ fn prepare_image(
     let destination = artifacts.join("image.png");
     #[cfg(windows)]
     if let Some((width, height)) = output.raster_dimensions {
+        let ocr_text = strata_win_shell::ocr::recognize_rgba(width, height, &output.data)
+            .unwrap_or_default()
+            .chars()
+            .take(4000)
+            .collect();
         image::save_buffer_with_format(
             &destination,
             &output.data,
@@ -522,10 +577,18 @@ fn prepare_image(
             image::ImageFormat::Png,
         )
         .map_err(|error| error.to_string())?;
-        return Ok(destination);
+        return Ok((destination, ocr_text));
     }
     if output.data.starts_with(b"STRGBA01") {
         let ((width, height), pixels) = crate::sandbox::pixels::decode(output.data)?;
+        #[cfg(windows)]
+        let ocr_text = strata_win_shell::ocr::recognize_rgba(width, height, &pixels)
+            .unwrap_or_default()
+            .chars()
+            .take(4000)
+            .collect();
+        #[cfg(not(windows))]
+        let ocr_text = String::new();
         image::save_buffer_with_format(
             &destination,
             &pixels,
@@ -535,10 +598,30 @@ fn prepare_image(
             image::ImageFormat::Png,
         )
         .map_err(|error| error.to_string())?;
-    } else {
-        fs::write(&destination, &output.data).map_err(|error| error.to_string())?;
+        return Ok((destination, ocr_text));
     }
-    Ok(destination)
+    let ocr_text = recognize_png_text(&output.data);
+    fs::write(&destination, &output.data).map_err(|error| error.to_string())?;
+    Ok((destination, ocr_text))
+}
+
+pub(super) fn recognize_png_text(png_bytes: &[u8]) -> String {
+    #[cfg(windows)]
+    {
+        if let Ok(image) = image::load_from_memory(png_bytes) {
+            let rgba = image.to_rgba8();
+            if let Some(text) =
+                strata_win_shell::ocr::recognize_rgba(rgba.width(), rgba.height(), rgba.as_raw())
+            {
+                return text.chars().take(4000).collect();
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = png_bytes;
+    }
+    String::new()
 }
 
 #[expect(
