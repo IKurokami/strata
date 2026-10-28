@@ -826,8 +826,3 @@ pub(super) fn eligible_results(
     }
     items
 }
-
-#[cfg(test)]
-pub(super) fn search_path_present(path: &Path) -> bool {
-    crate::services::search_path_present(path)
-}

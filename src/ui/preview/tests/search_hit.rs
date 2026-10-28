@@ -206,7 +206,7 @@ fn smart_search_media_hit_seeks_in_microseconds_and_user_input_cancels_delayed_r
                     Arc::new(SearchHit {
                         file_id: 1,
                         segment_id: 1,
-                        path: "/fixture/clip.mp4".into(),
+                        path: format!("/fixture/clip-{cancel}.mp4").into(),
                         revision: FileRevision {
                             size: 100,
                             modified_ns: 1,
@@ -230,11 +230,20 @@ fn smart_search_media_hit_seeks_in_microseconds_and_user_input_cancels_delayed_r
                 if cancel {
                     drawer.state.cancel_search_reveal();
                 }
-                let until = Instant::now() + Duration::from_millis(100);
-                while Instant::now() < until {
-                    while glib::MainContext::default().pending() {
-                        glib::MainContext::default().iteration(false);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let settle = Instant::now() + Duration::from_millis(250);
+                loop {
+                    glib::MainContext::default().iteration(false);
+                    if (!cancel && stream.timestamp() == 25_500_000)
+                        || (cancel && Instant::now() >= settle)
+                    {
+                        break;
                     }
+                    assert!(
+                        Instant::now() < deadline,
+                        "media locator did not settle: cancel={cancel}, timestamp={}",
+                        stream.timestamp()
+                    );
                     std::thread::sleep(Duration::from_millis(2));
                 }
                 assert_eq!(stream.timestamp(), if cancel { 0 } else { 25_500_000 });

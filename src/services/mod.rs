@@ -30,8 +30,6 @@ mod remote_download;
 pub(crate) mod rtf;
 mod search;
 pub(crate) mod smart_search;
-#[cfg(test)]
-pub(crate) use search::search_path_present;
 pub(crate) mod table;
 mod transfer_action;
 mod update_check;
