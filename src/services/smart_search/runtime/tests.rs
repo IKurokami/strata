@@ -28,3 +28,41 @@ fn fake_embedding_protocol_rejects_stale_malformed_and_nonfinite_vectors() {
     response["vectors"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
     assert!(decode_vectors(&response, 7, 1).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn cancelled_timed_out_and_malformed_replies_stop_the_worker_before_returning() {
+    for failure in ["cancelled", "timed out", "malformed"] {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exec sleep 30"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("fake worker");
+        let input = child.stdin.take().expect("worker input");
+        let (send, replies) = mpsc::channel();
+        if failure == "malformed" {
+            send.send(Err("malformed".into())).expect("fake reply");
+        }
+        let mut worker = Embedder {
+            child,
+            input,
+            replies,
+            sequence: 0,
+            last_used: Instant::now(),
+        };
+        let timeout = if failure == "timed out" {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(5)
+        };
+        let error = worker
+            .receive(timeout, &|| failure == "cancelled")
+            .expect_err("rejected request");
+        assert!(error.contains(failure), "{error}");
+        assert!(
+            worker.child.try_wait().expect("worker status").is_some(),
+            "failed worker must be stopped before returning"
+        );
+    }
+}

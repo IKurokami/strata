@@ -190,21 +190,26 @@ impl Embedder {
         cancelled: &impl Fn() -> bool,
     ) -> Result<Value, String> {
         let started = Instant::now();
-        loop {
+        let result = loop {
             if cancelled() {
-                return Err("Embedding request cancelled".into());
+                break Err("Embedding request cancelled".into());
             }
             if started.elapsed() > timeout {
-                return Err("Embedding worker timed out".into());
+                break Err("Embedding worker timed out".into());
             }
             match self.replies.recv_timeout(Duration::from_millis(20)) {
-                Ok(reply) => return reply,
+                Ok(reply) => break reply,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("Embedding worker exited".into());
+                    break Err("Embedding worker exited".into());
                 }
             }
+        };
+        if result.is_err() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
         }
+        result
     }
 }
 

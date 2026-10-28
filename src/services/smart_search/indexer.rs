@@ -308,11 +308,13 @@ pub(super) fn run(shared: Arc<Control>) {
                 }
             }
             Err(_) if cancelled() || cancellation.is_cancelled() => {
+                embedder = None;
                 if urgent.len() < 1024 {
                     urgent.push_front(path);
                 }
             }
             Err(error) => {
+                embedder = None;
                 let _ = store::mark(connection, &root, &path, &file_revision, &error);
                 shared.skipped.fetch_add(1, Ordering::Relaxed);
                 tracing::debug!(reason=%error,"content indexing skipped one file");
