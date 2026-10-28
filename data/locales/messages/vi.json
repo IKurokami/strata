@@ -1,4 +1,5 @@
 {
+  "%{free} free of %{total}": "Còn trống %{free} trên %{total}",
   " (%{size} known; size incomplete)": " (đã biết %{size}; kích thước chưa đầy đủ)",
   " (size unavailable)": " (không có kích thước)",
   "%{changes} · published %{date}": "%{changes} · phát hành ngày %{date}",

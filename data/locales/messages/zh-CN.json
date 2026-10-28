@@ -1,4 +1,5 @@
 {
+  "%{free} free of %{total}": "%{total} 中的 %{free} 可用",
   " (%{size} known; size incomplete)": "（已知 %{size}，部分大小未知）",
   " (size unavailable)": "（大小不可用）",
   "%{changes} · published %{date}": "%{changes} · 发布于 %{date}",

@@ -1,4 +1,5 @@
 {
+  "%{free} free of %{total}": "%{free} libres de %{total}",
   " (%{size} known; size incomplete)": " (%{size} conocidos; tamaño incompleto)",
   " (size unavailable)": " (tamaño no disponible)",
   "%{changes} · published %{date}": "%{changes} · publicada el %{date}",

@@ -1,4 +1,5 @@
 {
+  "%{free} free of %{total}": "Свободно %{free} из %{total}",
   " (%{size} known; size incomplete)": " (известно %{size}; размер указан не полностью)",
   " (size unavailable)": " (размер недоступен)",
   "%{changes} · published %{date}": "%{changes} · опубликовано %{date}",

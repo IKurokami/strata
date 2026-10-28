@@ -248,7 +248,7 @@ thread_local! {
     static ICON_INK_HEIGHTS: RefCell<HashMap<usize, (glib::WeakRef<gdk::Texture>, f64)>> = RefCell::new(HashMap::new());
     static CATPPUCCIN_FLAVOR: Cell<CatppuccinFlavor> = const { Cell::new(CatppuccinFlavor::Mocha) };
     static CATPPUCCIN_THEME_COLORS: Cell<bool> = const { Cell::new(false) };
-    static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Catppuccin) };
+    static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Material) };
 }
 
 pub(crate) fn file_icon_theme() -> crate::ui::preferences::FileIconTheme {

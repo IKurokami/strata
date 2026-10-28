@@ -10,9 +10,9 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock, mpsc},
-    time::{Duration, Instant},
+    time::Instant,
 };
-use strata_win_shell::volume::{VolumeInfo, VolumeSpace};
+use strata_win_shell::volume::{DriveType, VolumeInfo, VolumeSpace};
 
 #[derive(Clone)]
 pub(crate) struct DriveDetails {
@@ -23,7 +23,6 @@ pub(crate) struct DriveDetails {
 type Reply = futures_channel::oneshot::Sender<DriveDetails>;
 #[derive(Default)]
 struct Queries {
-    cached: HashMap<PathBuf, (Instant, DriveDetails)>,
     waiting: HashMap<PathBuf, Vec<Reply>>,
 }
 
@@ -57,7 +56,6 @@ fn workers(remote: bool) -> &'static mpsc::Sender<VolumeInfo> {
                         let mut state = queries().lock().unwrap_or_else(|e| e.into_inner());
                         let root = details.volume.root.clone();
                         let replies = state.waiting.remove(&root).unwrap_or_default();
-                        state.cached.insert(root, (Instant::now(), details.clone()));
                         drop(state);
                         tracing::debug!(
                             elapsed_micros = started.elapsed().as_micros(),
@@ -78,15 +76,10 @@ pub(crate) async fn details(volume: VolumeInfo) -> Option<DriveDetails> {
     let root = volume.root.clone();
     let (tx, rx) = futures_channel::oneshot::channel();
     let mut state = queries().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((when, cached)) = state.cached.get(&root)
-        && when.elapsed() < Duration::from_secs(15)
-    {
-        return Some(cached.clone());
-    }
     let first = !state.waiting.contains_key(&root);
     state.waiting.entry(root.clone()).or_default().push(tx);
     drop(state);
-    let remote = volume.drive_type == strata_win_shell::volume::DriveType::Remote;
+    let remote = volume.drive_type == DriveType::Remote;
     if first && workers(remote).send(volume).is_err() {
         queries()
             .lock()
@@ -97,13 +90,44 @@ pub(crate) async fn details(volume: VolumeInfo) -> Option<DriveDetails> {
     rx.await.ok()
 }
 
+pub(crate) fn drive_type_label(drive_type: DriveType) -> String {
+    crate::i18n::tr(match drive_type {
+        DriveType::Fixed => "Local disk",
+        DriveType::Removable => "Removable drive",
+        DriveType::Remote => "Network drive",
+        DriveType::CdRom => "Optical drive",
+        DriveType::RamDisk => "RAM disk",
+        _ => "Drive",
+    })
+}
+
+pub(crate) fn format_drive_display_name(
+    volume: &VolumeInfo,
+    custom_label: Option<String>,
+) -> String {
+    let root_text = volume.root.to_string_lossy();
+    let drive_letter = root_text.trim_end_matches(['\\', '/']);
+    let drive_id = if drive_letter.is_empty() {
+        root_text.as_ref()
+    } else {
+        drive_letter
+    };
+    let label = custom_label
+        .or_else(|| volume.label.clone())
+        .map(|label| label.trim().to_owned())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| drive_type_label(volume.drive_type));
+    format!("{label} ({drive_id})")
+}
+
 pub(crate) fn is_root(location: &Location) -> bool {
     location.uri_value() == Some("computer:///")
 }
 
 pub(crate) fn enumerate(request: DirectoryRequest, emit: Rc<dyn Fn(DirectoryEvent)>) -> LoadHandle {
     let task = glib::MainContext::default().spawn_local(async move {
-        let Ok(volumes) = gio::spawn_blocking(strata_win_shell::volume::drive_roots).await else {
+        let Ok(volumes) = gio::spawn_blocking(strata_win_shell::volume::enumerate_volumes).await
+        else {
             emit(DirectoryEvent::Failed {
                 request_id: request.id,
                 message: crate::i18n::tr("Unable to read drives"),
@@ -116,10 +140,11 @@ pub(crate) fn enumerate(request: DirectoryRequest, emit: Rc<dyn Fn(DirectoryEven
                 .into_iter()
                 .map(|volume| {
                     let name = volume.root.as_os_str().to_owned();
+                    let display_name = format_drive_display_name(&volume, None);
                     FileEntry {
                         location: Location::local(&volume.root),
-                        native_name: name.clone(),
-                        display_name: name.to_string_lossy().into_owned(),
+                        native_name: name,
+                        display_name,
                         thumbnail_path: None,
                         kind: EntryKind::Directory,
                         size: MetadataValue::Unavailable,

@@ -361,3 +361,30 @@ impl Drop for Tray {
         EVENTS.with(|events| events.borrow_mut().clear());
     }
 }
+
+/// Returns whether the user's Windows personalization settings prefer a dark app theme.
+pub fn system_prefers_dark() -> bool {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+    let subkey = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    for value_name in [w!("AppsUseLightTheme"), w!("SystemUsesLightTheme")] {
+        let mut data = 0u32;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        // SAFETY: `subkey` and `value_name` are null-terminated static wide strings,
+        // and `data`/`size` point to valid stack storage of `u32`.
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                subkey,
+                value_name,
+                RRF_RT_REG_DWORD,
+                None,
+                Some((&mut data as *mut u32).cast()),
+                Some(&mut size),
+            )
+        };
+        if status.is_ok() {
+            return data == 0;
+        }
+    }
+    true
+}

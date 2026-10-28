@@ -371,6 +371,42 @@ fn file_size_in(locale: &str, bytes: u64) -> String {
     .into_owned()
 }
 
+/// Binary (1024-based) drive capacity formatted to three significant digits,
+/// matching Windows Explorer's This PC capacity presentation.
+pub(crate) fn drive_capacity(bytes: u64) -> String {
+    drive_capacity_in(&rust_i18n::locale(), bytes)
+}
+
+fn drive_capacity_in(locale: &str, bytes: u64) -> String {
+    if bytes < 1_024 {
+        return rust_i18n::t!(
+            SIZE_UNITS[0],
+            locale = locale,
+            size = integer_in(locale, bytes)
+        )
+        .into_owned();
+    }
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1_024.0 && unit + 1 < SIZE_UNITS.len() {
+        value /= 1_024.0;
+        unit += 1;
+    }
+    let (truncated, decimals) = if value < 10.0 {
+        ((value * 100.0).floor() / 100.0, 2)
+    } else if value < 100.0 {
+        ((value * 10.0).floor() / 10.0, 1)
+    } else {
+        (value.floor(), 0)
+    };
+    rust_i18n::t!(
+        SIZE_UNITS[unit],
+        locale = locale,
+        size = decimal_in(locale, truncated, decimals)
+    )
+    .into_owned()
+}
+
 /// A byte rate such as "1.5 MB/s".
 pub(crate) fn transfer_rate(bytes_per_second: u64) -> String {
     transfer_rate_in(&rust_i18n::locale(), bytes_per_second)

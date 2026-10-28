@@ -1178,7 +1178,8 @@ impl NavigationState {
     }
 
     fn initial_preferences(&self, location: &Location) -> ViewPreferences {
-        let mut preferences = self.preferences;
+        let mut preferences =
+            crate::model::location_default_preferences(self.preferences, location);
         if let FolderSort::Saved(sort_key, sort_direction) =
             self.resolve_folder_sort(location, true)
         {
@@ -1195,12 +1196,14 @@ impl NavigationState {
         if column.location.is_recent_root() {
             return Some(preferences);
         }
-        preferences.folders_first = self.preferences.folders_first;
+        let location_defaults =
+            crate::model::location_default_preferences(self.preferences, &column.location);
+        preferences.folders_first = location_defaults.folders_first;
         match self.folder_sort(&column.location) {
             FolderSort::Saved(sort_key, sort_direction) => {
                 preferences.set_sort((sort_key, sort_direction));
             }
-            FolderSort::Default => preferences.set_sort(self.preferences.sort()),
+            FolderSort::Default => preferences.set_sort(location_defaults.sort()),
             FolderSort::Unremembered => {}
         }
         Some(preferences)

@@ -272,7 +272,11 @@ fn sync_folder_sort_actions(actions: &DefaultActions, browser: &Browser, depth: 
             browser
                 .column_preferences(depth)
                 .is_some_and(|preferences| {
-                    preferences.sort() != PreferenceManager::shared().default_sort()
+                    let expected = browser.location_at(depth).map_or_else(
+                        || PreferenceManager::shared().default_sort(),
+                        |location| PreferenceManager::shared().default_sort_for(&location),
+                    );
+                    preferences.sort() != expected
                 }),
             matches!(folder_sort, FolderSort::Saved(..)),
         ),

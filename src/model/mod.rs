@@ -450,6 +450,150 @@ impl Location {
         locations.reverse();
         locations
     }
+
+    pub fn is_system_name_sorted_location(&self) -> bool {
+        let Some(path) = self.native_path() else {
+            return false;
+        };
+        let mut components = path.components();
+        let Some(first) = components.next() else {
+            return false;
+        };
+        match first {
+            std::path::Component::Prefix(prefix) => {
+                let is_c_drive = match prefix.kind() {
+                    std::path::Prefix::Disk(letter) | std::path::Prefix::VerbatimDisk(letter) => {
+                        letter.eq_ignore_ascii_case(&b'C')
+                    }
+                    _ => false,
+                } || std::env::var_os("SystemDrive").is_some_and(|drive| {
+                    prefix
+                        .as_os_str()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&drive.to_string_lossy())
+                });
+                if !is_c_drive {
+                    return false;
+                }
+                let mut rest = components
+                    .filter(|component| !matches!(component, std::path::Component::RootDir));
+                let Some(top) = rest.next() else {
+                    return true;
+                };
+                let top_name = top.as_os_str().to_string_lossy();
+                if [
+                    "Windows",
+                    "Program Files",
+                    "Program Files (x86)",
+                    "ProgramData",
+                    "Recovery",
+                    "PerfLogs",
+                    "$Recycle.Bin",
+                    "System Volume Information",
+                ]
+                .iter()
+                .any(|system_dir| top_name.eq_ignore_ascii_case(system_dir))
+                {
+                    return true;
+                }
+                if top_name.eq_ignore_ascii_case("Users") && rest.next().is_none() {
+                    return true;
+                }
+                false
+            }
+            std::path::Component::RootDir => components.next().is_none(),
+            _ => false,
+        }
+    }
+
+    pub fn is_flat_modified_location(&self) -> bool {
+        if self.uri_value() == Some("trash:///") {
+            return true;
+        }
+        let Some(path) = self.native_path() else {
+            return false;
+        };
+        if let Some(downloads) = gio::glib::user_special_dir(gio::glib::UserDirectory::Downloads)
+            && paths_equal_case_insensitive(path, &downloads)
+        {
+            return true;
+        }
+        let home = gio::glib::home_dir();
+        if paths_equal_case_insensitive(path, &home.join("Downloads")) {
+            return true;
+        }
+        if path
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("Downloads"))
+            && path
+                .parent()
+                .is_some_and(|parent| parent.parent().is_none())
+        {
+            return true;
+        }
+        let pictures = gio::glib::user_special_dir(gio::glib::UserDirectory::Pictures)
+            .unwrap_or_else(|| home.join("Pictures"));
+        if paths_equal_case_insensitive(path, &pictures.join("Screenshots")) {
+            return true;
+        }
+        let videos = gio::glib::user_special_dir(gio::glib::UserDirectory::Videos)
+            .unwrap_or_else(|| home.join("Videos"));
+        if paths_equal_case_insensitive(path, &videos.join("Captures"))
+            || paths_equal_case_insensitive(path, &videos.join("Discord Clips"))
+        {
+            return true;
+        }
+        false
+    }
+}
+
+fn paths_equal_case_insensitive(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let mut left_components = left.components();
+        let mut right_components = right.components();
+        loop {
+            match (left_components.next(), right_components.next()) {
+                (None, None) => return true,
+                (Some(l), Some(r)) => {
+                    if !l
+                        .as_os_str()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&r.as_os_str().to_string_lossy())
+                    {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+pub(crate) fn location_default_preferences(
+    mut preferences: ViewPreferences,
+    location: &Location,
+) -> ViewPreferences {
+    if location.is_recent_root() {
+        preferences.folders_first = false;
+        preferences.sort_key = SortKey::Recency;
+        preferences.sort_direction = SortDirection::Descending;
+    } else if location.is_camera_photo_root() {
+        preferences.sort_key = SortKey::DeviceOrder;
+    } else if location.is_system_name_sorted_location() {
+        preferences.folders_first = true;
+        preferences.sort_key = SortKey::Name;
+        preferences.sort_direction = SortDirection::Ascending;
+    } else if location.is_flat_modified_location() {
+        preferences.folders_first = false;
+        preferences.sort_key = SortKey::Modified;
+        preferences.sort_direction = SortDirection::Descending;
+    }
+    preferences
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

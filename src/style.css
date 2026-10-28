@@ -7418,15 +7418,84 @@ popover.settings-action-library > contents {
 .font-choice-row { padding: 9px 12px; }
 .day-group-heading { color: @strata_dim_text; font-size: 0.85em; padding: 9px 12px 5px; }
 .day-group-heading separator { background: alpha(@strata_border, 0.55); min-height: 1px; }
-.computer-page { background: @strata_bg; color: @strata_text; padding: 12px; }
-.computer-table { background: transparent; color: @strata_text; }
-.computer-table header button { background: @strata_surface; color: @strata_dim_text; border: none; border-bottom: 1px solid @strata_border; padding: 9px 12px; }
-.computer-table cell { padding: 10px 12px; }
-.computer-table row { color: @strata_text; background: transparent; }
-.computer-table row:hover { background: alpha(@strata_accent, 0.06); }
-.computer-table row:selected { background: alpha(@strata_accent, 0.14); }
-.computer-table row:focus-visible { outline: 2px solid @strata_accent; outline-offset: -2px; }
-.drive-capacity { color: @strata_text; font-size: 0.85em; }
-.drive-capacity trough { background: @strata_muted; border: 1px solid alpha(@strata_border, 0.5); border-radius: 5px; min-height: 9px; }
-.drive-capacity progress { background: @strata_accent; border-radius: 4px; min-height: 9px; }
+/* This PC: drive tiles on the browser surface, matching the icon and settings cards. */
+.computer-page,
+.computer-page > viewport,
+.computer-content {
+  background: @strata_bg;
+  background-image: none;
+  color: @strata_text;
+}
+.computer-content { padding: 20px 24px 24px; }
+.computer-heading {
+  color: @strata_dim_text;
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 4px;
+}
+.computer-drives { background: transparent; }
+.computer-drives > flowboxchild {
+  background: @strata_surface;
+  background-image: none;
+  color: @strata_text;
+  border: none;
+  box-shadow: none;
+  border-radius: 12px;
+  min-width: 300px;
+  padding: 0;
+  transition: background 120ms ease-out, box-shadow 120ms ease-out;
+}
+.computer-drives > flowboxchild:hover {
+  background: mix(@strata_surface, @strata_accent, 0.08);
+  border: none;
+  box-shadow: none;
+}
+.computer-drives > flowboxchild:selected {
+  background: mix(@strata_surface, @strata_accent, 0.16);
+  border: none;
+  box-shadow: none;
+  color: @strata_text;
+}
+.computer-drives > flowboxchild:focus-visible {
+  outline: 2px solid @strata_accent;
+  outline-offset: -2px;
+}
+.drive-tile { padding: 14px 16px; }
+.drive-tile-icon-frame {
+  background: alpha(@strata_accent, 0.12);
+  border: none;
+  border-radius: 12px;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 8px;
+}
+.drive-tile-icon { color: @strata_accent; }
+.drive-tile-name { color: @strata_text; font-weight: 600; }
+.drive-tile-kind,
+.drive-tile-capacity { color: @strata_dim_text; font-size: 0.85em; }
+.drive-tile-percent { color: @strata_dim_text; font-size: 0.85em; font-feature-settings: "tnum"; }
+.drive-tile-badge {
+  background: alpha(@strata_text, 0.08);
+  border-radius: 999px;
+  color: @strata_dim_text;
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 1px 8px;
+}
+.drive-capacity { margin: 4px 0 2px; }
+.drive-capacity trough {
+  background: alpha(@strata_text, 0.1);
+  background-image: none;
+  border: none;
+  border-radius: 999px;
+  min-height: 6px;
+}
+.drive-capacity progress {
+  background: @strata_accent;
+  background-image: none;
+  border: none;
+  border-radius: 999px;
+  min-height: 6px;
+}
 .drive-capacity.nearly-full progress { background: @strata_danger; }

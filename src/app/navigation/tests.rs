@@ -3058,3 +3058,47 @@ fn keyed_sort_and_batch_merge_match_monitor_order() {
         }
     }
 }
+
+#[test]
+fn location_defaults_distinguish_system_roots_downloads_and_general_folders() {
+    let app_defaults = ViewPreferences {
+        show_hidden: false,
+        folders_first: true,
+        sort_key: SortKey::Modified,
+        sort_direction: SortDirection::Descending,
+    };
+    let mut state = NavigationState::default();
+    state.set_default_preferences(app_defaults);
+    state.set_folder_sorts(Some(Rc::new(|_, _| FolderSort::Default)));
+
+    let downloads = Location::local(gtk::glib::home_dir().join("Downloads"));
+    state.navigate(downloads.clone(), RequestId(1));
+    assert_eq!(
+        state.column_preferences(0),
+        Some(ViewPreferences {
+            show_hidden: false,
+            folders_first: false,
+            sort_key: SortKey::Modified,
+            sort_direction: SortDirection::Descending,
+        })
+    );
+
+    let documents = Location::local(gtk::glib::home_dir().join("Documents"));
+    state.navigate(documents, RequestId(2));
+    assert_eq!(state.column_preferences(0), Some(app_defaults));
+
+    #[cfg(windows)]
+    let system_root = Location::local(r"C:\");
+    #[cfg(not(windows))]
+    let system_root = Location::local("/");
+    state.navigate(system_root, RequestId(3));
+    assert_eq!(
+        state.column_preferences(0),
+        Some(ViewPreferences {
+            show_hidden: false,
+            folders_first: true,
+            sort_key: SortKey::Name,
+            sort_direction: SortDirection::Ascending,
+        })
+    );
+}

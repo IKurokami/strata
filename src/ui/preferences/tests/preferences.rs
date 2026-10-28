@@ -670,12 +670,18 @@ fn fresh_preferences_select_tokyo_night_before_settings_opens() {
             assert!(!settings_path().exists());
             let themes = ThemeManager::shared();
             let manager = PreferenceManager::shared();
-            assert_eq!(themes.selected_id(), "tokyo-night");
+            let expected_id = crate::ui::preferences::default_theme_id();
+            let expected_name = if expected_id == "macos-classic-light" {
+                "macOS Classic Light"
+            } else {
+                "macOS Classic Dark"
+            };
+            assert_eq!(themes.selected_id(), expected_id);
             assert!(manager.filter_include_subfolders());
             assert!(!themes.follows_omarchy());
             assert_eq!(
                 themes.current_tokens().expect("selected theme").name,
-                "Tokyo Night"
+                expected_name
             );
             assert!(!settings_path().exists());
         },
@@ -689,12 +695,18 @@ fn fresh_preferences_still_follow_available_omarchy_theme() {
         || {
             seed_omarchy_for_test();
             let themes = ThemeManager::shared();
+            let expected_id = crate::ui::preferences::default_theme_id();
+            let expected_name = if expected_id == "macos-classic-light" {
+                "macOS Classic Light"
+            } else {
+                "macOS Classic Dark"
+            };
             assert!(themes.follows_omarchy());
-            assert_eq!(themes.selected_id(), "tokyo-night");
+            assert_eq!(themes.selected_id(), expected_id);
             themes.set_follow_omarchy(false);
             assert_eq!(
                 themes.current_tokens().expect("selected theme").name,
-                "Tokyo Night"
+                expected_name
             );
         },
     );
@@ -848,7 +860,7 @@ fn every_saved_preference_loads_before_any_settings_page_exists() {
                     show_hidden: true,
                     folders_first: false,
                     sort_key: SortKey::Size,
-                    sort_direction: SortDirection::Descending,
+                    sort_direction: SortDirection::Ascending,
                 }
             );
             assert!(!manager.remember_folder_views());
@@ -1180,7 +1192,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_element_glow(true),
                 |m| m.set_omarchy_variant(OmarchyVariant::HighContrast),
                 |m| m.set_file_icon_colors(FileIconColors::Brand),
-                |m| m.set_file_icon_theme(FileIconTheme::Catppuccin),
+                |m| m.set_file_icon_theme(FileIconTheme::Material),
                 |m| m.set_interface_font_family("JetBrains Mono".into()),
                 |m| m.set_inherit_folder_sorts(false),
                 |m| m.set_browser_mode(BrowserMode::Icons),
@@ -1219,7 +1231,14 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_sidebar_show_videos(true),
                 |m| m.set_sidebar_expanded(true),
                 |m| m.set_sidebar_compact(false),
-                |m| m.set_sort_preferences(ViewPreferences::default()),
+                |m| {
+                    m.set_sort_preferences(ViewPreferences {
+                        show_hidden: false,
+                        folders_first: true,
+                        sort_key: SortKey::Modified,
+                        sort_direction: SortDirection::Descending,
+                    })
+                },
                 |m| m.set_text_size(TextSize::new(11)),
                 |m| m.set_interface_renderer(InterfaceRenderer::System),
                 |m| m.set_language(crate::i18n::Language::Auto),

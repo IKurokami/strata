@@ -1,4 +1,5 @@
 {
+  "%{free} free of %{total}": "%{total} 中 %{free} 空き",
   " (%{size} known; size incomplete)": " (判明分 %{size}、一部サイズ不明)",
   " (size unavailable)": " (サイズ不明)",
   "%{changes} · published %{date}": "%{changes} · %{date}公開",

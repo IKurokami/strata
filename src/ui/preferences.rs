@@ -70,9 +70,34 @@ pub(crate) enum FileIconColors {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FileIconTheme {
-    #[default]
     Catppuccin,
+    #[default]
     Material,
+}
+
+pub(in crate::ui) fn default_theme_id() -> String {
+    #[cfg(windows)]
+    {
+        if strata_win_shell::desktop::system_prefers_dark() {
+            "macos-classic-dark".to_owned()
+        } else {
+            "macos-classic-light".to_owned()
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let prefers_dark = gtk::Settings::default().map_or(true, |settings| {
+            settings.is_gtk_application_prefer_dark_theme()
+                || settings
+                    .gtk_theme_name()
+                    .is_none_or(|name| !name.to_ascii_lowercase().contains("light"))
+        });
+        if prefers_dark {
+            "macos-classic-dark".to_owned()
+        } else {
+            "macos-classic-light".to_owned()
+        }
+    }
 }
 
 fn default_interface_font_family() -> String {
@@ -284,7 +309,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             mode: "theme".to_owned(),
-            theme: "tokyo-night".to_owned(),
+            theme: default_theme_id(),
             omarchy_variant: OmarchyVariant::default(),
             folder_peeking: false,
             single_click_previews: true,
@@ -442,11 +467,11 @@ fn default_sidebar_order() -> Vec<String> {
 }
 
 fn default_sort_key() -> String {
-    "name".to_owned()
+    "modified".to_owned()
 }
 
 fn default_sort_direction() -> String {
-    "ascending".to_owned()
+    "descending".to_owned()
 }
 
 fn default_full_volume() -> f64 {
