@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use gtk::{gdk, glib, prelude::*};
+use gtk::{gdk, glib, prelude::*, subclass::prelude::*};
 
 use super::keys::{
     self,
@@ -23,6 +23,90 @@ use crate::services::{
 mod smart;
 
 const MAX_RESULT_UPDATES_PER_FRAME: usize = 8;
+const SEARCH_DIALOG_WIDTH: i32 = 980;
+const SEARCH_DIALOG_HEIGHT: i32 = 580;
+
+mod imp {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct SearchDialogLayout;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for SearchDialogLayout {
+        const NAME: &'static str = "StrataSearchDialogLayout";
+        type Type = super::SearchDialogLayout;
+        type ParentType = gtk::LayoutManager;
+    }
+
+    impl ObjectImpl for SearchDialogLayout {}
+
+    impl LayoutManagerImpl for SearchDialogLayout {
+        fn measure(
+            &self,
+            widget: &gtk::Widget,
+            orientation: gtk::Orientation,
+            _for_size: i32,
+        ) -> (i32, i32, i32, i32) {
+            let target = match orientation {
+                gtk::Orientation::Horizontal => SEARCH_DIALOG_WIDTH,
+                gtk::Orientation::Vertical => SEARCH_DIALOG_HEIGHT,
+                _ => SEARCH_DIALOG_WIDTH,
+            };
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if current.should_layout() {
+                    let _ = current.measure(orientation, -1);
+                }
+                child = current.next_sibling();
+            }
+            (target, target, -1, -1)
+        }
+
+        fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, _baseline: i32) {
+            let mut y = 0;
+            let mut first = widget.first_child();
+            while let Some(current) = first {
+                if current.should_layout() {
+                    let next = current.next_sibling();
+                    let has_more_visible = {
+                        let mut probe = next.clone();
+                        let mut found = false;
+                        while let Some(item) = probe {
+                            if item.should_layout() {
+                                found = true;
+                                break;
+                            }
+                            probe = item.next_sibling();
+                        }
+                        found
+                    };
+                    let child_height = if has_more_visible {
+                        let (_, nat, _, _) = current.measure(gtk::Orientation::Vertical, width);
+                        nat.min((height - y).max(0))
+                    } else {
+                        (height - y).max(0)
+                    };
+                    current
+                        .size_allocate(&gtk::Allocation::new(0, y, width.max(0), child_height), -1);
+                    y += child_height;
+                }
+                first = current.next_sibling();
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct SearchDialogLayout(ObjectSubclass<imp::SearchDialogLayout>)
+        @extends gtk::LayoutManager;
+}
+
+impl Default for SearchDialogLayout {
+    fn default() -> Self {
+        glib::Object::new()
+    }
+}
 
 #[derive(Clone)]
 pub struct SearchDialog {
@@ -86,9 +170,11 @@ impl SearchDialog {
         panel.add_css_class("search-dialog");
         panel.set_halign(gtk::Align::Center);
         panel.set_valign(gtk::Align::Center);
-        panel.set_size_request(920, -1);
+        panel.set_size_request(SEARCH_DIALOG_WIDTH, SEARCH_DIALOG_HEIGHT);
+        panel.set_hexpand(false);
         panel.set_vexpand(false);
         panel.set_overflow(gtk::Overflow::Hidden);
+        panel.set_layout_manager(Some(SearchDialogLayout::default()));
 
         let search_bar = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         search_bar.add_css_class("search-bar");
@@ -102,6 +188,17 @@ impl SearchDialog {
             .build();
         field.add_css_class("search-field");
         search_bar.append(&field);
+        let truncated_hint = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        truncated_hint.append(&crate::assets::primary_icon(
+            crate::assets::icons::TRIANGLE_ALERT,
+            14,
+        ));
+        truncated_hint.append(&gtk::Label::new(Some(&crate::i18n::tr("Partial results"))));
+        truncated_hint.add_css_class("search-hint");
+        truncated_hint.add_css_class("search-hint-warning");
+        truncated_hint.set_valign(gtk::Align::Center);
+        truncated_hint.set_visible(false);
+        search_bar.append(&truncated_hint);
         let indexing_spinner = gtk::Spinner::new();
         indexing_spinner.add_css_class("search-indexing-spinner");
         crate::ui::accessibility::set_description(
@@ -116,6 +213,8 @@ impl SearchDialog {
         let status = gtk::Label::new(Some(&crate::i18n::tr("Searching…")));
         status.add_css_class("search-status");
         status.set_wrap(true);
+        status.set_hexpand(true);
+        status.set_vexpand(true);
 
         let list = gtk::ListBox::new();
         list.add_css_class("search-results");
@@ -130,40 +229,23 @@ impl SearchDialog {
         let scroller = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .propagate_natural_width(false)
+            .propagate_natural_height(false)
+            .hexpand(true)
             .vexpand(true)
             .child(&list)
             .build();
         scroller.add_css_class("search-results-scroll");
         let results = gtk::Stack::new();
         results.add_css_class("search-results-stack");
-        results.set_size_request(-1, 360);
+        results.set_hexpand(true);
+        results.set_vexpand(true);
+        results.set_hhomogeneous(true);
+        results.set_vhomogeneous(true);
         results.add_named(&status, Some("status"));
         results.add_named(&scroller, Some("results"));
         results.set_visible_child_name("status");
         panel.append(&results);
-
-        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        footer.add_css_class("search-footer");
-        footer.set_visible(false);
-        let truncated_hint = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        truncated_hint.append(&crate::assets::primary_icon(
-            crate::assets::icons::TRIANGLE_ALERT,
-            14,
-        ));
-        truncated_hint.append(&gtk::Label::new(Some(&crate::i18n::tr("Partial results"))));
-        truncated_hint.add_css_class("search-hint");
-        truncated_hint.add_css_class("search-hint-warning");
-        truncated_hint.set_hexpand(true);
-        truncated_hint.set_halign(gtk::Align::End);
-        truncated_hint.set_visible(false);
-        footer.append(&truncated_hint);
-        let footer_weak = footer.downgrade();
-        truncated_hint.connect_visible_notify(move |warning| {
-            if let Some(footer) = footer_weak.upgrade() {
-                footer.set_visible(warning.is_visible());
-            }
-        });
-        panel.append(&footer);
         super::modal::layout::install(&layer, &panel);
 
         let focus_restore = super::modal::remember_persistent_modal_focus(layer.upcast_ref());
@@ -357,7 +439,7 @@ impl SearchDialog {
         clear_results(&self.state);
         self.state.results.set_visible_child_name("status");
         self.state.field.set_text("");
-        self.state.results.set_visible(false);
+        self.state.results.set_visible(true);
         self.state.status.set_visible(true);
         self.state.status.set_text(&crate::i18n::tr(
             "Type to search Home and mounted local drives",
@@ -479,7 +561,12 @@ fn begin_query(state: &Rc<SearchState>, query: &str) {
     }
     if query.trim().is_empty() {
         clear_results(state);
-        state.results.set_visible(false);
+        state.results.set_visible(true);
+        state.results.set_visible_child_name("status");
+        state.status.set_visible(true);
+        state.status.set_text(&crate::i18n::tr(
+            "Type to search Home and mounted local drives",
+        ));
         state.truncated_hint.set_visible(false);
     } else {
         state.results.set_visible(true);

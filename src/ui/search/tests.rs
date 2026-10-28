@@ -583,7 +583,7 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
                     .next_sibling(),
                 Some(dialog.state.results.clone().upcast())
             );
-            assert!(!dialog.state.results.is_visible());
+            assert!(dialog.state.results.is_visible());
             assert!(dialog.state.field.tooltip_text().is_none());
             dialog.state.field.set_text("needle");
             wait_until(|| dialog.state.visible_results.borrow().len() == 2);

@@ -91,14 +91,18 @@ pub(super) fn rank(
         };
         let mean = sum / count as f64;
         let deviation = (squares / count as f64 - mean * mean).max(0.0).sqrt();
-        let z = if deviation > 1e-6 {
-            ((f64::from(cosine) - mean) / deviation) as f32
+        let reg_deviation = deviation.max(0.035);
+        let z = if count > 1 && deviation > 1e-6 {
+            ((f64::from(cosine) - mean) / reg_deviation) as f32
         } else {
-            0.0
+            ((cosine - 0.35).max(0.0)) * 3.0
         };
         let word_coverage = coverage(query, source);
-        let strong = z >= 2.0 || word_coverage >= 0.5;
-        if !strong && cosine < 0.3 {
+        let strong = z >= 1.25
+            || cosine >= 0.62
+            || (count < 8 && cosine >= 0.45 && z >= 0.5)
+            || word_coverage >= 0.34;
+        if !strong && cosine < 0.28 && word_coverage == 0.0 {
             continue;
         }
         let mut hit = source.clone();
@@ -110,8 +114,9 @@ pub(super) fn rank(
         hit.weak = !strong;
         let semantic_weight = if exact_query { 0.5 } else { 1.0 };
         let keyword_weight = if exact_query { 2.0 } else { 1.0 };
-        hit.score = keyword_score(query, &hit) * keyword_weight as i64
-            + (semantic_weight * z.max(0.0) * 1_000_000.0) as i64;
+        let semantic_signal = cosine.max(0.0) * 1.5 + z.max(0.0) * 0.6;
+        hit.score = (keyword_score(query, &hit) as f32 * keyword_weight) as i64
+            + (semantic_weight * semantic_signal * 1_000_000.0) as i64;
         results
             .entry(hit.identity())
             .and_modify(|old| {

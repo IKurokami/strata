@@ -671,16 +671,19 @@ headerbar.browser-header menubutton.header-action > button {
 
 .search-dialog {
   background: @strata_surface;
-  border: 1px solid alpha(@strata_border, 0.48);
+  border: none;
   border-radius: 15px;
-  box-shadow: 0 14px 48px alpha(@strata_glow, 0.22);
-  min-width: 780px;
+  box-shadow: none;
+  outline: none;
+  min-width: 980px;
+  min-height: 580px;
 }
 
 .search-bar {
-  border-bottom: 1px solid alpha(@strata_border, 0.38);
-  border-top-left-radius: 14px;
-  border-top-right-radius: 14px;
+  border: none;
+  box-shadow: none;
+  border-top-left-radius: 15px;
+  border-top-right-radius: 15px;
   min-height: 64px;
   padding: 0 22px;
 }
@@ -710,8 +713,18 @@ headerbar.browser-header menubutton.header-action > button {
   padding: 28px 24px;
 }
 
-.search-results-scroll {
+.search-results-stack,
+.search-results-scroll,
+.search-results-scroll > viewport,
+.search-results-scroll overshoot,
+.search-results-scroll undershoot {
   background: @strata_surface;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-results-scroll {
   min-height: 360px;
 }
 
@@ -719,18 +732,24 @@ headerbar.browser-header menubutton.header-action > button {
   padding: 8px 0;
 }
 
-.search-smart-split > separator {
-  background: alpha(@strata_border, 0.32);
-  min-width: 1px;
-}
-
+.search-smart-split > separator,
 .search-smart-split > separator:hover {
-  background: alpha(@strata_accent, 0.44);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-width: 0;
 }
 
 .search-smart-list,
-.search-smart-list > row {
+.search-smart-list > row,
+.search-smart-list:focus,
+.search-smart-list:focus-visible,
+.search-smart-list > row:focus,
+.search-smart-list > row:focus-visible {
   background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .search-smart-list > row {
@@ -739,6 +758,9 @@ headerbar.browser-header menubutton.header-action > button {
 }
 
 .search-smart-result {
+  border: none;
+  box-shadow: none;
+  outline: none;
   border-radius: 9px;
   padding: 7px 9px;
   min-height: 50px;
@@ -772,8 +794,34 @@ headerbar.browser-header menubutton.header-action > button {
   background: alpha(@strata_accent, 0.15);
 }
 
+.search-smart-preview-area,
 .search-smart-preview {
-  padding: 0 6px 0 8px;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-smart-preview {
+  padding: 0 12px 12px 8px;
+}
+
+.search-smart-preview .preview-pane,
+.search-smart-preview .preview-header,
+.search-smart-preview .preview-content,
+.search-smart-preview .preview-media-bar {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.search-smart-preview .preview-close,
+.search-smart-preview .preview-resize-grip {
+  min-width: 0;
+  min-height: 0;
+  opacity: 0;
+  padding: 0;
+  margin: 0;
 }
 
 .search-smart-empty {
@@ -783,10 +831,15 @@ headerbar.browser-header menubutton.header-action > button {
 .search-results,
 .search-results > row {
   background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .search-result {
-  border-bottom: 1px solid alpha(@strata_border, 0.28);
+  border: none;
+  box-shadow: none;
+  outline: none;
   color: @strata_text;
   padding: 0;
 }
@@ -803,8 +856,9 @@ headerbar.browser-header menubutton.header-action > button {
 .search-result:focus-visible {
   background: alpha(@strata_highlight, 0.72);
   color: @strata_text;
-  outline: 1px solid alpha(@strata_accent, 0.72);
-  outline-offset: -1px;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .search-result-thumbnail {
@@ -828,11 +882,10 @@ headerbar.browser-header menubutton.header-action > button {
 }
 
 .search-footer {
-  background: alpha(@strata_bg, 0.18);
-  border-top: 1px solid alpha(@strata_border, 0.5);
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  min-height: 34px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-height: 0;
   padding: 0 18px;
 }
 
@@ -6135,6 +6188,16 @@ two-column presentation. */
 .smart-settings-path {
   color: @strata_text;
   font-size: 0.94em;
+}
+
+.smart-settings-count {
+  background: alpha(@strata_accent, 0.12);
+  border: 1px solid alpha(@strata_accent, 0.32);
+  border-radius: 999px;
+  color: @strata_accent;
+  font-size: 0.8em;
+  font-weight: 600;
+  padding: 2px 9px;
 }
 
 .smart-settings-actions,

@@ -192,8 +192,32 @@ fn valid(path: &Path, size: u64, expected: &str, cancel: &AtomicBool) -> Result<
 mod tests;
 
 pub(super) fn verify(data: &Path, cancelled: &impl Fn() -> bool) -> Result<(), String> {
+    use std::sync::{Mutex, OnceLock};
+    type Stamp = (PathBuf, [(u64, Option<std::time::SystemTime>); 2]);
+    static VERIFIED: OnceLock<Mutex<Option<Stamp>>> = OnceLock::new();
+
     if !ready(data) {
         return Err("Smart Search models are not installed".into());
+    }
+    let dir = folder(data);
+    let current_stamps = [
+        fs::metadata(dir.join(MODELS[0].0))
+            .map_err(|error| error.to_string())
+            .map(|meta| (meta.len(), meta.modified().ok()))?,
+        fs::metadata(dir.join(MODELS[1].0))
+            .map_err(|error| error.to_string())
+            .map(|meta| (meta.len(), meta.modified().ok()))?,
+    ];
+    let cache = VERIFIED.get_or_init(|| Mutex::new(None));
+    if cache
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .is_some_and(|(cached_dir, cached_stamps)| {
+            cached_dir == &dir && cached_stamps == &current_stamps
+        })
+    {
+        return Ok(());
     }
     for (name, size, expected) in MODELS {
         let mut source =
@@ -219,5 +243,6 @@ pub(super) fn verify(data: &Path, cancelled: &impl Fn() -> bool) -> Result<(), S
             return Err("Model checksum mismatch".into());
         }
     }
+    *cache.lock().unwrap_or_else(|error| error.into_inner()) = Some((dir, current_stamps));
     Ok(())
 }

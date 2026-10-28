@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::services::smart_search::result::{
-    ContentLocator, FileRevision, MatchReason, SearchHit,
-};
+use crate::services::smart_search::result::{ContentLocator, FileRevision, MatchReason, SearchHit};
 
 fn hit(path: &str, segment: i64, score: i64, weak: bool) -> SearchHit {
     SearchHit {
         file_id: 1,
         segment_id: segment,
         path: path.into(),
-        revision: FileRevision { size: 10, modified_ns: 5 },
+        revision: FileRevision {
+            size: 10,
+            modified_ns: 5,
+        },
         locator: ContentLocator::Audio {
             start_us: segment as u64 * 1_000_000,
             end_us: (segment as u64 + 5) * 1_000_000,
@@ -35,12 +36,18 @@ fn filename_results_remain_available_during_content_refresh() {
             assert_eq!(panel.store.n_items(), 1);
             assert!(panel.drawer.borrow().is_none());
             assert!(panel.selected().is_none());
-            assert_eq!(panel.activation_target().expect("default target").path, filename.path);
+            assert_eq!(
+                panel.activation_target().expect("default target").path,
+                filename.path
+            );
             panel.move_selection(1);
             assert_eq!(panel.selected().expect("selection").path, filename.path);
             panel.refresh_content();
             assert_eq!(panel.store.n_items(), 1);
-            assert_eq!(panel.selected().expect("retained selection").path, filename.path);
+            assert_eq!(
+                panel.selected().expect("retained selection").path,
+                filename.path
+            );
             panel.cancel();
             assert!(!panel.preview_slot.is_visible());
         },
@@ -67,7 +74,14 @@ fn multiple_segments_share_one_row_and_keep_selected_file_across_updates() {
             panel.render();
             assert_eq!(panel.store.n_items(), 2);
             assert_eq!(panel.rows.borrow()[0].path, std::path::PathBuf::from(path));
-            assert_eq!(panel.rows.borrow()[0].content_hit.as_ref().unwrap().segment_id, 2);
+            assert_eq!(
+                panel.rows.borrow()[0]
+                    .content_hit
+                    .as_ref()
+                    .unwrap()
+                    .segment_id,
+                2
+            );
             panel.move_selection(1);
             assert_eq!(panel.selected().expect("selection").path, path);
             panel.hits.replace(vec![hit(path, 4, 20, false)]);
@@ -82,11 +96,14 @@ fn multiple_segments_share_one_row_and_keep_selected_file_across_updates() {
 
 #[test]
 fn only_distinct_files_are_shown_for_semantic_segments() {
-    let rows = unique_rows(&[], &[
-        hit("/files/video.mp4", 1, 9, false),
-        hit("/files/video.mp4", 2, 20, false),
-        hit("/files/audio.mp3", 3, 7, true),
-    ]);
+    let rows = unique_rows(
+        &[],
+        &[
+            hit("/files/video.mp4", 1, 9, false),
+            hit("/files/video.mp4", 2, 20, false),
+            hit("/files/audio.mp3", 3, 7, true),
+        ],
+    );
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].path, std::path::PathBuf::from("/files/video.mp4"));
     assert_eq!(rows[0].content_hit.as_ref().unwrap().segment_id, 2);
@@ -107,7 +124,10 @@ fn win32_verbatim_paths_are_stripped_only_for_display() {
         display_search_path(Path::new("//?/C:/Users/Public/file.txt")),
         "C:/Users/Public/file.txt"
     );
-    assert_eq!(display_search_path(Path::new("/home/user/file.txt")), "/home/user/file.txt");
+    assert_eq!(
+        display_search_path(Path::new("/home/user/file.txt")),
+        "/home/user/file.txt"
+    );
 }
 
 #[test]

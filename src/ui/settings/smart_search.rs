@@ -6,18 +6,19 @@ use crate::{
     ui::preferences::PreferenceManager,
 };
 use gtk::{gio, glib, prelude::*};
-use std::{path::Path, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::Duration,
+};
 
 pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
     let content = super::page_content();
     content.add_css_class("smart-settings-page");
 
     let main = super::settings_group(&content, "");
-    let (row, enabled) = super::settings_option(
-        "Smart Search",
-        "",
-        manager.smart_search_enabled(),
-    );
+    let (row, enabled) = super::settings_option("Smart Search", "", manager.smart_search_enabled());
     super::bindings::bind_switch(
         &manager,
         &enabled,
@@ -47,6 +48,8 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
     actions.append(&add);
     folders.append(&actions);
 
+    let folder_counts: Rc<RefCell<Vec<(PathBuf, gtk::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+    let folder_counts_for_bind = folder_counts.clone();
     let remove_from = manager.clone();
     manager.bind_preference(
         &list,
@@ -58,6 +61,9 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
             while let Some(child) = list.first_child() {
                 list.remove(&child);
             }
+            let mut count_labels = folder_counts_for_bind.borrow_mut();
+            count_labels.clear();
+            let current_status = smart_search::status();
             list.set_visible(!paths.is_empty());
             for path in paths {
                 let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -71,16 +77,21 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
                 label.set_hexpand(true);
                 label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
                 row.append(&label);
+                let count = gtk::Label::new(Some(&crate::i18n::count(
+                    "files",
+                    current_status.folder_indexed_count(&path),
+                )));
+                count.add_css_class("smart-settings-count");
+                count.set_valign(gtk::Align::Center);
+                row.append(&count);
+                count_labels.push((path.clone(), count));
                 let remove = gtk::Button::builder()
                     .child(&primary_icon(icons::X, 16))
                     .tooltip_text(crate::i18n::tr("Remove"))
                     .valign(gtk::Align::Center)
                     .build();
                 remove.add_css_class("smart-settings-remove");
-                crate::ui::accessibility::set_label(
-                    &remove,
-                    &crate::i18n::tr("Remove"),
-                );
+                crate::ui::accessibility::set_label(&remove, &crate::i18n::tr("Remove"));
                 let manager = remove_from.clone();
                 remove.connect_clicked(move |_| {
                     let mut roots = manager.smart_search_roots();
@@ -233,8 +244,19 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
 
     let state = smart_search::status();
     refresh_status(
-        &state, &manager, &models, &model_label, &download, &cancel, &progress,
-        &indexing, &spinner, &rebuild, &rebuild_row,
+        &state,
+        &manager,
+        &folder_counts,
+        &models,
+        &model_label,
+        &download,
+        &cancel,
+        &progress,
+        &indexing,
+        &indexing_label,
+        &spinner,
+        &rebuild,
+        &rebuild_row,
     );
     let weak_models = models.downgrade();
     let weak_label = model_label.downgrade();
@@ -242,25 +264,52 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
     let weak_cancel = cancel.downgrade();
     let weak_progress = progress.downgrade();
     let weak_indexing = indexing.downgrade();
+    let weak_indexing_label = indexing_label.downgrade();
     let weak_spinner = spinner.downgrade();
     let weak_rebuild = rebuild.downgrade();
     let weak_rebuild_row = rebuild_row.downgrade();
     let manager = manager.clone();
     glib::timeout_add_local(Duration::from_millis(500), move || {
         let (
-            Some(models), Some(label), Some(download), Some(cancel),
-            Some(progress), Some(indexing), Some(spinner), Some(rebuild),
+            Some(models),
+            Some(label),
+            Some(download),
+            Some(cancel),
+            Some(progress),
+            Some(indexing),
+            Some(indexing_label),
+            Some(spinner),
+            Some(rebuild),
             Some(rebuild_row),
         ) = (
-            weak_models.upgrade(), weak_label.upgrade(), weak_download.upgrade(),
-            weak_cancel.upgrade(), weak_progress.upgrade(), weak_indexing.upgrade(),
-            weak_spinner.upgrade(), weak_rebuild.upgrade(), weak_rebuild_row.upgrade(),
-        ) else {
+            weak_models.upgrade(),
+            weak_label.upgrade(),
+            weak_download.upgrade(),
+            weak_cancel.upgrade(),
+            weak_progress.upgrade(),
+            weak_indexing.upgrade(),
+            weak_indexing_label.upgrade(),
+            weak_spinner.upgrade(),
+            weak_rebuild.upgrade(),
+            weak_rebuild_row.upgrade(),
+        )
+        else {
             return glib::ControlFlow::Break;
         };
         refresh_status(
-            &smart_search::status(), &manager, &models, &label, &download, &cancel,
-            &progress, &indexing, &spinner, &rebuild, &rebuild_row,
+            &smart_search::status(),
+            &manager,
+            &folder_counts,
+            &models,
+            &label,
+            &download,
+            &cancel,
+            &progress,
+            &indexing,
+            &indexing_label,
+            &spinner,
+            &rebuild,
+            &rebuild_row,
         );
         glib::ControlFlow::Continue
     });
@@ -297,44 +346,73 @@ fn model_stage(status: &smart_search::Status) -> ModelStage {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "One bounded visual-state update for the Settings page")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "One bounded visual-state update for the Settings page"
+)]
 fn refresh_status(
     status: &smart_search::Status,
     manager: &PreferenceManager,
+    folder_counts: &RefCell<Vec<(PathBuf, gtk::Label)>>,
     models: &gtk::Box,
     model_label: &gtk::Label,
     download: &gtk::Button,
     cancel: &gtk::Button,
     progress: &gtk::ProgressBar,
     indexing: &gtk::Box,
+    indexing_label: &gtk::Label,
     spinner: &gtk::Spinner,
     rebuild: &gtk::Button,
     rebuild_row: &gtk::Box,
 ) {
+    for (path, label) in folder_counts.borrow().iter() {
+        let text = crate::i18n::count("files", status.folder_indexed_count(path));
+        if label.text() != text {
+            label.set_text(&text);
+        }
+    }
     let stage = model_stage(status);
     models.set_visible(stage != ModelStage::Ready);
-    download.set_visible(matches!(stage, ModelStage::NeedsDownload | ModelStage::Failed) && !status.models_ready);
+    download.set_visible(
+        matches!(stage, ModelStage::NeedsDownload | ModelStage::Failed) && !status.models_ready,
+    );
     cancel.set_visible(stage == ModelStage::Downloading);
     progress.set_visible(stage == ModelStage::Downloading);
     if stage == ModelStage::Downloading {
         model_label.set_text(&crate::i18n::tr("Downloading models…"));
-        progress.set_fraction(
-            (status.downloaded as f64 / status.total.max(1) as f64).clamp(0.0, 1.0),
-        );
+        progress
+            .set_fraction((status.downloaded as f64 / status.total.max(1) as f64).clamp(0.0, 1.0));
     } else if stage == ModelStage::Failed {
         model_label.set_text(&crate::i18n::tr("Search setup needs attention"));
     } else {
         model_label.set_text("");
     }
-    model_label.set_visible(matches!(stage, ModelStage::Downloading | ModelStage::Failed));
+    model_label.set_visible(matches!(
+        stage,
+        ModelStage::Downloading | ModelStage::Failed
+    ));
     let running = status.running && !manager.smart_search_paused();
     indexing.set_visible(running);
     if running {
+        let indexing_text = if status.indexed > 0 {
+            format!(
+                "{} ({})",
+                crate::i18n::tr("Indexing files…"),
+                crate::i18n::count("files", status.indexed)
+            )
+        } else {
+            crate::i18n::tr("Indexing files…")
+        };
+        if indexing_label.text() != indexing_text {
+            indexing_label.set_text(&indexing_text);
+        }
         spinner.start();
     } else {
         spinner.stop();
     }
-    let can_rebuild = status.models_ready && !status.downloading && !running
+    let can_rebuild = status.models_ready
+        && !status.downloading
+        && !running
         && (status.indexed > 0 || status.failed);
     rebuild.set_visible(can_rebuild);
     rebuild_row.set_visible(can_rebuild);

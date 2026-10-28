@@ -13,6 +13,7 @@ pub mod desktop;
 pub mod file_manager;
 pub mod job;
 pub mod launch;
+pub mod ocr;
 mod operation_result;
 pub mod power;
 mod recycle_bin;

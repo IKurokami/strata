@@ -43,8 +43,8 @@ use windows::{
             Pipes::{CreatePipe, PeekNamedPipe},
             Threading::{
                 CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess,
-                PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW,
-                WaitForSingleObject,
+                PROCESS_INFORMATION, ResumeThread, STARTF_FORCEOFFFEEDBACK, STARTF_USESTDHANDLES,
+                STARTUPINFOW, WaitForSingleObject,
             },
         },
     },
@@ -430,7 +430,7 @@ pub fn run_in_job(
 
     let startup_info = STARTUPINFOW {
         cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-        dwFlags: STARTF_USESTDHANDLES,
+        dwFlags: STARTF_USESTDHANDLES | STARTF_FORCEOFFFEEDBACK,
         hStdInput: if stdin_read.is_valid() {
             stdin_read.handle()
         } else {
@@ -851,7 +851,7 @@ pub fn spawn_streaming_in_job(
 
     let startup_info = STARTUPINFOW {
         cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-        dwFlags: STARTF_USESTDHANDLES,
+        dwFlags: STARTF_USESTDHANDLES | STARTF_FORCEOFFFEEDBACK,
         hStdInput: HANDLE::default(),
         hStdOutput: stdout_write.handle(),
         hStdError: stderr_write.handle(),
@@ -945,7 +945,7 @@ pub fn spawn_interactive_in_job(
 
     let startup_info = STARTUPINFOW {
         cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-        dwFlags: STARTF_USESTDHANDLES,
+        dwFlags: STARTF_USESTDHANDLES | STARTF_FORCEOFFFEEDBACK,
         hStdInput: stdin_read.handle(),
         hStdOutput: stdout_write.handle(),
         hStdError: stderr_write.handle(),

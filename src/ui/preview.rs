@@ -423,7 +423,10 @@ impl PreviewDrawer {
         let slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         // Keep preview content clipped while the user resizes the pane.
         slot.set_overflow(gtk::Overflow::Hidden);
+        slot.set_hexpand(true);
+        slot.set_vexpand(true);
         revealer.set_hexpand(true);
+        revealer.set_vexpand(true);
         let resize_grip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         resize_grip.add_css_class("preview-resize-grip");
         resize_grip.set_width_request(layout::RESIZE_GRIP_WIDTH);
@@ -431,6 +434,7 @@ impl PreviewDrawer {
         resize_grip.set_cursor_from_name(Some("col-resize"));
         let slot_overlay = gtk::Overlay::new();
         slot_overlay.set_hexpand(true);
+        slot_overlay.set_vexpand(true);
         slot_overlay.set_child(Some(&revealer));
         slot_overlay.add_overlay(&resize_grip);
         slot.append(&slot_overlay);
@@ -1382,12 +1386,16 @@ impl PreviewState {
             .unwrap_or_else(|| {
                 if self.content.width() > 0 {
                     self.content.width()
+                } else if self.slot.width() > 0 {
+                    self.slot.width()
                 } else {
                     DEFAULT_WIDTH
                 }
             });
         let height = if self.content.height() > 0 {
             self.content.height()
+        } else if self.slot.height() > 0 {
+            self.slot.height()
         } else {
             split
                 .as_ref()

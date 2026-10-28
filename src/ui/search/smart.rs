@@ -7,7 +7,7 @@ use crate::services::{
         result::{SearchHit, SearchPhase},
     },
 };
-use gtk::{gio, glib, prelude::*};
+use gtk::{gio, glib, prelude::*, subclass::prelude::*};
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -16,6 +16,64 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+
+mod imp {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct SearchSlotLayout;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for SearchSlotLayout {
+        const NAME: &'static str = "StrataSearchSlotLayout";
+        type Type = super::SearchSlotLayout;
+        type ParentType = gtk::LayoutManager;
+    }
+
+    impl ObjectImpl for SearchSlotLayout {}
+
+    impl LayoutManagerImpl for SearchSlotLayout {
+        fn measure(
+            &self,
+            widget: &gtk::Widget,
+            orientation: gtk::Orientation,
+            _for_size: i32,
+        ) -> (i32, i32, i32, i32) {
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if current.should_layout() {
+                    let _ = current.measure(orientation, -1);
+                }
+                child = current.next_sibling();
+            }
+            (0, 0, -1, -1)
+        }
+
+        fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, _baseline: i32) {
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if current.should_layout() {
+                    current.size_allocate(
+                        &gtk::Allocation::new(0, 0, width.max(0), height.max(0)),
+                        -1,
+                    );
+                }
+                child = current.next_sibling();
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct SearchSlotLayout(ObjectSubclass<imp::SearchSlotLayout>)
+        @extends gtk::LayoutManager;
+}
+
+impl Default for SearchSlotLayout {
+    fn default() -> Self {
+        glib::Object::new()
+    }
+}
 
 type PreviewKey = (
     std::path::PathBuf,
@@ -47,7 +105,6 @@ pub(super) struct Panel {
 
 impl Panel {
     pub fn new(activate: Rc<dyn Fn(SearchItem)>) -> Rc<Self> {
-
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("search-smart-panel");
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
@@ -165,6 +222,8 @@ impl Panel {
             .child(&list)
             .hexpand(true)
             .vexpand(true)
+            .propagate_natural_width(false)
+            .propagate_natural_height(false)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
         let results_column = gtk::Overlay::new();
@@ -184,6 +243,13 @@ impl Panel {
         preview_slot.set_vexpand(true);
         preview_slot.set_overflow(gtk::Overflow::Hidden);
         preview_slot.set_visible(false);
+        let preview_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        preview_area.add_css_class("search-smart-preview-area");
+        preview_area.set_hexpand(true);
+        preview_area.set_vexpand(true);
+        preview_area.set_overflow(gtk::Overflow::Hidden);
+        preview_area.set_layout_manager(Some(SearchSlotLayout::default()));
+        preview_area.append(&preview_slot);
         let body = gtk::Paned::new(gtk::Orientation::Horizontal);
         body.add_css_class("search-smart-split");
         body.set_vexpand(true);
@@ -193,7 +259,7 @@ impl Panel {
         body.set_shrink_start_child(false);
         body.set_shrink_end_child(true);
         body.set_start_child(Some(&results_column));
-        body.set_end_child(Some(&preview_slot));
+        body.set_end_child(Some(&preview_area));
         body.set_position(352);
         root.append(&body);
         let state = Rc::new(Self {
@@ -349,7 +415,10 @@ impl Panel {
         self.reconciling.set(true);
         self.store.splice(prefix as u32, removed as u32, &additions);
         let retained = selected_key.and_then(|key| {
-            self.rows.borrow().iter().position(|row| result_key(&row.path) == key)
+            self.rows
+                .borrow()
+                .iter()
+                .position(|row| result_key(&row.path) == key)
         });
         self.selection
             .set_selected(retained.map_or(gtk::INVALID_LIST_POSITION, |position| position as u32));

@@ -38,6 +38,30 @@ pub(super) fn index(
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value > 0.0 && *value <= 86400.0)
         .ok_or("Media duration exceeds the content indexing budget")?;
+    let media_tags = metadata["format"]["tags"]
+        .as_object()
+        .map(|tags| {
+            tags.iter()
+                .filter(|(key, _)| {
+                    matches!(
+                        key.to_ascii_lowercase().as_str(),
+                        "title"
+                            | "artist"
+                            | "album"
+                            | "comment"
+                            | "description"
+                            | "synopsis"
+                            | "lyrics"
+                            | "purl"
+                    )
+                })
+                .filter_map(|(_, value)| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
     let hop = if video { 10_u64 } else { 25 };
     let start_us = u64::from(cursor) * 1_000_000;
     let duration_us = (duration * 1_000_000.0) as u64;
@@ -56,6 +80,13 @@ pub(super) fn index(
         )?;
         let frame = artifacts.join("video-frame.png");
         fs::write(&frame, &output.data).map_err(|error| error.to_string())?;
+        let mut text = super::indexer::recognize_png_text(&output.data);
+        if cursor == 0 && !media_tags.is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&media_tags);
+        }
         let vector = worker
             .embed("image", &[frame.to_string_lossy().into_owned()], cancelled)?
             .pop()
@@ -66,14 +97,16 @@ pub(super) fn index(
                 end_us: (start_us + hop * 1_000_000).min(duration_us),
                 soundtrack: false,
             },
-            text: String::new(),
+            text,
             modality: "video".into(),
         });
         vectors.push(vector);
     }
     // Audio windows use DigUp's 30-second window / 25-second hop, independent
-    // of the visual frame sampling schedule.
+    // of the visual frame sampling schedule. Skip short trailing fragments already
+    // mostly covered by the previous 30-second window.
     if (!video || cursor.is_multiple_of(25))
+        && (cursor == 0 || start_us + 10_000_000 <= duration_us)
         && let Ok(output) = crate::sandbox::parse(
             path,
             crate::sandbox::ParseOperation::SearchAudioSegment,
@@ -99,7 +132,11 @@ pub(super) fn index(
             } else {
                 ContentLocator::Audio { start_us, end_us }
             },
-            text: String::new(),
+            text: if cursor == 0 {
+                media_tags
+            } else {
+                String::new()
+            },
             modality: "audio".into(),
         });
         vectors.push(vector);
