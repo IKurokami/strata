@@ -86,7 +86,7 @@ impl SearchDialog {
         panel.add_css_class("search-dialog");
         panel.set_halign(gtk::Align::Center);
         panel.set_valign(gtk::Align::Center);
-        panel.set_size_request(920, 500);
+        panel.set_size_request(920, -1);
         panel.set_vexpand(false);
         panel.set_overflow(gtk::Overflow::Hidden);
 
@@ -113,9 +113,7 @@ impl SearchDialog {
         search_bar.append(&indexing_spinner);
         panel.append(&search_bar);
 
-        let status = gtk::Label::new(Some(&crate::i18n::tr(
-            "Type to search Home and mounted local drives",
-        )));
+        let status = gtk::Label::new(Some(&crate::i18n::tr("Searching…")));
         status.add_css_class("search-status");
         status.set_wrap(true);
 
@@ -144,41 +142,9 @@ impl SearchDialog {
         results.set_visible_child_name("status");
         panel.append(&results);
 
-        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         footer.add_css_class("search-footer");
-        // Key hints shorten in narrow windows so "Partial results" stays visible.
-        let hint_label = |text: &str| {
-            let label = gtk::Label::new(Some(text));
-            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            label
-        };
-        let navigation = hint_label(&super::shortcut_reference::with_keys(
-            "%{keys}  navigate",
-            keys::Keys::Any(&[UP, DOWN]),
-        ));
-        let open = gtk::Box::new(gtk::Orientation::Horizontal, 5);
-        open.set_valign(gtk::Align::Center);
-        open.append(&crate::assets::primary_icon(
-            crate::assets::icons::CORNER_DOWN_LEFT,
-            13,
-        ));
-        open.append(&hint_label(&crate::i18n::tr("open")));
-        navigation.add_css_class("search-hint");
-        open.add_css_class("search-hint");
-        footer.append(&navigation);
-        footer.append(&open);
-        let reveal_hint = gtk::Box::new(gtk::Orientation::Horizontal, 5);
-        reveal_hint.set_valign(gtk::Align::Center);
-        reveal_hint.append(&crate::assets::primary_icon(
-            crate::assets::icons::FOLDER_OPEN,
-            13,
-        ));
-        reveal_hint.append(&hint_label(&super::shortcut_reference::with_keys(
-            "%{keys}  open containing folder",
-            keys::Keys::One(OPEN_CONTAINING_FOLDER),
-        )));
-        reveal_hint.add_css_class("search-hint");
-        footer.append(&reveal_hint);
+        footer.set_visible(false);
         let truncated_hint = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         truncated_hint.append(&crate::assets::primary_icon(
             crate::assets::icons::TRIANGLE_ALERT,
@@ -191,6 +157,12 @@ impl SearchDialog {
         truncated_hint.set_halign(gtk::Align::End);
         truncated_hint.set_visible(false);
         footer.append(&truncated_hint);
+        let footer_weak = footer.downgrade();
+        truncated_hint.connect_visible_notify(move |warning| {
+            if let Some(footer) = footer_weak.upgrade() {
+                footer.set_visible(warning.is_visible());
+            }
+        });
         panel.append(&footer);
         super::modal::layout::install(&layer, &panel);
 
@@ -385,6 +357,7 @@ impl SearchDialog {
         clear_results(&self.state);
         self.state.results.set_visible_child_name("status");
         self.state.field.set_text("");
+        self.state.results.set_visible(false);
         self.state.status.set_visible(true);
         self.state.status.set_text(&crate::i18n::tr(
             "Type to search Home and mounted local drives",
@@ -397,6 +370,7 @@ impl SearchDialog {
         self.state.field.grab_focus_without_selecting();
 
         if roots.is_empty() {
+            self.state.results.set_visible(true);
             self.state
                 .status
                 .set_text(&crate::i18n::tr("No local search locations available."));
@@ -468,6 +442,7 @@ impl SearchDialog {
         self.state.field.set_sensitive(true);
         clear_results(&self.state);
         self.state.field.set_text("");
+        self.state.results.set_visible(true);
         self.state.status.set_visible(true);
         self.state.truncated_hint.set_visible(false);
         self.state.indexing_spinner.stop();
@@ -504,13 +479,14 @@ fn begin_query(state: &Rc<SearchState>, query: &str) {
     }
     if query.trim().is_empty() {
         clear_results(state);
-        state.results.set_visible_child_name("status");
-        state.status.set_text(
-            &crate::i18n::tr("Type to search Home and mounted local drives\nFuzzy matching · try a name or path fragment"),
-        );
-    } else if state.visible_results.borrow().is_empty() {
-        state.results.set_visible_child_name("status");
-        state.status.set_text(&crate::i18n::tr("Searching…"));
+        state.results.set_visible(false);
+        state.truncated_hint.set_visible(false);
+    } else {
+        state.results.set_visible(true);
+        if state.visible_results.borrow().is_empty() {
+            state.results.set_visible_child_name("status");
+            state.status.set_text(&crate::i18n::tr("Searching…"));
+        }
     }
     if let Some(search) = state.search.borrow().as_ref() {
         search.query(query);

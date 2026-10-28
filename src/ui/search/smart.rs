@@ -40,7 +40,6 @@ pub(super) struct Panel {
     query: RefCell<String>,
     drawer: RefCell<Option<super::super::preview::PreviewDrawer>>,
     preview_slot: gtk::Box,
-    results_column: gtk::Overlay,
     reconciling: Cell<bool>,
     preview_key: RefCell<Option<PreviewKey>>,
     status: gtk::Label,
@@ -60,20 +59,32 @@ impl Panel {
             let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
-            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             row.add_css_class("search-smart-result");
-            let icon = crate::assets::primary_icon(crate::assets::icons::DOCUMENTS, 20);
-            icon.set_valign(gtk::Align::Center);
-            row.append(&icon);
+            let thumbnail = super::super::thumbnail::ThumbnailSlot::new(36);
+            thumbnail.add_css_class("search-smart-thumbnail");
+            thumbnail.set_valign(gtk::Align::Center);
+            row.append(&thumbnail);
             let labels = gtk::Box::new(gtk::Orientation::Vertical, 3);
             labels.set_hexpand(true);
-            for class in ["search-result-name", "search-result-path", "search-smart-excerpt"] {
-                let label = gtk::Label::new(None);
-                label.set_xalign(0.0);
-                label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-                label.add_css_class(class);
-                labels.append(&label);
-            }
+            let heading = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            let title = gtk::Label::new(None);
+            title.set_xalign(0.0);
+            title.set_hexpand(true);
+            title.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+            title.add_css_class("search-result-name");
+            heading.append(&title);
+            let place = gtk::Label::new(None);
+            place.add_css_class("search-smart-place");
+            place.set_valign(gtk::Align::Center);
+            heading.append(&place);
+            labels.append(&heading);
+            let detail = gtk::Label::new(None);
+            detail.set_xalign(0.0);
+            detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            detail.add_css_class("search-smart-secondary");
+            labels.append(&detail);
             row.append(&labels);
             item.set_child(Some(&row));
         });
@@ -88,40 +99,64 @@ impl Panel {
             let Some(row) = item.child().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+            let Some(thumbnail) = row
+                .first_child()
+                .and_downcast::<super::super::thumbnail::ThumbnailSlot>()
+            else {
                 return;
             };
-            let Some(labels) = icon.next_sibling().and_downcast::<gtk::Box>() else {
+            let Some(labels) = thumbnail.next_sibling().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(title) = labels.first_child().and_downcast::<gtk::Label>() else {
+            let Some(heading) = labels.first_child().and_downcast::<gtk::Box>() else {
                 return;
             };
-            let Some(detail) = title.next_sibling().and_downcast::<gtk::Label>() else {
+            let Some(title) = heading.first_child().and_downcast::<gtk::Label>() else {
                 return;
             };
-            let Some(excerpt) = detail.next_sibling().and_downcast::<gtk::Label>() else {
+            let Some(place) = title.next_sibling().and_downcast::<gtk::Label>() else {
                 return;
             };
-            crate::assets::set_primary_icon(
-                &icon,
-                if value.is_directory {
-                    crate::assets::icons::FOLDER
-                } else {
-                    crate::ui::browser::icon_for_name(&value.name)
-                },
-            );
+            let Some(detail) = heading.next_sibling().and_downcast::<gtk::Label>() else {
+                return;
+            };
+            let fallback = if value.is_directory {
+                crate::assets::icons::FOLDER
+            } else {
+                crate::ui::browser::icon_for_name(&value.name)
+            };
+            if value.is_directory {
+                super::super::thumbnail::show_customized_icon(
+                    &thumbnail,
+                    &value.path,
+                    fallback,
+                    22,
+                );
+            } else {
+                super::super::thumbnail::set_thumbnail_or_icon_for_path(
+                    &thumbnail,
+                    &value.path,
+                    fallback,
+                    22,
+                    36,
+                );
+            }
             title.set_text(&value.name);
-            let visible_path = display_search_path(&value.path);
-            detail.set_text(&visible_path);
-            let snippet = value
+            detail.set_text(&result_secondary(&value));
+            let position = value
                 .content_hit
                 .as_ref()
-                .map(|hit| hit.excerpt.split_whitespace().take(32).collect::<Vec<_>>().join(" "))
-                .unwrap_or_default();
-            excerpt.set_text(&snippet);
-            excerpt.set_visible(!snippet.is_empty());
+                .and_then(|hit| hit.locator.time_range())
+                .map(|(start, _)| format_match_time(start));
+            place.set_visible(position.is_some());
+            if let Some(position) = position {
+                place.set_text(&position);
+            }
+            let visible_path = display_search_path(&value.path);
             crate::ui::accessibility::set_label(&row, &visible_path);
+        });
+        factory.connect_unbind(|_, object| {
+            super::super::thumbnail::cancel_list_item_thumbnails(object);
         });
         let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
         list.add_css_class("search-smart-list");
@@ -133,7 +168,8 @@ impl Panel {
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
         let results_column = gtk::Overlay::new();
-        results_column.set_hexpand(true);
+        results_column.set_width_request(352);
+        results_column.set_hexpand(false);
         results_column.set_vexpand(true);
         results_column.set_child(Some(&scroll));
         let status = gtk::Label::new(Some(&crate::i18n::tr("No results")));
@@ -148,11 +184,17 @@ impl Panel {
         preview_slot.set_vexpand(true);
         preview_slot.set_overflow(gtk::Overflow::Hidden);
         preview_slot.set_visible(false);
-        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let body = gtk::Paned::new(gtk::Orientation::Horizontal);
+        body.add_css_class("search-smart-split");
         body.set_vexpand(true);
         body.set_hexpand(true);
-        body.append(&results_column);
-        body.append(&preview_slot);
+        body.set_resize_start_child(false);
+        body.set_resize_end_child(true);
+        body.set_shrink_start_child(false);
+        body.set_shrink_end_child(true);
+        body.set_start_child(Some(&results_column));
+        body.set_end_child(Some(&preview_slot));
+        body.set_position(352);
         root.append(&body);
         let state = Rc::new(Self {
             root,
@@ -169,7 +211,6 @@ impl Panel {
             query: RefCell::new(String::new()),
             drawer: RefCell::new(None),
             preview_slot,
-            results_column,
             reconciling: Cell::new(false),
             preview_key: RefCell::new(None),
             status,
@@ -332,8 +373,6 @@ impl Panel {
             .map(SearchItem::preview_entry)
             .filter(super::super::preview::entry_supports_quick_preview);
         if entry.is_none() {
-            self.results_column.set_width_request(-1);
-            self.results_column.set_hexpand(true);
             self.preview_key.take();
             if let Some(drawer) = self.drawer.borrow().as_ref() {
                 drawer.close();
@@ -368,8 +407,6 @@ impl Panel {
             self.preview_slot.append(&widget);
             self.drawer.replace(Some(drawer));
         }
-        self.results_column.set_width_request(375);
-        self.results_column.set_hexpand(false);
         self.preview_slot.set_visible(true);
         if let (Some(drawer), Some(entry)) = (self.drawer.borrow().as_ref(), entry) {
             if let Some(hit) = selected.and_then(|item| item.content_hit) {
@@ -379,6 +416,36 @@ impl Panel {
             }
         }
     }
+}
+
+fn format_match_time(start_us: u64) -> String {
+    let seconds = start_us / 1_000_000;
+    let hours = seconds / 3600;
+    let minutes = (seconds / 60) % 60;
+    let seconds = seconds % 60;
+    if hours == 0 {
+        format!("{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    }
+}
+
+fn result_secondary(item: &SearchItem) -> String {
+    if let Some(hit) = &item.content_hit {
+        let excerpt = hit
+            .excerpt
+            .split_whitespace()
+            .take(24)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !excerpt.is_empty() {
+            return excerpt;
+        }
+    }
+    item.path
+        .parent()
+        .map(display_search_path)
+        .unwrap_or_default()
 }
 
 pub(super) fn display_search_path(path: &Path) -> String {

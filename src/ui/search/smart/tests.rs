@@ -109,3 +109,23 @@ fn win32_verbatim_paths_are_stripped_only_for_display() {
     );
     assert_eq!(display_search_path(Path::new("/home/user/file.txt")), "/home/user/file.txt");
 }
+
+#[test]
+fn digup_inspired_results_use_excerpt_or_parent_not_repeated_filename() {
+    let mut item = SearchItem::for_test("/documents/invoice.txt".into(), false);
+    assert_eq!(result_secondary(&item), "/documents");
+
+    let mut match_hit = hit("/documents/invoice.txt", 1, 5, false);
+    match_hit.excerpt = "A contract clause about renting the apartment".into();
+    item.content_hit = Some(Arc::new(match_hit));
+    assert_eq!(
+        result_secondary(&item),
+        "A contract clause about renting the apartment"
+    );
+}
+
+#[test]
+fn media_match_time_uses_short_unambiguous_location_badges() {
+    assert_eq!(format_match_time(25_500_000), "00:25");
+    assert_eq!(format_match_time(3_625_000_000), "1:00:25");
+}

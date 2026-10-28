@@ -674,7 +674,6 @@ headerbar.browser-header menubutton.header-action > button {
   border: 1px solid alpha(@strata_border, 0.48);
   border-radius: 15px;
   box-shadow: 0 14px 48px alpha(@strata_glow, 0.22);
-  min-height: 500px;
   min-width: 780px;
 }
 
@@ -717,7 +716,16 @@ headerbar.browser-header menubutton.header-action > button {
 }
 
 .search-smart-panel {
-  padding: 10px 12px;
+  padding: 8px 0;
+}
+
+.search-smart-split > separator {
+  background: alpha(@strata_border, 0.32);
+  min-width: 1px;
+}
+
+.search-smart-split > separator:hover {
+  background: alpha(@strata_accent, 0.44);
 }
 
 .search-smart-list,
@@ -726,14 +734,33 @@ headerbar.browser-header menubutton.header-action > button {
 }
 
 .search-smart-list > row {
-  margin: 2px 6px;
-  border-radius: 10px;
+  margin: 2px 8px;
+  border-radius: 9px;
 }
 
 .search-smart-result {
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-radius: 9px;
+  padding: 7px 9px;
+  min-height: 50px;
   color: @strata_text;
+}
+
+.search-smart-thumbnail {
+  border-radius: 7px;
+}
+
+.search-smart-secondary {
+  color: @strata_dim_text;
+  font-size: 0.83em;
+}
+
+.search-smart-place {
+  background: alpha(@strata_accent, 0.12);
+  color: @strata_text;
+  border-radius: 7px;
+  padding: 2px 6px;
+  font-size: 0.78em;
+  font-weight: 600;
 }
 
 .search-smart-list > row:hover .search-smart-result {
@@ -745,15 +772,8 @@ headerbar.browser-header menubutton.header-action > button {
   background: alpha(@strata_accent, 0.15);
 }
 
-.search-smart-excerpt {
-  color: @strata_dim_text;
-  font-size: 0.85em;
-  opacity: 0.9;
-}
-
 .search-smart-preview {
-  border-left: 1px solid alpha(@strata_border, 0.38);
-  padding-left: 10px;
+  padding: 0 6px 0 8px;
 }
 
 .search-smart-empty {
