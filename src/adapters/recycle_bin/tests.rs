@@ -98,14 +98,14 @@ fn native_bin_lists_original_names_browses_folders_and_resolves_restore_destinat
     std::fs::create_dir(&folder).unwrap();
     std::fs::write(folder.join("child.json"), b"{}").unwrap();
     let items = strata_win_shell::recycle(&[file.clone(), folder.clone()]).unwrap();
-    let source = LocalFileSource::default();
+    let source = LocalFileSource;
     assert!(
         source
             .validate_location(&Location::uri("trash:///"))
             .is_ok()
     );
     let entries = load(&context, &source, Location::uri("trash:///"));
-    let browser = crate::app::Browser::new(Rc::new(LocalFileSource::default()));
+    let browser = crate::app::Browser::new(Rc::new(LocalFileSource));
     let root = Location::uri("trash:///");
     browser.navigate_location(root.clone(), true);
     wait(&context, || {
@@ -237,7 +237,7 @@ fn dropping_native_bin_load_prevents_stale_callbacks() {
     let _guard = context.acquire().unwrap();
     let called = Rc::new(std::cell::Cell::new(false));
     let captured = called.clone();
-    let load = LocalFileSource::default().enumerate(
+    let load = LocalFileSource.enumerate(
         DirectoryRequest {
             id: RequestId(9002),
             location: Location::uri("trash:///"),

@@ -251,11 +251,11 @@ impl Terminal {
 pub(super) fn no_terminal_message() -> String {
     #[cfg(windows)]
     {
-        return rust_i18n::t!(
+        rust_i18n::t!(
             "No Windows terminal was found. Install %{PREFERRED_LAUNCHER}, or enable PowerShell or Command Prompt on PATH.",
             PREFERRED_LAUNCHER = PREFERRED_LAUNCHER
         )
-        .into_owned();
+        .into_owned()
     }
     #[cfg(not(windows))]
     {

@@ -764,8 +764,9 @@ fn async_copy_items(
                         TransferConflict::ReplaceExisting => {
                             let mut plan = None;
                             if dst.exists() {
-                                let recycled = strata_win_shell::recycle(&[dst.clone()])
-                                    .map_err(|e| e.to_string())?;
+                                let recycled =
+                                    strata_win_shell::recycle(std::slice::from_ref(&dst))
+                                        .map_err(|e| e.to_string())?;
                                 plan = Some(WindowsMergePlan {
                                     created: Vec::new(),
                                     overwritten: vec![dst.clone()],
@@ -1020,8 +1021,9 @@ fn async_move_items(
                         TransferConflict::ReplaceExisting => {
                             let mut plan = None;
                             if dst.exists() {
-                                let recycled = strata_win_shell::recycle(&[dst.clone()])
-                                    .map_err(|e| e.to_string())?;
+                                let recycled =
+                                    strata_win_shell::recycle(std::slice::from_ref(&dst))
+                                        .map_err(|e| e.to_string())?;
                                 plan = Some(WindowsMergePlan {
                                     created: Vec::new(),
                                     overwritten: vec![dst.clone()],
@@ -1617,11 +1619,11 @@ fn run_undo_merge(
                     ));
                     continue;
                 };
-                if path.symlink_metadata().is_ok() {
-                    if let Err(e) = strata_win_shell::recycle(&[path.to_path_buf()]) {
-                        failed.push((location.clone(), e));
-                        continue;
-                    }
+                if path.symlink_metadata().is_ok()
+                    && let Err(e) = strata_win_shell::recycle(&[path.to_path_buf()])
+                {
+                    failed.push((location.clone(), e));
+                    continue;
                 }
                 let restore_result = match remembered.get(path) {
                     Some(item) => strata_win_shell::restore(item).map(|()| item.original.clone()),

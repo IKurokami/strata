@@ -75,10 +75,12 @@ fn workers(remote: bool) -> &'static mpsc::Sender<VolumeInfo> {
 pub(crate) async fn details(volume: VolumeInfo) -> Option<DriveDetails> {
     let root = volume.root.clone();
     let (tx, rx) = futures_channel::oneshot::channel();
-    let mut state = queries().lock().unwrap_or_else(|e| e.into_inner());
-    let first = !state.waiting.contains_key(&root);
-    state.waiting.entry(root.clone()).or_default().push(tx);
-    drop(state);
+    let first = {
+        let mut state = queries().lock().unwrap_or_else(|e| e.into_inner());
+        let first = !state.waiting.contains_key(&root);
+        state.waiting.entry(root.clone()).or_default().push(tx);
+        first
+    };
     let remote = volume.drive_type == DriveType::Remote;
     if first && workers(remote).send(volume).is_err() {
         queries()

@@ -555,10 +555,10 @@ fn extract_zip(
             .resolve(dest_dir, &clean_path)
             .map_err(ArchiveError::Failed)?;
 
-        if first_name.is_none() {
-            if let Some(top) = resolved_rel.components().next() {
-                first_name = Some(top.as_os_str().to_string_lossy().into_owned());
-            }
+        if first_name.is_none()
+            && let Some(top) = resolved_rel.components().next()
+        {
+            first_name = Some(top.as_os_str().to_string_lossy().into_owned());
         }
 
         let target_path = dest_dir.join(&resolved_rel);
@@ -647,10 +647,10 @@ fn extract_tar(
             .resolve(dest_dir, &clean_path)
             .map_err(ArchiveError::Failed)?;
 
-        if first_name.is_none() {
-            if let Some(top) = resolved_rel.components().next() {
-                first_name = Some(top.as_os_str().to_string_lossy().into_owned());
-            }
+        if first_name.is_none()
+            && let Some(top) = resolved_rel.components().next()
+        {
+            first_name = Some(top.as_os_str().to_string_lossy().into_owned());
         }
 
         let target_path = dest_dir.join(&resolved_rel);
@@ -727,10 +727,10 @@ fn extract_sevenz(
                 Err(e) => return Err(sevenz_rust2::Error::Other(std::borrow::Cow::Owned(e))),
             };
 
-            if first_name.is_none() {
-                if let Some(top) = resolved_rel.components().next() {
-                    first_name = Some(top.as_os_str().to_string_lossy().into_owned());
-                }
+            if first_name.is_none()
+                && let Some(top) = resolved_rel.components().next()
+            {
+                first_name = Some(top.as_os_str().to_string_lossy().into_owned());
             }
 
             let target_path = dest_dir.join(&resolved_rel);
@@ -743,13 +743,13 @@ fn extract_sevenz(
                     ));
                 }
             } else {
-                if let Some(parent) = target_path.parent() {
-                    if let Err(e) = std::fs::create_dir_all(parent) {
-                        return Err(sevenz_rust2::Error::Io(
-                            e,
-                            std::borrow::Cow::Borrowed("mkdir"),
-                        ));
-                    }
+                if let Some(parent) = target_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    return Err(sevenz_rust2::Error::Io(
+                        e,
+                        std::borrow::Cow::Borrowed("mkdir"),
+                    ));
                 }
 
                 let mut outfile = match File::create(&target_path) {
@@ -938,7 +938,7 @@ pub(crate) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
                 }
                 TransferConflict::ReplaceExisting => {
                     if target_path.exists() {
-                        let _ = strata_win_shell::recycle(&[target_path.clone()]);
+                        let _ = strata_win_shell::recycle(std::slice::from_ref(&target_path));
                     }
                     target_path
                 }
@@ -955,7 +955,7 @@ pub(crate) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
                 TransferConflict::Merge => {
                     // For archive output, merge treats as replace
                     if target_path.exists() {
-                        let _ = strata_win_shell::recycle(&[target_path.clone()]);
+                        let _ = strata_win_shell::recycle(std::slice::from_ref(&target_path));
                     }
                     target_path
                 }
@@ -1304,7 +1304,7 @@ mod tests {
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
 
-        let sources = collect_sources(&[src_dir.clone()], &cancelled).expect("collect");
+        let sources = collect_sources(std::slice::from_ref(&src_dir), &cancelled).expect("collect");
         assert_eq!(sources.len(), 3); // 1 dir + 2 files
 
         compress_zip(&zip_path, &sources, None, &progress, &cancelled).expect("compress");
@@ -1341,7 +1341,7 @@ mod tests {
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
 
-        let sources = collect_sources(&[src_dir.clone()], &cancelled).expect("collect");
+        let sources = collect_sources(std::slice::from_ref(&src_dir), &cancelled).expect("collect");
         compress_tar(&targz_path, &sources, true, &progress, &cancelled).expect("compress");
         assert!(targz_path.exists());
 

@@ -11,6 +11,8 @@ use std::{
 
 use gtk::{gio, glib, prelude::*};
 
+type DestinationValidator = Rc<dyn Fn(&Path) -> Result<PathBuf, String>>;
+
 pub(crate) struct DestinationRequest {
     pub parent: gtk::Window,
     pub title: String,
@@ -18,7 +20,7 @@ pub(crate) struct DestinationRequest {
     pub initial_directory: PathBuf,
     pub root_limit: Option<PathBuf>,
     pub allow_create: bool,
-    pub validate: Rc<dyn Fn(&Path) -> Result<PathBuf, String>>,
+    pub validate: DestinationValidator,
 }
 
 fn within_directory(root: &Path, path: &Path) -> bool {
