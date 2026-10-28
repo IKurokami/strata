@@ -63,7 +63,7 @@ pub(super) fn sensitive(path: &Path) -> bool {
         })
 }
 
-pub(super) fn within(path: &Path, root: &Path) -> bool {
+pub(crate) fn within(path: &Path, root: &Path) -> bool {
     #[cfg(windows)]
     {
         let normalize = |value: &Path| {

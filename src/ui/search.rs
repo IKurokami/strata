@@ -346,7 +346,10 @@ impl SearchDialog {
         self.state.layer.clone().upcast()
     }
 
-    pub fn show(&self, roots: Vec<PathBuf>, show_hidden: bool) {
+    pub fn show(&self, mut roots: Vec<PathBuf>, show_hidden: bool) {
+        roots.extend(self.state.preferences.smart_search_roots());
+        roots.sort();
+        roots.dedup();
         self.state.generation.set(self.state.generation.get() + 1);
         let generation = self.state.generation.get();
         self.state.search.borrow_mut().take();

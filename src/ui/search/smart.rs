@@ -406,8 +406,17 @@ impl Panel {
                     .map(|hit| SearchItem::for_hit(Arc::new(hit))),
             );
         }
+        let kind = smart_search::result::SearchKind::from_index(self.kind.get());
+        let scope = self.scope.borrow();
         rows.retain(|row| {
-            smart_search::result::SearchKind::from_index(self.kind.get()).accepts(&row.path)
+            (self.kind.get() == 0 || !row.is_directory)
+                && kind.accepts(&row.path)
+                && scope
+                    .as_ref()
+                    .is_none_or(|root| smart_search::policy::within(&row.path, root))
+                && (self.mode.get() != 0
+                    || row.content_hit.is_some()
+                    || !self.hits.borrow().iter().any(|hit| hit.path == row.path))
         });
         rows.truncate(200);
         self.status.set_text(&crate::i18n::tr(if rows.is_empty() {

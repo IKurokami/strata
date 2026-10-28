@@ -726,3 +726,31 @@ fn wait_until(condition: impl Fn() -> bool) {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+#[test]
+fn filename_search_includes_explicitly_indexed_folders_outside_default_roots() {
+    crate::test_support::gtk_test(
+        "ui::search::tests::filename_search_includes_explicitly_indexed_folders_outside_default_roots",
+        || {
+            let primary = tempfile::tempdir().expect("default root");
+            let indexed = tempfile::tempdir().expect("approved root");
+            let expected = indexed.path().join("unique-needle.txt");
+            std::fs::write(&expected, "local text").expect("source");
+            let preferences = super::super::preferences::PreferenceManager::shared();
+            preferences.set_smart_search_roots(vec![indexed.path().to_owned()]);
+            let (dialog, window) = mapped_dialog(Rc::new(|_| {}));
+            dialog.show(vec![primary.path().to_owned()], false);
+            dialog.state.field.set_text("unique-needle");
+            wait_until(|| {
+                dialog
+                    .state
+                    .visible_results
+                    .borrow()
+                    .iter()
+                    .any(|item| item.path == expected)
+            });
+            preferences.set_smart_search_roots(Vec::new());
+            window.close();
+        },
+    );
+}

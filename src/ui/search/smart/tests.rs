@@ -24,6 +24,35 @@ fn smart_search_keeps_filename_results_when_content_changes_and_preview_starts_o
             );
             panel.cancel();
             assert!(!panel.preview_slot.is_visible());
+            panel.names(vec![
+                SearchItem::for_test("/docs/invoice.txt".into(), false),
+                SearchItem::for_test("/elsewhere/invoice.txt".into(), false),
+                SearchItem::for_test("/docs/source.rs".into(), false),
+                SearchItem::for_test("/docs/folder.rs".into(), true),
+            ]);
+            panel.scope.replace(Some("/docs".into()));
+            panel.kind.set(1);
+            panel.render();
+            assert_eq!(
+                panel
+                    .rows
+                    .borrow()
+                    .iter()
+                    .map(|row| row.path.clone())
+                    .collect::<Vec<_>>(),
+                vec![std::path::PathBuf::from("/docs/invoice.txt")]
+            );
+            panel.kind.set(5);
+            panel.render();
+            assert_eq!(
+                panel
+                    .rows
+                    .borrow()
+                    .iter()
+                    .map(|row| row.path.clone())
+                    .collect::<Vec<_>>(),
+                vec![std::path::PathBuf::from("/docs/source.rs")]
+            );
         },
     );
 }
