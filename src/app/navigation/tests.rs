@@ -2310,8 +2310,8 @@ fn the_range_anchor_is_readable_and_replaceable_by_position() {
     );
 }
 
-fn typed_entry(name: &str, kind: EntryKind) -> FileEntry {
-    FileEntry {
+fn typed_entry(name: &str, kind: EntryKind) -> SortItem {
+    let entry = FileEntry {
         thumbnail_path: None,
         location: location(&format!("/fixture/{name}")),
         native_name: OsString::from(name),
@@ -2326,7 +2326,22 @@ fn typed_entry(name: &str, kind: EntryKind) -> FileEntry {
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
         recent_uri: None,
-    }
+    };
+    // Windows associations provide different labels from the shared MIME database.
+    // Sorting receives explicit descriptions so the fixture is independent of them.
+    let entry_type = if entry.is_directory() {
+        crate::services::EntryType::Folder
+    } else {
+        match name.rsplit('.').next() {
+            Some("json") => crate::services::EntryType::Known("JSON document".into()),
+            Some("pdf") => crate::services::EntryType::Known("PDF document".into()),
+            Some("py") => crate::services::EntryType::Known("Python script".into()),
+            _ => crate::services::EntryType::Other,
+        }
+    };
+    let mut item = SortItem::new(entry, false);
+    item.entry_type = Some(entry_type);
+    item
 }
 
 #[test]
@@ -2348,10 +2363,10 @@ fn type_sorting_orders_by_mime_descriptions_with_folders_first() {
         sort_direction: SortDirection::Ascending,
         show_hidden: false,
     };
-    entries.sort_by(|left, right| compare_entries(left, right, preferences_asc));
+    entries.sort_by(|left, right| compare_sort_items(left, right, preferences_asc));
     let names_asc: Vec<&str> = entries
         .iter()
-        .map(|entry| entry.display_name.as_str())
+        .map(|entry| entry.entry.display_name.as_str())
         .collect();
     assert_eq!(
         names_asc,
@@ -2373,10 +2388,10 @@ fn type_sorting_orders_by_mime_descriptions_with_folders_first() {
         sort_direction: SortDirection::Descending,
         show_hidden: false,
     };
-    entries.sort_by(|left, right| compare_entries(left, right, preferences_desc));
+    entries.sort_by(|left, right| compare_sort_items(left, right, preferences_desc));
     let names_desc: Vec<&str> = entries
         .iter()
-        .map(|entry| entry.display_name.as_str())
+        .map(|entry| entry.entry.display_name.as_str())
         .collect();
     assert_eq!(
         names_desc,
@@ -2412,10 +2427,10 @@ fn type_sorting_orders_by_mime_descriptions_without_folders_first() {
         sort_direction: SortDirection::Ascending,
         show_hidden: false,
     };
-    entries.sort_by(|left, right| compare_entries(left, right, preferences_asc));
+    entries.sort_by(|left, right| compare_sort_items(left, right, preferences_asc));
     let names_asc: Vec<&str> = entries
         .iter()
-        .map(|entry| entry.display_name.as_str())
+        .map(|entry| entry.entry.display_name.as_str())
         .collect();
     assert_eq!(
         names_asc,
@@ -2437,10 +2452,10 @@ fn type_sorting_orders_by_mime_descriptions_without_folders_first() {
         sort_direction: SortDirection::Descending,
         show_hidden: false,
     };
-    entries.sort_by(|left, right| compare_entries(left, right, preferences_desc));
+    entries.sort_by(|left, right| compare_sort_items(left, right, preferences_desc));
     let names_desc: Vec<&str> = entries
         .iter()
-        .map(|entry| entry.display_name.as_str())
+        .map(|entry| entry.entry.display_name.as_str())
         .collect();
     assert_eq!(
         names_desc,
