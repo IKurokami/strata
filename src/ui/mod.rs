@@ -14,7 +14,10 @@ mod chooser;
 mod close_guard;
 mod collection_edit;
 mod collection_interaction;
+#[cfg(windows)]
+mod computer;
 mod controls;
+mod day_sections;
 mod desktop_integration;
 mod document_media;
 mod document_view;

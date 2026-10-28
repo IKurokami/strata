@@ -24,6 +24,8 @@ mod imp {
         pub decoration_description: RefCell<Option<String>>,
         pub fallback: RefCell<Option<gdk::Texture>>,
         pub fallback_icon: RefCell<Option<String>>,
+        pub fallback_generation: Cell<u64>,
+        pub fallback_task: RefCell<Option<glib::JoinHandle<()>>>,
         pub(crate) mark: Cell<crate::ui::browser::ClipboardMark>,
         pub hidden: Cell<bool>,
         pub base_opacity: Cell<f64>,
@@ -42,12 +44,19 @@ mod imp {
 
     impl ObjectImpl for ThumbnailSlot {
         fn dispose(&self) {
+            if let Some(task) = self.fallback_task.take() {
+                task.abort();
+            }
             super::super::forget_slot(self.obj().as_ptr() as usize);
             crate::ui::file_providers::forget(self.obj().as_ptr() as usize);
         }
     }
 
     impl WidgetImpl for ThumbnailSlot {
+        fn map(&self) {
+            self.parent_map();
+            super::super::refresh_slot_icon(&self.obj());
+        }
         fn request_mode(&self) -> gtk::SizeRequestMode {
             gtk::SizeRequestMode::ConstantSize
         }
@@ -258,6 +267,12 @@ impl ThumbnailSlot {
     }
 
     pub(crate) fn set_fallback(&self, icon: &str, texture: Option<&gdk::Texture>) {
+        if let Some(task) = self.imp().fallback_task.take() {
+            task.abort();
+        }
+        self.imp()
+            .fallback_generation
+            .set(self.imp().fallback_generation.get().wrapping_add(1));
         if self.imp().texture.borrow().is_none()
             && self.imp().fallback_icon.borrow().as_deref() == Some(icon)
             && same_texture(self.imp().fallback.borrow().as_ref(), texture)
@@ -275,6 +290,34 @@ impl ThumbnailSlot {
         self.imp().fallback_icon.replace(Some(icon.to_owned()));
         self.imp().fallback.replace(texture.cloned());
         self.update_state_opacity();
+        self.queue_draw();
+    }
+
+    pub(crate) fn fallback_generation(&self) -> u64 {
+        self.imp().fallback_generation.get()
+    }
+
+    pub(crate) fn set_fallback_task(&self, task: glib::JoinHandle<()>) {
+        self.imp().fallback_task.replace(Some(task));
+    }
+
+    pub(crate) fn finish_fallback(&self, generation: u64, texture: &gdk::Texture) {
+        if self.imp().fallback_generation.get() != generation
+            || self.imp().texture.borrow().is_some()
+        {
+            return;
+        }
+        self.imp().fallback_scale.set(
+            if self.imp().limit_fallback_height.get()
+                && self.imp().fallback_icon.borrow().as_deref()
+                    != Some(crate::assets::icons::FOLDER)
+            {
+                folder_height_scale(texture)
+            } else {
+                1.0
+            },
+        );
+        self.imp().fallback.replace(Some(texture.clone()));
         self.queue_draw();
     }
 

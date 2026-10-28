@@ -65,7 +65,18 @@ impl DelayedLoading {
 
     pub(crate) fn show(&self, name: &str) {
         self.pending.cancel();
+        // A fast result should appear fully readable in the first frame, without
+        // fading the entire listing in from the blank grace-period page.
+        let transition = self.stack.transition_type();
+        let was_pending = self.stack.visible_child_name().as_deref() == Some(super::PENDING_PAGE);
+        if was_pending {
+            self.stack
+                .set_transition_type(gtk::StackTransitionType::None);
+        }
         self.stack.set_visible_child_name(name);
+        if was_pending {
+            self.stack.set_transition_type(transition);
+        }
     }
 }
 

@@ -1659,6 +1659,14 @@ impl SidebarState {
     }
 
     fn append_static_places(self: &Rc<Self>) {
+        #[cfg(windows)]
+        if !self.local_only {
+            self.append_place(
+                crate::assets::icons::MONITOR,
+                &crate::i18n::tr("This PC"),
+                Location::uri("computer:///"),
+            );
+        }
         for place in self.place_order.borrow().clone() {
             self.append_ordered_place(place);
         }

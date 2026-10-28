@@ -152,15 +152,6 @@ impl ViewState {
             .map(|(depth, _)| *depth)
     }
 
-    pub(super) fn pointer_opens(&self, depth: usize, location: &Location) -> bool {
-        self.tab_location
-            .borrow()
-            .pending
-            .as_ref()
-            .and_then(|pending| pending.opening.as_ref())
-            .is_some_and(|(opening_depth, opening)| *opening_depth == depth && opening == location)
-    }
-
     pub(super) fn cancel_tab_location_hold(&self) {
         self.tab_location.borrow_mut().pending = None;
         self.publish_tab_location();

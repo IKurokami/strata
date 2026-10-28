@@ -223,7 +223,24 @@ fn activate_result(
     }
     // The drawer turns on before the reveal, so the revealed selection re-targets it.
     if preferences.search_open_files_directly() {
-        controller.open_location(location.clone());
+        if let Some(hit) = item.content_hit.clone() {
+            let controller = Rc::downgrade(&controller);
+            let fallback = location.clone();
+            gtk::glib::MainContext::default().spawn_local(async move {
+                let opened = gtk::gio::spawn_blocking(move || {
+                    crate::services::smart_search::external::open(&hit)
+                })
+                .await
+                .unwrap_or(false);
+                if !opened && let Some(controller) = controller.upgrade() {
+                    controller.open_location(fallback);
+                }
+            });
+        } else {
+            controller.open_location(location.clone());
+        }
+    } else if let Some(hit) = item.content_hit.clone() {
+        preview.show_hit(hit, controller.active_depth());
     } else {
         preview.show(
             FileEntry {

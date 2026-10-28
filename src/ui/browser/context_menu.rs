@@ -26,6 +26,7 @@ use std::rc::Rc;
 mod actions;
 mod commands;
 mod keyboard;
+mod placement;
 mod presentation;
 
 const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
@@ -46,18 +47,6 @@ fn submenu_row<const N: usize>(header: &gtk::Button, entries: [&gtk::Button; N])
     }
     wrapper.append(&entries_box);
     wrapper
-}
-
-fn context_menu_max_height(anchor: &gtk::Widget) -> i32 {
-    let display = anchor.display();
-    anchor
-        .native()
-        .and_then(|native| native.surface())
-        .and_then(|surface| display.monitor_at_surface(&surface))
-        .map(|monitor| monitor.geometry().height())
-        .unwrap_or(600)
-        .saturating_sub(CONTEXT_MENU_EDGE_MARGIN * 2)
-        .max(1)
 }
 
 pub(in crate::ui) fn context_menu_popover(
@@ -270,26 +259,7 @@ fn show_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f
 }
 
 fn position_model_context_popover(popover: &gtk::Popover, anchor: &gtk::Widget, x: f64, y: f64) {
-    let Some(parent) = popover.parent() else {
-        return;
-    };
-    let Some(point) = anchor.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
-    else {
-        return;
-    };
-    // GDK places the native popup against monitor bounds, including flipping and
-    // sliding. Changing its anchor after mapping causes a visible second move.
-    popover.set_position(gtk::PositionType::Bottom);
-    if let Some(scroll) = popover.child().and_downcast::<gtk::ScrolledWindow>() {
-        scroll.set_max_content_height(context_menu_max_height(anchor));
-        scroll.set_propagate_natural_height(true);
-    }
-    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
-        point.x().round() as i32,
-        point.y().round() as i32,
-        1,
-        1,
-    )));
+    placement::position(popover, anchor, x, y);
 }
 
 fn present_context_popover(
@@ -305,17 +275,8 @@ fn present_context_popover(
     if popover.parent().is_none() {
         overlay.add_overlay(popover);
     }
-    let point = anchor
-        .compute_point(&overlay, &gtk::graphene::Point::new(x as f32, y as f32))
-        .unwrap_or(gtk::graphene::Point::new(x as f32, y as f32));
-    popover.set_position(gtk::PositionType::Bottom);
-    scroll.set_max_content_height(context_menu_max_height(anchor));
-    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
-        point.x().round() as i32,
-        point.y().round() as i32,
-        1,
-        1,
-    )));
+    let _ = scroll;
+    placement::position(popover, anchor, x, y);
     popover.popup();
     popover.present();
 }
@@ -932,6 +893,22 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             ContextHint::Trash,
         )
     };
+    #[cfg(windows)]
+    let windows_delete = std::array::from_fn::<_, 2, _>(|_| {
+        item_context_option(
+            crate::assets::icons::TRASH,
+            "Delete using Windows",
+            ContextHint::None,
+        )
+    });
+    #[cfg(windows)]
+    let windows_permanent_delete = std::array::from_fn::<_, 2, _>(|_| {
+        item_context_danger_option(
+            crate::assets::icons::CIRCLE_X,
+            "Permanently delete using Windows…",
+            ContextHint::None,
+        )
+    });
     let permanent_delete = item_context_danger_option(
         crate::assets::icons::CIRCLE_X,
         "Permanently delete",
@@ -1024,6 +1001,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&move_to_trash);
     single.append(&permanent_delete);
+    #[cfg(windows)]
+    {
+        single.append(&windows_delete[0]);
+        single.append(&windows_permanent_delete[0]);
+    }
     remaining.append(&single);
 
     let multiple = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1163,6 +1145,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&trash_multiple);
     multiple.append(&permanent_delete_multiple);
+    #[cfg(windows)]
+    {
+        multiple.append(&windows_delete[1]);
+        multiple.append(&windows_permanent_delete[1]);
+    }
     multiple.set_visible(false);
     remaining.append(&multiple);
 
@@ -1555,6 +1542,17 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             state.request_delete(entries, permanent);
         });
     }
+    #[cfg(windows)]
+    for (button, permanent) in [
+        (&windows_delete[0], false),
+        (&windows_delete[1], false),
+        (&windows_permanent_delete[0], true),
+        (&windows_permanent_delete[1], true),
+    ] {
+        connect_selection_action(button, &popover, state, &target, move |state, entries| {
+            state.request_windows_delete(entries, permanent);
+        });
+    }
     for button in [&compress, &compress_multiple] {
         connect_selection_action(button, &popover, state, &target, |state, entries| {
             state.show_compress_dialog(entries);
@@ -1779,6 +1777,18 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                 permanently_delete_is_visible(in_trash, state.browser.can_delete_at(depth));
             permanent_delete.set_visible(permanent_delete_visible);
             permanent_delete_multiple.set_visible(permanent_delete_visible);
+            #[cfg(windows)]
+            {
+                let native = entries
+                    .iter()
+                    .all(|entry| entry.location.native_path().is_some());
+                for button in &windows_delete {
+                    button.set_visible(native && trash_visible && !in_trash);
+                }
+                for button in &windows_permanent_delete {
+                    button.set_visible(native && permanent_delete_visible);
+                }
+            }
             pin.set_visible(entry.is_directory() && !is_trash_location(&entry.location));
             pin.set_sensitive(
                 state

@@ -119,6 +119,29 @@ struct PersistJob {
     png: Vec<u8>,
 }
 
+fn enqueue_rgba_persist(path: PathBuf, mtime: i64, size: (u32, u32), pixels: glib::Bytes) {
+    glib::MainContext::default().spawn_local(async move {
+        let png = background::cache(move || {
+            use image::ImageEncoder;
+            let mut png = Vec::new();
+            image::codecs::png::PngEncoder::new_with_quality(
+                &mut png,
+                image::codecs::png::CompressionType::Fast,
+                image::codecs::png::FilterType::Adaptive,
+            )
+            .write_image(&pixels, size.0, size.1, image::ExtendedColorType::Rgba8)
+            .ok()?;
+            Some(png)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(png) = png {
+            enqueue_persist(path, mtime, png);
+        }
+    });
+}
+
 /// Bounded: slow disk never delays display; over capacity the oldest entry drops.
 const MAX_PERSIST_QUEUE: usize = 32;
 
@@ -206,6 +229,7 @@ struct ThumbnailJob {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ThumbnailKey {
+    fast_raw: bool,
     path: PathBuf,
     modified: Option<i64>,
     file_size: Option<u64>,
@@ -294,6 +318,7 @@ impl CachedThumbnail {
 /// Cache-only lookup: a placeholder must not queue thumbnail work.
 pub(in crate::ui) fn cached_thumbnail(entry: &FileEntry) -> Option<gdk::Texture> {
     let key = ThumbnailKey {
+        fast_raw: crate::sandbox::pixels::fast_raw(),
         path: entry.local_thumbnail_path()?.to_path_buf(),
         modified: known_metadata(&entry.modified_unix_seconds),
         file_size: known_metadata(&entry.size),
@@ -308,6 +333,7 @@ pub(in crate::ui) fn cached_thumbnail(entry: &FileEntry) -> Option<gdk::Texture>
 #[cfg(test)]
 pub(in crate::ui) fn remember_thumbnail_for_test(entry: &FileEntry, texture: gdk::Texture) {
     let key = ThumbnailKey {
+        fast_raw: crate::sandbox::pixels::fast_raw(),
         path: entry
             .local_thumbnail_path()
             .expect("local entry")
@@ -334,6 +360,7 @@ pub(super) fn preserve_renamed_thumbnail(from: &crate::model::Location, entry: &
     };
     THUMBNAIL_CACHE.with_borrow_mut(|cache| {
         let key = ThumbnailKey {
+            fast_raw: crate::sandbox::pixels::fast_raw(),
             path: from.to_path_buf(),
             modified: Some(modified),
             file_size: Some(file_size),
@@ -390,6 +417,7 @@ enum ThumbnailKind {
     Camera,
     Image,
     RawImage,
+    RawImageLegacy,
     Pdf,
     Video,
     AppImage,
@@ -526,6 +554,7 @@ fn set_thumbnail_for_path(request: ThumbnailRequest<'_>) {
         return;
     }
     let key = ThumbnailKey {
+        fast_raw: crate::sandbox::pixels::fast_raw(),
         path: path.clone(),
         modified: request.modified,
         file_size: request.file_size,
@@ -930,6 +959,7 @@ fn heavy(kind: ThumbnailKind) -> bool {
     matches!(
         kind,
         ThumbnailKind::RawImage
+            | ThumbnailKind::RawImageLegacy
             | ThumbnailKind::Pdf
             | ThumbnailKind::Video
             | ThumbnailKind::EmbeddedModel(_)
@@ -1031,6 +1061,30 @@ async fn finish_thumbnail_job(
                 }
                 let png = thumbnail.png;
                 crate::metrics::mark_thumbnail_completed();
+                if png.starts_with(b"STRGBA01") {
+                    match crate::sandbox::pixels::decode(png) {
+                        Ok((size, pixels)) => {
+                            let pixels = glib::Bytes::from_owned(pixels);
+                            let texture: gdk::Texture = gdk::MemoryTexture::new(
+                                size.0 as i32,
+                                size.1 as i32,
+                                gdk::MemoryFormat::R8g8b8a8,
+                                &pixels,
+                                size.0 as usize * 4,
+                            )
+                            .upcast();
+                            THUMBNAIL_CACHE.with(|cache| {
+                                cache.borrow_mut().insert(key.clone(), texture.clone())
+                            });
+                            finish_thumbnail_targets(targets, Some(&texture), &path);
+                            if rendered && let Some(mtime) = key.modified {
+                                enqueue_rgba_persist(path, mtime, size, pixels);
+                            }
+                        }
+                        Err(_) => finish_thumbnail_targets(targets, None, &path),
+                    }
+                    return;
+                }
                 let bytes = glib::Bytes::from_owned(png.clone());
                 let texture = background::cache(move || gdk::Texture::from_bytes(&bytes).ok())
                     .await
@@ -1305,14 +1359,7 @@ fn set_fallback_icon(
 ) -> (usize, u64) {
     let ids = prepare_thumbnail_target(image, size);
     clear_displayed_thumbnail(image);
-    let (texture, customized) = path_icon_texture(
-        path,
-        icon,
-        image.icon_pixel_size(),
-        image.scale_factor(),
-        image.icon_context(),
-    );
-    image.set_fallback(icon, texture.as_ref());
+    let customized = set_slot_path_icon(image, path, icon);
     if let Some(p) = path {
         register_tracked_icon(image, p, icon, customized);
     } else {
@@ -1423,15 +1470,64 @@ fn path_icon_texture(
 }
 
 fn apply_path_customization(image: &ThumbnailSlot, path: &Path, fallback_icon: &str) -> bool {
-    let (texture, customized) = path_icon_texture(
-        Some(path),
-        fallback_icon,
-        image.icon_pixel_size(),
-        image.scale_factor(),
-        image.icon_context(),
-    );
-    image.set_fallback(fallback_icon, texture.as_ref());
-    customized
+    set_slot_path_icon(image, Some(path), fallback_icon)
+}
+
+fn set_slot_path_icon(image: &ThumbnailSlot, path: Option<&Path>, icon: &str) -> bool {
+    let preferences = super::preferences::PreferenceManager::shared();
+    let customized = path.is_some_and(|path| {
+        preferences.custom_icon(path).is_some() || preferences.folder_color(path).is_some()
+    });
+    if customized {
+        let (texture, _) = path_icon_texture(
+            path,
+            icon,
+            image.icon_pixel_size(),
+            image.scale_factor(),
+            image.icon_context(),
+        );
+        image.set_fallback(icon, texture.as_ref());
+        return true;
+    }
+    let folder = icon == crate::assets::icons::FOLDER || icon.starts_with("strata-material-folder");
+    let resolved = path
+        .map_or(icon, |path| themed_path_icon(path, icon, folder))
+        .to_owned();
+    let generic = if folder {
+        crate::assets::icons::FOLDER
+    } else {
+        crate::assets::icons::DOCUMENTS
+    };
+    let color = crate::assets::primary_icon_color();
+    let size = image.icon_pixel_size();
+    let scale = image.scale_factor();
+    let context = image.icon_context();
+    if let Some(texture) =
+        crate::assets::cached_file_icon_texture(&resolved, &color, size, scale, context)
+    {
+        image.set_fallback(icon, Some(&texture));
+        return false;
+    }
+    let placeholder = crate::assets::sized_icon_paintable(generic, &color, size, scale, context);
+    image.set_fallback(icon, placeholder.as_ref());
+    let generation = image.fallback_generation();
+    let weak = image.downgrade();
+    let task = glib::MainContext::default().spawn_local(async move {
+        // Factory bind may still own a floating GTK item widget. Traverse its
+        // ancestors only after returning to the main context.
+        let visible = {
+            let Some(image) = weak.upgrade() else { return };
+            viewport::near_viewport(&image)
+        };
+        if let Some(texture) =
+            crate::assets::file_icon_texture(resolved, color, size, scale, context, visible).await
+            && let Some(image) = weak.upgrade()
+        {
+            image.finish_fallback(generation, &texture);
+        }
+    });
+    image.set_fallback_task(task);
+    false
 }
 
 fn apply_path_customization_image(
@@ -1488,14 +1584,7 @@ pub(super) fn refresh_slot_icon(image: &ThumbnailSlot) {
     if let Some((path, icon)) = tracked {
         apply_path_customization(image, &path, &icon);
     } else if let Some(icon) = image.fallback_icon() {
-        let (texture, _) = path_icon_texture(
-            None,
-            &icon,
-            image.icon_pixel_size(),
-            image.scale_factor(),
-            image.icon_context(),
-        );
-        image.set_fallback(&icon, texture.as_ref());
+        set_slot_path_icon(image, None, &icon);
     }
 }
 
@@ -1634,7 +1723,11 @@ fn cancel_thumbnail(image_id: usize) {
 
 fn thumbnail_kind(path: &Path) -> Option<ThumbnailKind> {
     if crate::sandbox::raw_metadata::is_raw(path) {
-        return Some(ThumbnailKind::RawImage);
+        return Some(if crate::sandbox::pixels::fast_raw() {
+            ThumbnailKind::RawImage
+        } else {
+            ThumbnailKind::RawImageLegacy
+        });
     }
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
@@ -1668,6 +1761,7 @@ fn render_thumbnail(
         ThumbnailKind::Camera => return Err("Camera thumbnails require their preview icon".into()),
         ThumbnailKind::Image => ParseOperation::ThumbnailImage,
         ThumbnailKind::RawImage => ParseOperation::ThumbnailRaw,
+        ThumbnailKind::RawImageLegacy => ParseOperation::ThumbnailRawLegacy,
         ThumbnailKind::Pdf => ParseOperation::ThumbnailPdf,
         ThumbnailKind::Video => ParseOperation::ThumbnailVideo,
         ThumbnailKind::AppImage => ParseOperation::ThumbnailAppImage,

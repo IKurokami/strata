@@ -1,5 +1,13 @@
 # Preference lifecycle
 
+`fast_raw_preview` and `smart_search_enabled` default to true, including missing
+fields in upgraded settings. Smart Search roots default to an empty list;
+`smart_search_include_code`, `smart_search_index_on_battery` and
+`smart_search_paused` default to false. Consumers bind before Settings opens and
+observe changes through the shared preference manager across views. Settings
+only edit those values. See [RAW previews](raw-previews.md) and
+[local content search](smart-search.md) for worker lifecycle and resource policy.
+
 Application-wide preferences live in `ui::preferences::Preferences`. The
 `ui::preferences::PreferenceManager` loads them once per application process and
 persists changes atomically to
@@ -41,6 +49,21 @@ tag status-only content with its section's target (the managed-install row uses
 "Check for updates"), rather than exempting it.
 
 ## One initialization and update path
+
+On Windows, **Settings → General → Desktop integration → Use Windows properties**
+is off by default. Enable it to use the Windows property sheet for native files,
+folders and selections, including the Properties shortcut. The preference is read
+when the command is dispatched, before Settings opens and after view rebuilds.
+Unsupported virtual locations retain Strata's property panel. Shell extensions
+run in the separate helper process rather than entering GTK. A launch failure
+is reported instead of silently opening a different properties dialog.
+
+Windows item context menus also expose **Delete using Windows** (normal deletion
+to the Recycle Bin) and **Permanently delete using Windows…** (the standard Shell
+permanent-deletion method, after confirmation). The permanent action overrides
+the method for that operation without changing the saved deletion preference.
+Normal deletion never silently falls back to permanent deletion. Non-native or
+read-only selections do not expose these actions.
 
 On Windows, **Show application console** is off by default. It applies immediately
 from Settings or the tray menu, is saved across launches, and controls only a
@@ -152,7 +175,7 @@ Both permanent-deletion methods are irreversible.
 | 10xer mode | Interactive browsers and the portal file chooser bind pane Close/filter/refresh/sort chrome and the Yazi-style keymap at construction, including lazily rebuilt views. Window Search hides in interactive browsers. Window Close, chooser Accept/Cancel, and List column headings stay. Unclaimed letter commands return focus from non-text window chrome to the listing; text fields, menus, and previews retain their own input. Off by default; toggle with `Ctrl+Shift+M` or Settings → General → Browsing. Enabling shows a brief non-interactive splash that respects Reduce motion; reopening an already-enabled window does not replay it. |
 | Include subfolders | Every pane filter binds at construction, including lazy view rebuilds. Enabled by default; disabling indexes only immediate files and folders, without traversing descendants. Live changes cancel pending queries and invalidate old result streams before refreshing the active filter. Global search remains recursive. 10xer mode ignores it: entering or leaving the mode re-runs active filters in the new scope. |
 | File icon theme and colors | Catppuccin is the default collection; Material Icons is also available. Brand colors retain the collection's palette and light/dark variants; Theme colors applies the theme accent. `ThemeManager` applies both preferences before Settings opens and live across windows and rebuilt views. Custom folder colors and user icons take precedence. Set under **Settings → Appearance → File icons**. |
-| Interface font | Any installed font family can be selected, including proportional fonts. The default is JetBrains Mono. The shared theme manager applies the saved family before Settings opens and updates existing windows and rebuilt views immediately. Text size remains a separate preference. Set under **Settings → Appearance → Interface font**. |
+| Interface font | Any installed font family can be selected, including proportional fonts, using the themed, searchable, virtualized font picker. The font list is loaded only when the picker is first opened. The default is JetBrains Mono. The shared theme manager applies the saved family before Settings opens and updates existing windows and rebuilt views immediately. Text size remains a separate preference. Set under **Settings → Appearance → Interface font**. |
 | Element glow | Shared semantic glow color is applied by `ThemeManager` when the appearance preferences change, before Settings opens and live across windows, dialogs, menus, and rebuilt views. Focus outlines and ordinary depth shadows are preserved. The video preview's ambient light, and the band it needs around the frame, follow the same switch live. |
 | Reduced motion | Set before any window is constructed. Frame-clock animations finish at their final state when it changes; shared CSS suppresses decorative keyframes/transitions and stack bindings update across open and rebuilt views. Hidden-window file-operation callbacks still complete, and superseded visual callbacks cannot close a reopened surface. |
 | Theme, Omarchy following/variant, text size | `ThemeManager` applies shared CSS when theme selection, Omarchy following, Omarchy variant, text size, or element glow change; controls and theme-card selections bind to preferences through `ThemeManager::bind_theme_preference`. Newly saved custom themes appear in other open theme pages. Missing themes/Omarchy use the existing fallback policy. |

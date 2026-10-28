@@ -2,6 +2,30 @@
 
 Strata includes or derives assets from the following projects.
 
+## FlashRaw
+
+- Project: <https://github.com/ybouane/flashraw>
+- Version: 0.1.1; source `ee9d8b5e250a9d39bb2c0028b62998095778fbd2`
+- Copyright: 2026 Yassine Bouanane and FlashRaw contributors
+- License: MIT OR Apache-2.0, including core/codecs/formats/camera database crates
+- Full licenses: [`FlashRaw-MIT.txt`](data/licenses/FlashRaw-MIT.txt), [`FlashRaw-Apache-2.0.txt`](data/licenses/FlashRaw-Apache-2.0.txt)
+
+## DigUp headless inference and search design
+
+- Project: <https://github.com/ARahim3/DigUp>
+- Version: 0.7.0-beta.3; source `0943225c2690c0631c01041e5dcb77c53e04395e`
+- Copyright: 2026 Abdur Rahim
+- License: MIT; [`DigUp-MIT.txt`](data/licenses/DigUp-MIT.txt)
+- The packaged headless worker retains upstream dependency notices. Strata maintains the GTK search and index implementation.
+- Runtime archive provenance: [`packaging/smart-search/`](packaging/smart-search/README.md)
+- Optional EmbeddingGemma 2 Q8_0 weights are Apache-2.0, downloaded only by explicit setup. Both GGUF digests and revision are pinned in the model manager.
+
+## SQLite and rusqlite
+
+- SQLite: <https://sqlite.org/copyright.html>, public domain
+- rusqlite 0.41.0: <https://github.com/rusqlite/rusqlite>, MIT
+- The content index uses bundled SQLite with FTS5. Source checksums are resolved through Cargo.lock.
+
 ## Windows GTK runtime
 
 - Project: <https://www.gtk.org/>

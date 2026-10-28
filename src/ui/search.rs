@@ -20,6 +20,8 @@ use crate::services::{
     index_trees_with_exclusions,
 };
 
+mod smart;
+
 const MAX_RESULT_UPDATES_PER_FRAME: usize = 8;
 
 #[derive(Clone)]
@@ -28,6 +30,7 @@ pub struct SearchDialog {
 }
 
 struct SearchState {
+    smart: RefCell<Option<Rc<smart::Panel>>>,
     // Keep the shared provider alive when this dialog is hosted without a browser window.
     _themes: Rc<super::theme::ThemeManager>,
     preferences: Rc<super::preferences::PreferenceManager>,
@@ -193,6 +196,7 @@ impl SearchDialog {
 
         let focus_restore = super::modal::remember_persistent_modal_focus(layer.upcast_ref());
         let state = Rc::new(SearchState {
+            smart: RefCell::new(None),
             _themes: themes,
             preferences,
             layer,
@@ -253,6 +257,14 @@ impl SearchDialog {
                 return glib::Propagation::Stop;
             }
             if press.is(OPEN_CONTAINING_FOLDER) {
+                if state.history.borrow().is_none()
+                    && let Some(panel) = state.smart.borrow().as_ref()
+                {
+                    if let Some(item) = panel.activation_target() {
+                        reveal_result(&state, item);
+                    }
+                    return glib::Propagation::Stop;
+                }
                 if let Some(item) = state.list.selected_row().and_then(|row| {
                     state
                         .visible_results
@@ -334,11 +346,26 @@ impl SearchDialog {
         self.state.layer.clone().upcast()
     }
 
-    pub fn show(&self, roots: Vec<PathBuf>, show_hidden: bool) {
+    pub fn show(&self, mut roots: Vec<PathBuf>, show_hidden: bool) {
+        roots.extend(self.state.preferences.smart_search_roots());
+        roots.sort();
+        roots.dedup();
         self.state.generation.set(self.state.generation.get() + 1);
         let generation = self.state.generation.get();
         self.state.search.borrow_mut().take();
         self.state.history.borrow_mut().take();
+        if !roots.is_empty() && self.state.smart.borrow().is_none() {
+            let weak = Rc::downgrade(&self.state);
+            let panel = smart::Panel::new(Rc::new(move |item| {
+                if let Some(state) = weak.upgrade() {
+                    skip_focus_restore(&state);
+                    hide(&state);
+                    (state.activate)(item);
+                }
+            }));
+            self.state.results.add_named(&panel.root, Some("smart"));
+            self.state.smart.replace(Some(panel));
+        }
         self.state
             .field
             .set_placeholder_text(Some(&crate::i18n::tr("Search files and folders…")));
@@ -472,6 +499,9 @@ fn begin_query(state: &Rc<SearchState>, query: &str) {
         );
         return;
     }
+    if let Some(panel) = state.smart.borrow().as_ref() {
+        panel.query(query);
+    }
     if query.trim().is_empty() {
         clear_results(state);
         state.results.set_visible_child_name("status");
@@ -485,6 +515,9 @@ fn begin_query(state: &Rc<SearchState>, query: &str) {
     if let Some(search) = state.search.borrow().as_ref() {
         search.query(query);
     }
+    if !query.trim().is_empty() && state.smart.borrow().is_some() {
+        state.results.set_visible_child_name("smart");
+    }
 }
 
 fn render_results(
@@ -493,6 +526,15 @@ fn render_results(
     indexing: bool,
     coverage: SearchCoverage,
 ) {
+    if state.history.borrow().is_none()
+        && let Some(panel) = state.smart.borrow().as_ref()
+    {
+        state.truncated_hint.set_visible(coverage.is_partial());
+        state.visible_results.replace(results.clone());
+        panel.names(results);
+        state.results.set_visible_child_name("smart");
+        return;
+    }
     let query = state.field.text().trim().to_owned();
     let query_changed = state.rendered_query.borrow().as_str() != query;
     let old_items = state.visible_results.borrow().clone();
@@ -747,7 +789,7 @@ fn close_result_menu(state: &SearchState) {
     }
 }
 
-fn reveal_result(state: &SearchState, item: SearchItem) {
+fn reveal_result(state: &Rc<SearchState>, item: SearchItem) {
     skip_focus_restore(state);
     let reveal = state.reveal.clone();
     hide_then(state, move || reveal(item));
@@ -830,6 +872,12 @@ fn record_interaction(state: &SearchState) {
 }
 
 fn move_selection(state: &SearchState, direction: i32) {
+    if state.history.borrow().is_none()
+        && let Some(panel) = state.smart.borrow().as_ref()
+    {
+        panel.move_selection(direction);
+        return;
+    }
     record_interaction(state);
     if !contains_keyboard_focus(state.field.upcast_ref()) {
         state.field.grab_focus_without_selecting();
@@ -867,6 +915,17 @@ fn scroll_row_into_view(state: &SearchState, row: &gtk::ListBoxRow) {
 }
 
 fn activate_selected(state: &Rc<SearchState>) -> bool {
+    if state.history.borrow().is_none()
+        && let Some(panel) = state.smart.borrow().as_ref()
+    {
+        if let Some(item) = panel.activation_target() {
+            skip_focus_restore(state);
+            hide(state);
+            (state.activate)(item);
+            return true;
+        }
+        return false;
+    }
     let Some(row) = state.list.selected_row() else {
         return false;
     };
@@ -890,32 +949,46 @@ fn skip_focus_restore(state: &SearchState) {
     state.focus_restore.set(false);
 }
 
-fn hide(state: &SearchState) {
+fn hide(state: &Rc<SearchState>) {
     hide_then(state, || {});
 }
 
-fn hide_then(state: &SearchState, after_dismiss: impl FnOnce() + 'static) {
-    close_result_menu(state);
-    state.generation.set(state.generation.get() + 1);
-    record_interaction(state);
-    state.search.borrow_mut().take();
-    clear_results(state);
-    state.truncated_hint.set_visible(false);
-    state.indexing_spinner.stop();
-    state.indexing_spinner.set_visible(false);
+fn hide_then(state: &Rc<SearchState>, after_dismiss: impl FnOnce() + 'static) {
     if state.layer.has_css_class("dismissing") {
         return;
     }
+    close_result_menu(state);
+    if let Some(panel) = state.smart.borrow().as_ref() {
+        panel.cancel();
+    }
+    state.generation.set(state.generation.get() + 1);
+    let generation = state.generation.get();
+    record_interaction(state);
+    state.search.borrow_mut().take();
+    state.indexing_spinner.stop();
     state.layer.add_css_class("dismissing");
     state.layer.set_sensitive(false);
     let layer = state.layer.clone();
     let dismiss = state.dismiss.clone();
+    let weak = Rc::downgrade(state);
     super::browser::animate_out(&state.layer, move || {
         layer.set_visible(false);
         layer.remove_css_class("dismissing");
         layer.set_sensitive(true);
         dismiss();
         after_dismiss();
+        // Keep the outgoing result rows stable while the panel moves. Drop them
+        // after hiding, unless another show has already taken ownership.
+        glib::idle_add_local_once(move || {
+            if let Some(state) = weak.upgrade()
+                && state.generation.get() == generation
+                && !state.layer.is_visible()
+            {
+                clear_results(&state);
+                state.truncated_hint.set_visible(false);
+                state.indexing_spinner.set_visible(false);
+            }
+        });
     });
 }
 

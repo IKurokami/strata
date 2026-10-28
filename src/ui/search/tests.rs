@@ -3,6 +3,69 @@
 use super::*;
 
 #[test]
+fn closing_search_retains_results_and_preserves_a_reopened_search() {
+    crate::test_support::gtk_test(
+        "ui::search::tests::closing_search_retains_results_and_preserves_a_reopened_search",
+        || {
+            crate::ui::motion::set_reduce_motion(false);
+            gtk::Settings::default()
+                .expect("GTK settings")
+                .set_gtk_enable_animations(true);
+            let (dialog, window) = mapped_dialog(Rc::new(|_| {}));
+            let initial = search_items("outgoing", 3);
+            render_results(
+                &dialog.state,
+                initial.clone(),
+                false,
+                SearchCoverage::default(),
+            );
+            let replacement = search_items("replacement", 2);
+            let reopened = dialog.clone();
+            let next = replacement.clone();
+            let completed = Rc::new(Cell::new(false));
+            let seen = completed.clone();
+            hide_then(&dialog.state, move || {
+                reopened.show(Vec::new(), false);
+                render_results(&reopened.state, next, false, SearchCoverage::default());
+                seen.set(true);
+            });
+            assert_eq!(
+                dialog
+                    .state
+                    .visible_results
+                    .borrow()
+                    .iter()
+                    .map(|item| &item.path)
+                    .collect::<Vec<_>>(),
+                initial.iter().map(|item| &item.path).collect::<Vec<_>>()
+            );
+            wait_until(|| completed.get());
+            drain_main_context();
+            assert!(dialog.state.layer.is_visible());
+            assert_eq!(
+                dialog
+                    .state
+                    .visible_results
+                    .borrow()
+                    .iter()
+                    .map(|item| &item.path)
+                    .collect::<Vec<_>>(),
+                replacement
+                    .iter()
+                    .map(|item| &item.path)
+                    .collect::<Vec<_>>()
+            );
+            hide(&dialog.state);
+            assert!(!dialog.state.visible_results.borrow().is_empty());
+            wait_until(|| {
+                !dialog.state.layer.is_visible() && dialog.state.visible_results.borrow().is_empty()
+            });
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn result_updates_preserve_entry_caret_selection_and_default_selection() {
     crate::test_support::gtk_test(
         "ui::search::tests::result_updates_preserve_entry_caret_selection_and_default_selection",
@@ -527,14 +590,6 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
             assert!(dialog.state.field.tooltip_text().is_none());
             dialog.state.field.set_text("needle");
             wait_until(|| dialog.state.visible_results.borrow().len() == 2);
-            for position in 0..dialog.state.visible_results.borrow().len() {
-                let row = dialog
-                    .state
-                    .list
-                    .row_at_index(position as i32)
-                    .expect("result row");
-                assert!(row.tooltip_text().is_none());
-            }
 
             dialog.show(vec![home.clone()], false);
             assert!(dialog.state.visible_results.borrow().is_empty());
@@ -570,7 +625,16 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
                 .iter()
                 .position(|item| item.path.starts_with(&usb))
                 .expect("USB result");
-            activate_position(&dialog.state, usb_position as i32);
+            let panel = dialog
+                .state
+                .smart
+                .borrow()
+                .clone()
+                .expect("virtual results");
+            for _ in 0..=usb_position {
+                panel.move_selection(1);
+            }
+            assert!(activate_selected(&dialog.state));
             assert_eq!(
                 activated.borrow().as_ref().expect("activation").path,
                 usb.join("needle.txt")
@@ -662,4 +726,38 @@ fn wait_until(condition: impl Fn() -> bool) {
         glib::MainContext::default().iteration(false);
         std::thread::sleep(Duration::from_millis(1));
     }
+}
+
+#[test]
+fn filename_search_includes_explicitly_indexed_folders_outside_default_roots() {
+    crate::test_support::gtk_test(
+        "ui::search::tests::filename_search_includes_explicitly_indexed_folders_outside_default_roots",
+        || {
+            let primary = tempfile::tempdir().expect("default root");
+            let indexed = tempfile::tempdir().expect("approved root");
+            let expected = indexed.path().join("unique-needle.txt");
+            std::fs::write(&expected, "local text").expect("source");
+            let preferences = super::super::preferences::PreferenceManager::shared();
+            preferences.set_smart_search_roots(vec![indexed.path().to_owned()]);
+            let activated = Rc::new(RefCell::new(None));
+            let recorded = activated.clone();
+            let (dialog, window) = mapped_dialog(Rc::new(move |item| {
+                recorded.replace(Some(item.path));
+            }));
+            dialog.show(vec![primary.path().to_owned()], false);
+            dialog.state.field.set_text("unique-needle");
+            wait_until(|| {
+                dialog
+                    .state
+                    .visible_results
+                    .borrow()
+                    .iter()
+                    .any(|item| item.path == expected)
+            });
+            assert!(activate_selected(&dialog.state));
+            assert_eq!(activated.borrow().as_ref(), Some(&expected));
+            preferences.set_smart_search_roots(Vec::new());
+            window.close();
+        },
+    );
 }

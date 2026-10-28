@@ -401,6 +401,9 @@ impl Location {
     }
 
     pub fn display_name(&self) -> String {
+        if self.uri_value() == Some("computer:///") {
+            return crate::i18n::tr("This PC");
+        }
         if self.is_recent_root() {
             return crate::i18n::tr("Recent");
         }

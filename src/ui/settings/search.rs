@@ -13,6 +13,67 @@ struct Target {
 }
 
 const TARGETS: &[Target] = &[
+    Target {
+        id: "fast-raw-preview",
+        page: "general",
+        title: "Fast RAW preview",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "smart-search",
+        page: "smart-search",
+        title: "Smart Search",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "pause-indexing",
+        page: "smart-search",
+        title: "Pause indexing",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "index-source-code",
+        page: "smart-search",
+        title: "Index source code",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "index-on-battery",
+        page: "smart-search",
+        title: "Index on battery",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "indexed-folders",
+        page: "smart-search",
+        title: "Indexed folders",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "local-search-models",
+        page: "smart-search",
+        title: "Local search models",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "delete-content-index",
+        page: "smart-search",
+        title: "Delete content index",
+        aliases: "search raw preview models folders content index local",
+    },
+    Target {
+        id: "rebuild-content-index",
+        page: "smart-search",
+        title: "Rebuild content index",
+        aliases: "search raw preview models folders content index local",
+    },
+    #[cfg(windows)]
+    Target {
+        id: "windows-properties",
+        page: "general",
+        title: "Use Windows properties",
+        aliases: "windows native shell properties details dialog explorer",
+    },
     #[cfg(windows)]
     Target {
         id: "permanent-delete-method",

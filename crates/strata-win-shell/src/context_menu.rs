@@ -5,21 +5,21 @@ use windows::{
     Win32::{
         Foundation::{ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM},
         System::{
-            Com::CoTaskMemFree,
+            Com::{CoTaskMemFree, IDataObject},
             LibraryLoader::GetModuleHandleW,
             Ole::{OleFlushClipboard, OleInitialize, OleUninitialize},
         },
         UI::{
             Shell::{
-                BHID_SFUIObject, CMF_EXPLORE, CMF_NORMAL, CMF_SYNCCASCADEMENU, CMINVOKECOMMANDINFO,
-                CMINVOKECOMMANDINFOEX, GCS_VERBW, IContextMenu, IContextMenu2, IContextMenu3,
-                SEE_MASK_NOASYNC, SEE_MASK_UNICODE, SHCreateShellItemArrayFromIDLists,
-                SHParseDisplayName,
+                BHID_DataObject, BHID_SFUIObject, CMF_EXPLORE, CMF_NORMAL, CMF_SYNCCASCADEMENU,
+                CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, GCS_VERBW, IContextMenu, IContextMenu2,
+                IContextMenu3, SEE_MASK_NOASYNC, SEE_MASK_UNICODE,
+                SHCreateShellItemArrayFromIDLists, SHMultiFileProperties, SHParseDisplayName,
             },
             WindowsAndMessaging::*,
         },
     },
-    core::{Interface, PCSTR, PCWSTR, PSTR, PWSTR, w},
+    core::{GUID, Interface, PCSTR, PCWSTR, PSTR, PWSTR, w},
 };
 
 const FIRST_COMMAND: u32 = 1;
@@ -107,6 +107,10 @@ fn validate_paths(paths: &[impl AsRef<Path>]) -> io::Result<()> {
 }
 
 fn selection_context(paths: &[impl AsRef<Path>]) -> io::Result<IContextMenu> {
+    selection_object(paths, &BHID_SFUIObject)
+}
+
+fn selection_object<T: Interface>(paths: &[impl AsRef<Path>], handler: &GUID) -> io::Result<T> {
     validate_paths(paths)?;
     let mut ids = Vec::with_capacity(paths.len());
     let result = (|| {
@@ -123,13 +127,25 @@ fn selection_context(paths: &[impl AsRef<Path>]) -> io::Result<IContextMenu> {
         let selection =
             unsafe { SHCreateShellItemArrayFromIDLists(&pointers) }.map_err(io::Error::other)?;
         // SAFETY: Binding uses the Shell's selection-aware UI object on this STA.
-        unsafe { selection.BindToHandler(None, &BHID_SFUIObject) }.map_err(io::Error::other)
+        unsafe { selection.BindToHandler(None, handler) }.map_err(io::Error::other)
     })();
     for id in ids {
         // SAFETY: Each successful parse transferred one task-allocator PIDL to us.
         unsafe { CoTaskMemFree(Some(id.cast())) };
     }
     result
+}
+
+/// Show the Shell's selection-aware property sheet outside the GTK process.
+pub fn properties(paths: &[impl AsRef<Path>]) -> io::Result<()> {
+    // SAFETY: The standalone helper owns this thread's OLE apartment until the
+    // native property sheet returns; Shell extensions never enter GTK.
+    unsafe { OleInitialize(None) }.map_err(io::Error::other)?;
+    let _apartment = Apartment;
+    let data: IDataObject = selection_object(paths, &BHID_DataObject)?;
+    // SAFETY: The Shell-created data object contains the selected absolute PIDLs
+    // and remains alive for the duration of the native property sheet.
+    unsafe { SHMultiFileProperties(&data, 0) }.map_err(io::Error::other)
 }
 
 /// Allow the helper to activate a selected command's dialog or application.

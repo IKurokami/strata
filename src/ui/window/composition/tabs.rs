@@ -387,12 +387,18 @@ impl TabWindow {
     }
 
     fn add_with_location(self: &Rc<Self>, location: Option<Location>, navigate: bool) {
+        let construction_started = std::time::Instant::now();
         let Some(window) = self.window.upgrade() else {
             return;
         };
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         let content = Rc::new(WindowContent::new(&window, &self.preferences));
+        tracing::info!(
+            tab_id = id,
+            elapsed_us = construction_started.elapsed().as_micros() as u64,
+            "tab content widgets constructed"
+        );
         content.bind_context(&window, &self.preferences);
         let tab = Rc::new(Tab {
             id,

@@ -7,6 +7,8 @@
 //! - Hard memory quota (1 GiB) prevents unbounded memory exhaustion.
 //! - `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` ensures children die if parent dies.
 //! - Full UI restrictions (no clipboard, desktop, or window handle access).
+#[path = "sandbox/pixels.rs"]
+pub(crate) mod pixels;
 use std::{
     fs,
     io::Read,
@@ -137,6 +139,7 @@ impl CoverFormat {
 pub(crate) enum ParseOperation {
     ThumbnailImage,
     ThumbnailRaw,
+    ThumbnailRawLegacy,
     ThumbnailPdf,
     ThumbnailVideo,
     ThumbnailAppImage,
@@ -144,6 +147,8 @@ pub(crate) enum ParseOperation {
     ThumbnailCover(CoverFormat),
     PreviewCover(CoverFormat),
     PreviewImage,
+    PreviewImageLegacy,
+    PreviewRawDevelop,
     InspectImage,
     ConvertImage,
     DocumentImage,
@@ -153,6 +158,10 @@ pub(crate) enum ParseOperation {
     },
     MediaMetadata,
     RawMetadata,
+    SearchExtract,
+    SearchMediaInfo,
+    SearchVideoFrame,
+    SearchAudioSegment,
     PreviewWorkbook,
     PreviewDocument,
     PreviewPdf(PdfRenderSize),
@@ -176,6 +185,7 @@ impl ParseOperation {
         match self {
             Self::ThumbnailImage => "thumbnail-image",
             Self::ThumbnailRaw => "thumbnail-raw",
+            Self::ThumbnailRawLegacy => "thumbnail-raw-legacy",
             Self::ThumbnailPdf => "thumbnail-pdf",
             Self::ThumbnailVideo => "thumbnail-video",
             Self::ThumbnailAppImage => "thumbnail-appimage",
@@ -183,6 +193,8 @@ impl ParseOperation {
             Self::ThumbnailCover(_) => "thumbnail-cover",
             Self::PreviewCover(_) => "preview-cover",
             Self::PreviewImage => "preview-image-rgba",
+            Self::PreviewImageLegacy => "preview-image-legacy",
+            Self::PreviewRawDevelop => "preview-raw-develop",
             Self::InspectImage => "inspect-image",
             Self::ConvertImage => "convert-image",
             Self::DocumentImage => "document-image",
@@ -191,6 +203,10 @@ impl ParseOperation {
             Self::DocumentMath { display: false } => "document-inline-math",
             Self::MediaMetadata => "media-metadata",
             Self::RawMetadata => "raw-metadata",
+            Self::SearchExtract => "search-extract",
+            Self::SearchMediaInfo => "search-media-info",
+            Self::SearchVideoFrame => "search-video-frame",
+            Self::SearchAudioSegment => "search-audio-segment",
             Self::PreviewWorkbook => "preview-workbook",
             Self::PreviewDocument => "preview-document",
             Self::PreviewPdf(_) => "preview-pdf",
@@ -211,6 +227,7 @@ impl ParseOperation {
             Self::MediaMetadata
                 | Self::AudioTags
                 | Self::RawMetadata
+                | Self::SearchExtract
                 | Self::PreviewWorkbook
                 | Self::PreviewDocument
                 | Self::InspectImage
@@ -239,9 +256,13 @@ impl ParseOperation {
         match self {
             Self::ThumbnailImage
             | Self::ThumbnailRaw
+            | Self::ThumbnailRawLegacy
             | Self::ThumbnailPdf
             | Self::PreviewImage
+            | Self::PreviewImageLegacy
+            | Self::PreviewRawDevelop
             | Self::RawMetadata
+            | Self::SearchExtract
             | Self::PreviewPdf(_) => Some(MAX_RASTER_INPUT_BYTES),
             Self::PreviewModel(_) | Self::ThumbnailModel(_) => Some(MAX_MODEL_INPUT_BYTES),
             Self::ThumbnailCover(_) | Self::PreviewCover(_) => {
@@ -268,6 +289,9 @@ impl ParseOperation {
             | Self::AudioTags
             | Self::AudioCover
             | Self::MediaMetadata
+            | Self::SearchMediaInfo
+            | Self::SearchVideoFrame
+            | Self::SearchAudioSegment
             | Self::ArchiveList { .. } => None,
         }
     }
@@ -356,6 +380,30 @@ fn read_text_layer(path: &Path) -> Option<crate::services::PdfTextLayer> {
 }
 
 fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
+    if matches!(operation, ParseOperation::SearchExtract) {
+        return data.len() <= 1024 * 1024
+            && serde_json::from_slice::<crate::services::smart_search::result::Extraction>(data)
+                .is_ok_and(|value| {
+                    value.segments.len() <= 1024
+                        && value
+                            .segments
+                            .iter()
+                            .all(|segment| segment.text.len() <= 16000)
+                });
+    }
+    if matches!(operation, ParseOperation::SearchMediaInfo) {
+        return data.len() <= 64 * 1024
+            && serde_json::from_slice::<serde_json::Value>(data).is_ok();
+    }
+    if matches!(operation, ParseOperation::SearchAudioSegment) {
+        return data.len() <= 1024 * 1024
+            && data.get(..4) == Some(b"RIFF")
+            && data.get(8..12) == Some(b"WAVE");
+    }
+    if matches!(operation, ParseOperation::ThumbnailRaw) && data.starts_with(b"STRGBA01") {
+        return pixels::dimensions(data)
+            .is_some_and(|(width, height)| width <= 256 && height <= 256);
+    }
     if matches!(
         operation,
         ParseOperation::MediaMetadata
@@ -368,7 +416,12 @@ fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
         serde_json::from_slice::<serde_json::Value>(data).is_ok()
     } else if matches!(operation, ParseOperation::ArchiveList { .. }) {
         crate::adapters::archive_payload_valid(data)
-    } else if matches!(operation, ParseOperation::PreviewImage) {
+    } else if matches!(
+        operation,
+        ParseOperation::PreviewImage
+            | ParseOperation::PreviewImageLegacy
+            | ParseOperation::PreviewRawDevelop
+    ) {
         rgba_dimensions(data).is_some()
     } else {
         png_dimensions(data).is_some()
@@ -539,7 +592,18 @@ fn parse_sandboxed(
 
     let limits = strata_win_shell::job::JobLimits {
         memory_limit_bytes: Some(1024 * 1024 * 1024),
-        active_process_limit: Some(1),
+        active_process_limit: Some(
+            if matches!(
+                operation,
+                ParseOperation::SearchMediaInfo
+                    | ParseOperation::SearchVideoFrame
+                    | ParseOperation::SearchAudioSegment
+            ) {
+                2
+            } else {
+                1
+            },
+        ),
         kill_on_job_close: true,
         restrict_ui: true,
     };
@@ -617,7 +681,12 @@ fn parse_sandboxed(
     let (page, pages) = read_meta(&output.path().join("result.meta"));
     let text_layer = read_text_layer(&output.path().join("result.text"));
 
-    let (data, raster_dimensions) = if matches!(operation, ParseOperation::PreviewImage) {
+    let (data, raster_dimensions) = if matches!(
+        operation,
+        ParseOperation::PreviewImage
+            | ParseOperation::PreviewImageLegacy
+            | ParseOperation::PreviewRawDevelop
+    ) {
         let (dimensions, pixels) = decode_rgba_output(&data)?;
         (pixels, Some(dimensions))
     } else {
@@ -670,16 +739,7 @@ pub(crate) fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn rgba_dimensions(data: &[u8]) -> Option<(u32, u32)> {
-    if data.get(..8)? != b"STRGBA01" {
-        return None;
-    }
-    let width = u32::from_le_bytes(data.get(8..12)?.try_into().ok()?);
-    let height = u32::from_le_bytes(data.get(12..16)?.try_into().ok()?);
-    let pixels = u64::from(width)
-        .checked_mul(u64::from(height))?
-        .checked_mul(4)?;
-    (width > 0 && height > 0 && pixels == data.len().saturating_sub(16) as u64)
-        .then_some((width, height))
+    pixels::dimensions(data)
 }
 
 fn decode_rgba_output(data: &[u8]) -> Result<((u32, u32), Vec<u8>), String> {

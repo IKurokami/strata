@@ -97,7 +97,8 @@ pub(crate) fn operation_error_message(error: &std::io::Error) -> String {
         tracing::debug!(%error, "native Recycle Bin operation stopped");
         return crate::i18n::tr("Operation cancelled");
     }
-    tracing::warn!(%error, "native Recycle Bin operation failed");
+    tracing::warn!(error_kind = ?error.kind(), os_error = ?error.raw_os_error(),
+        %error, "native Recycle Bin operation failed");
     if error.raw_os_error().is_some() || crate::services::io_error_reason(error).is_some() {
         crate::services::io_error_message(error)
     } else {

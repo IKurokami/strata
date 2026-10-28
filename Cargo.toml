@@ -16,11 +16,19 @@ rar = ["dep:unrar", "dep:unrar_sys"]
 
 [dependencies]
 async-io = "2.6.0"
+arc-swap = "1.7.1"
+rayon = "1.11.0"
 cairo-rs = { version = "0.22.9", features = ["pdf", "png"] }
 calamine = "0.36.1"
 csv = "1.4.0"
 docx-rs = { version = "0.4.22", default-features = false }
 flate2 = "1.1.10"
+flashraw = { version = "=0.1.1", default-features = false, features = ["rayon", "simd", "icc", "mmap"] }
+base64 = "0.22.1"
+half = "2.7.1"
+moxcms = "=0.8.1"
+notify = "8.2.0"
+rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled", "cache", "hooks", "functions"] }
 fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6.0.1" }
 futures-channel = "0.3.31"
 futures-lite = "2.6.1"

@@ -387,15 +387,8 @@ impl InlineSearch {
         if !state.session.is_active() {
             return;
         }
-        let pruned: Vec<_> = state
-            .collection
-            .items()
-            .iter()
-            .filter(|item| search_path_present(&item.path))
-            .cloned()
-            .collect();
-        if pruned.len() != state.collection.sorted.n_items() as usize {
-            update_results(state, pruned, state.recursive.get());
+        if let Some(entry) = state.entry.upgrade() {
+            state.session.query(entry.text().trim());
         }
     }
 
@@ -823,10 +816,7 @@ pub(super) fn eligible_results(
     let candidates = items.len();
     let items = items
         .into_iter()
-        .filter(|item| {
-            browser.allows_entry(&super::browser::search_result_entry(item))
-                && search_path_present(&item.path)
-        })
+        .filter(|item| browser.allows_entry(&super::browser::search_result_entry(item)))
         .take(crate::services::SEARCH_RESULT_LIMIT)
         .collect::<Vec<_>>();
     // Type/folder predicates run on GTK's thread, after ranking but before the display cap.
@@ -835,12 +825,4 @@ pub(super) fn eligible_results(
         handle.query_candidates(query, candidates.saturating_mul(2));
     }
     items
-}
-
-pub(super) fn search_path_present(path: &Path) -> bool {
-    // Preserve dangling symlinks and uncertain paths; only confirmed absence removes a hit.
-    path.symlink_metadata().map_or_else(
-        |error| error.kind() != std::io::ErrorKind::NotFound,
-        |_| true,
-    )
 }

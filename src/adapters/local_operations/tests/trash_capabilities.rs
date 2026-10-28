@@ -95,6 +95,8 @@ fn isolated_trash_supports_read_copy_move_restore_and_delete() {
     }));
     let _preview = provider.load(
         PreviewRequest {
+            search_hit: None,
+            raw_develop: false,
             id: PreviewRequestId(433),
             entry: FileEntry {
                 location: Location::uri(child.uri()),

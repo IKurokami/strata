@@ -25,6 +25,34 @@ pub fn initialize() {
     let _started = STARTED.set(Instant::now());
 }
 
+pub fn startup_checkpoint(stage: &'static str) {
+    if let Some(started) = STARTED.get() {
+        tracing::info!(
+            stage,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "startup checkpoint"
+        );
+    }
+}
+
+/// Opt-in scheduling diagnostics; no polling cost during normal use.
+pub fn install_main_loop_monitor() {
+    if std::env::var_os("STRATA_UI_TRACE").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return;
+    }
+    let interval = std::time::Duration::from_millis(250);
+    let mut previous = Instant::now();
+    gtk::glib::timeout_add_local(interval, move || {
+        let elapsed = previous.elapsed();
+        previous = Instant::now();
+        let delay = elapsed.saturating_sub(interval).as_millis() as u64;
+        if delay >= 32 {
+            tracing::warn!(delay_ms = delay, "GTK main loop scheduling delay");
+        }
+        gtk::glib::ControlFlow::Continue
+    });
+}
+
 pub fn mark_window_presented() {
     if let Some(started) = STARTED.get() {
         tracing::info!(
@@ -65,11 +93,6 @@ pub fn mark_first_visible_row(entries: usize) {
 /// attribute wall time without extra global state.
 pub fn record_stage(stage: &str, elapsed_ms: u64) {
     tracing::debug!(stage, elapsed_ms, "directory stage completed");
-}
-
-#[expect(dead_code, reason = "frame-clock plumbing lands with Task 11")]
-pub fn record_input_latency(elapsed_ms: u64) {
-    tracing::debug!(elapsed_ms, "input event to presented frame");
 }
 
 pub fn mark_batch_rendered(entries: usize, render_started: Instant) {

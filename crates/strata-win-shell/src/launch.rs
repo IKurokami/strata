@@ -33,6 +33,61 @@ fn os_error(error: Error) -> io::Error {
     }
 }
 
+/// Resolve the associated executable without running a shell command or loading
+/// an application's extension into the caller. Invoke from a background worker.
+pub fn associated_executable(path: &Path) -> io::Result<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows::{
+        Win32::UI::Shell::{ASSOCF_NONE, ASSOCSTR_EXECUTABLE, AssocQueryStringW},
+        core::PWSTR,
+    };
+    let extension = path
+        .extension()
+        .ok_or_else(|| io::Error::from_raw_os_error(1155))?;
+    let association: Vec<_> = std::ffi::OsString::from(format!(".{}", extension.to_string_lossy()))
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut length = 0;
+    // SAFETY: Valid terminated association string and writable length, no output buffer.
+    let _ = unsafe {
+        AssocQueryStringW(
+            ASSOCF_NONE,
+            ASSOCSTR_EXECUTABLE,
+            PCWSTR(association.as_ptr()),
+            PCWSTR::null(),
+            None,
+            &mut length,
+        )
+    };
+    if length == 0 || length > 32768 {
+        return Err(io::Error::from_raw_os_error(1155));
+    }
+    let mut output = vec![0u16; length as usize];
+    // SAFETY: The output owns length UTF-16 code units for the synchronous call.
+    unsafe {
+        AssocQueryStringW(
+            ASSOCF_NONE,
+            ASSOCSTR_EXECUTABLE,
+            PCWSTR(association.as_ptr()),
+            PCWSTR::null(),
+            Some(PWSTR(output.as_mut_ptr())),
+            &mut length,
+        )
+    }
+    .ok()
+    .map_err(os_error)?;
+    let end = output
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(output.len());
+    let executable = std::path::PathBuf::from(std::ffi::OsString::from_wide(&output[..end]));
+    if !executable.is_absolute() {
+        return Err(io::Error::from_raw_os_error(1155));
+    }
+    Ok(executable)
+}
+
 struct Apartment;
 
 impl Drop for Apartment {

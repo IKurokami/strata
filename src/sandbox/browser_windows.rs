@@ -364,7 +364,12 @@ pub(crate) fn preview_rgba(
     operation: &ParseOperation,
     cancellation: &Cancellation,
 ) -> Option<Result<RgbaPreview, String>> {
-    if !matches!(operation, ParseOperation::PreviewImage) {
+    if !matches!(
+        operation,
+        ParseOperation::PreviewImage
+            | ParseOperation::PreviewImageLegacy
+            | ParseOperation::PreviewRawDevelop
+    ) {
         return None;
     }
     if cancellation.is_cancelled() {
@@ -429,7 +434,12 @@ pub(crate) fn run() -> Result<(), String> {
         let Some((path, operation)) = read_request(&mut stdin)? else {
             return Ok(());
         };
-        let result = if matches!(operation, ParseOperation::PreviewImage) {
+        let result = if matches!(
+            operation,
+            ParseOperation::PreviewImage
+                | ParseOperation::PreviewImageLegacy
+                | ParseOperation::PreviewRawDevelop
+        ) {
             crate::sandbox_helper::render_browser_preview(
                 &path,
                 &operation,
@@ -522,6 +532,9 @@ fn parse_operation(operation: &str, value: &str) -> Result<ParseOperation, Strin
         "preview-image-rgba" => ParseOperation::PreviewImage,
         "thumbnail-image" => ParseOperation::ThumbnailImage,
         "thumbnail-raw" => ParseOperation::ThumbnailRaw,
+        "thumbnail-raw-legacy" => ParseOperation::ThumbnailRawLegacy,
+        "preview-image-legacy" => ParseOperation::PreviewImageLegacy,
+        "preview-raw-develop" => ParseOperation::PreviewRawDevelop,
         "thumbnail-pdf" => ParseOperation::ThumbnailPdf,
         "thumbnail-video" => ParseOperation::ThumbnailVideo,
         "thumbnail-appimage" => ParseOperation::ThumbnailAppImage,

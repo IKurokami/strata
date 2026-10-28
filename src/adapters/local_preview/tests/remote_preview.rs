@@ -8,6 +8,8 @@ use crate::{
 
 fn request(path: &Path, name: &str) -> PreviewRequest {
     PreviewRequest {
+        search_hit: None,
+        raw_develop: false,
         id: PreviewRequestId(91),
         entry: FileEntry {
             location: Location::uri(gio::File::for_path(path).uri()),

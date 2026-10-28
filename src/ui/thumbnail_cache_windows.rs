@@ -22,7 +22,7 @@ const MAX_CACHE_ENTRIES: usize = 512;
 const MAX_CACHED_DIMENSION: u32 = 512;
 const MAX_CACHED_PIXELS: u64 = 512 * 512;
 const MAGIC: &[u8] = b"STRATA-THUMB-WIN\0";
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FileIdentity {
@@ -176,6 +176,8 @@ fn cache_path(identity: &FileIdentity) -> Option<PathBuf> {
 
 fn cache_path_in(directory: &Path, identity: &FileIdentity) -> PathBuf {
     let mut hasher = Sha256::new();
+    hasher.update(b"strata-flashraw-0.1.1-tier256-v2");
+    hasher.update([u8::from(crate::sandbox::pixels::fast_raw())]);
     hasher.update(identity.volume.to_le_bytes());
     hasher.update(identity.index.to_le_bytes());
     hasher.update(identity.modified.to_le_bytes());

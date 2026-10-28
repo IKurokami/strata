@@ -113,6 +113,10 @@ fn transport_button(
 }
 
 impl AudioView {
+    pub(super) fn set_match_range(&self, range: Option<(u64, u64)>) {
+        self.scrubber.set_match_range(range);
+    }
+
     /// `navigate(-1 | 1)` moves the listing to the previous or next audio file.
     pub(super) fn new(volume: &gtk::Widget, navigate: Rc<dyn Fn(i32)>) -> Rc<Self> {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);

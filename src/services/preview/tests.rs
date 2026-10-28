@@ -650,6 +650,8 @@ fn password_request(password: Option<&str>) -> super::PreviewRequest {
     use crate::model::{EntryKind, FileEntry, Location, MetadataValue};
 
     super::PreviewRequest {
+        search_hit: None,
+        raw_develop: false,
         id: super::PreviewRequestId(1),
         entry: FileEntry {
             location: Location::local(std::path::Path::new("/tmp/secret.zip")),

@@ -14,6 +14,7 @@ pub mod file_manager;
 pub mod job;
 pub mod launch;
 mod operation_result;
+pub mod power;
 mod recycle_bin;
 pub mod shell_window;
 pub mod volume;
@@ -82,6 +83,7 @@ const FOF_ALLOWUNDO: u32 = 0x0040;
 const FOF_NOERRORUI: u32 = 0x0400;
 const FOF_NOCONFIRMMKDIR: u32 = 0x0200;
 const FOF_WANTNUKEWARNING: u32 = 0x4000;
+const FOFX_SHOWELEVATIONPROMPT: u32 = 0x0004_0000;
 const FOFX_RECYCLEONDELETE: u32 = 0x0008_0000;
 /// `HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)`.
 const FILE_EXISTS: HRESULT = HRESULT(0x8007_0050_u32 as i32);
@@ -96,7 +98,10 @@ pub struct RecycledItem {
 }
 
 fn io_error(context: &str, error: &windows::core::Error) -> io::Error {
-    io::Error::other(format!("{context}: {error}"))
+    io::Error::new(
+        operation_result::error(error.code()).kind(),
+        format!("{context}: {error}"),
+    )
 }
 
 /// Return whether the current Windows token owns `path`.
@@ -412,6 +417,10 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
 }
 
 fn new_operation(flags: u32) -> io::Result<IFileOperation> {
+    // NOERRORUI otherwise suppresses the Shell's normal elevation path, turning
+    // operations Explorer can authorize into an immediate access-denied error.
+    // Windows still asks for consent; this does not grant or force elevation.
+    let flags = flags | FOFX_SHOWELEVATIONPROMPT;
     // SAFETY: standard in-proc COM activation on an initialized STA thread.
     let operation: IFileOperation =
         unsafe { CoCreateInstance(&FileOperation, None, CLSCTX_ALL) }

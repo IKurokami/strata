@@ -208,14 +208,25 @@ fn permanent_delete_method_loads_before_settings_and_changes_across_windows_and_
                     }
                     let operations = Rc::new(HeldOperations::default());
                     view.set_operation_provider(operations.clone());
-                    view.state.show_delete_confirmation(vec![selected.clone()]);
+                    let override_method = (method == PermanentDeleteMethod::Fast
+                        && std::ptr::eq(view, &first))
+                    .then_some(PermanentDeleteMethod::Native);
+                    view.state.show_delete_dialog_with_method(
+                        vec![selected.clone()],
+                        DeleteDialog::Permanent,
+                        override_method,
+                    );
                     button(window.upcast_ref(), "Permanently delete 1 item")
                         .expect("confirmation")
                         .emit_clicked();
                     let (id, permanent, count) = operations.delete_requests.borrow()[0];
                     assert!(permanent);
                     assert_eq!(count, 1);
-                    assert_eq!(operations.delete_methods.borrow().as_slice(), &[method]);
+                    assert_eq!(
+                        operations.delete_methods.borrow().as_slice(),
+                        &[override_method.unwrap_or(method)]
+                    );
+                    assert_eq!(manager.permanent_delete_method(), method);
                     operations.emit(
                         id,
                         OperationEvent::Deleted {

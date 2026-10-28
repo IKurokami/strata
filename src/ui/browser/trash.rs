@@ -771,6 +771,37 @@ impl ViewState {
         self.show_delete_dialog(entries, kind);
     }
 
+    #[cfg(windows)]
+    pub(super) fn request_windows_delete(
+        self: &Rc<Self>,
+        entries: Vec<FileEntry>,
+        permanent: bool,
+    ) {
+        if entries.is_empty()
+            || entries.iter().any(|entry| {
+                entry.location.native_path().is_none()
+                    || !super::paths::can_remove_location(&entry.location)
+            })
+        {
+            return;
+        }
+        if permanent {
+            self.show_delete_dialog_with_method(
+                entries,
+                DeleteDialog::Permanent,
+                Some(crate::services::PermanentDeleteMethod::Native),
+            );
+        } else if self.trash_unsupported_for(&entries) {
+            self.show_delete_dialog_with_method(
+                entries,
+                DeleteDialog::TrashUnavailable,
+                Some(crate::services::PermanentDeleteMethod::Native),
+            );
+        } else {
+            self.move_to_trash(entries);
+        }
+    }
+
     fn move_to_trash(self: &Rc<Self>, entries: Vec<FileEntry>) {
         self.pending_delete_entries.replace(entries.clone());
         let source = self.delete_animation_source();
@@ -813,6 +844,15 @@ impl ViewState {
     }
 
     fn show_delete_dialog(self: &Rc<Self>, entries: Vec<FileEntry>, kind: DeleteDialog) {
+        self.show_delete_dialog_with_method(entries, kind, None);
+    }
+
+    fn show_delete_dialog_with_method(
+        self: &Rc<Self>,
+        entries: Vec<FileEntry>,
+        kind: DeleteDialog,
+        method: Option<crate::services::PermanentDeleteMethod>,
+    ) {
         let trash = kind == DeleteDialog::Trash;
         let cancel_first = kind == DeleteDialog::TrashUnavailable;
         let Some(ModalHost {
@@ -987,7 +1027,9 @@ impl ViewState {
             browser.delete_with_method(
                 entries,
                 true,
-                crate::ui::preferences::PreferenceManager::shared().permanent_delete_method(),
+                method.unwrap_or_else(|| {
+                    crate::ui::preferences::PreferenceManager::shared().permanent_delete_method()
+                }),
             );
             browser.focus_active();
         });

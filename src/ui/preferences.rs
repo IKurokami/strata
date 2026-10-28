@@ -104,6 +104,18 @@ pub(in crate::ui) struct Preferences {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     search_exclusions: Vec<String>,
     #[serde(default = "default_enabled")]
+    fast_raw_preview: bool,
+    #[serde(default = "default_enabled")]
+    smart_search_enabled: bool,
+    #[serde(default)]
+    smart_search_roots: Vec<PathBuf>,
+    #[serde(default)]
+    smart_search_include_code: bool,
+    #[serde(default)]
+    smart_search_index_on_battery: bool,
+    #[serde(default)]
+    smart_search_paused: bool,
+    #[serde(default = "default_enabled")]
     type_to_search: bool,
     #[serde(default)]
     arrow_navigation_scoped: bool,
@@ -213,6 +225,8 @@ pub(in crate::ui) struct Preferences {
     open_folder_after_drop: bool,
     #[serde(default)]
     permanent_delete_method: PermanentDeleteMethod,
+    #[serde(default)]
+    windows_properties: bool,
     #[serde(default = "default_date_format")]
     date_format: String,
     #[serde(default = "default_release_channel")]
@@ -281,6 +295,12 @@ impl Default for Preferences {
             video_preview_backend: default_video_preview_backend(),
             search_open_files_directly: false,
             search_exclusions: Vec::new(),
+            fast_raw_preview: true,
+            smart_search_enabled: true,
+            smart_search_roots: Vec::new(),
+            smart_search_include_code: false,
+            smart_search_index_on_battery: false,
+            smart_search_paused: false,
             type_to_search: true,
             arrow_navigation_scoped: false,
             tenxer_mode: false,
@@ -336,6 +356,7 @@ impl Default for Preferences {
             cross_volume_drop_strategy: default_cross_volume_drop_strategy(),
             open_folder_after_drop: false,
             permanent_delete_method: PermanentDeleteMethod::Fast,
+            windows_properties: false,
             date_format: default_date_format(),
             release_channel: default_release_channel(),
             default_directory: None,
@@ -992,6 +1013,69 @@ impl PreferenceManager {
         self.save_preferences();
     }
 
+    pub fn fast_raw_preview(&self) -> bool {
+        self.preferences.borrow().fast_raw_preview
+    }
+    pub fn set_fast_raw_preview(&self, enabled: bool) {
+        if self.fast_raw_preview() == enabled {
+            return;
+        }
+        self.preferences.borrow_mut().fast_raw_preview = enabled;
+        self.save_preferences();
+    }
+    pub fn smart_search_enabled(&self) -> bool {
+        self.preferences.borrow().smart_search_enabled
+    }
+    pub fn set_smart_search_enabled(&self, enabled: bool) {
+        if self.smart_search_enabled() == enabled {
+            return;
+        }
+        self.preferences.borrow_mut().smart_search_enabled = enabled;
+        self.save_preferences();
+    }
+    pub fn smart_search_include_code(&self) -> bool {
+        self.preferences.borrow().smart_search_include_code
+    }
+    pub fn set_smart_search_include_code(&self, enabled: bool) {
+        if self.smart_search_include_code() == enabled {
+            return;
+        }
+        self.preferences.borrow_mut().smart_search_include_code = enabled;
+        self.save_preferences();
+    }
+    pub fn smart_search_index_on_battery(&self) -> bool {
+        self.preferences.borrow().smart_search_index_on_battery
+    }
+    pub fn set_smart_search_index_on_battery(&self, enabled: bool) {
+        if self.smart_search_index_on_battery() == enabled {
+            return;
+        }
+        self.preferences.borrow_mut().smart_search_index_on_battery = enabled;
+        self.save_preferences();
+    }
+    pub fn smart_search_paused(&self) -> bool {
+        self.preferences.borrow().smart_search_paused
+    }
+    pub fn set_smart_search_paused(&self, enabled: bool) {
+        if self.smart_search_paused() == enabled {
+            return;
+        }
+        self.preferences.borrow_mut().smart_search_paused = enabled;
+        self.save_preferences();
+    }
+    pub fn smart_search_roots(&self) -> Vec<PathBuf> {
+        self.preferences.borrow().smart_search_roots.clone()
+    }
+    pub fn set_smart_search_roots(&self, mut roots: Vec<PathBuf>) {
+        roots.truncate(64);
+        roots.sort();
+        roots.dedup();
+        if self.smart_search_roots() == roots {
+            return;
+        }
+        self.preferences.borrow_mut().smart_search_roots = roots;
+        self.save_preferences();
+    }
     pub fn preview_muted(&self) -> bool {
         self.preferences.borrow().preview_muted
     }
@@ -1248,6 +1332,17 @@ impl PreferenceManager {
 
     pub fn cross_volume_drop_strategy(&self) -> CrossVolumeDropStrategy {
         CrossVolumeDropStrategy::parse(&self.preferences.borrow().cross_volume_drop_strategy)
+    }
+
+    #[cfg(windows)]
+    pub fn windows_properties(&self) -> bool {
+        self.preferences.borrow().windows_properties
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_windows_properties(&self, enabled: bool) {
+        self.preferences.borrow_mut().windows_properties = enabled;
+        self.save_preferences();
     }
 
     pub fn permanent_delete_method(&self) -> PermanentDeleteMethod {

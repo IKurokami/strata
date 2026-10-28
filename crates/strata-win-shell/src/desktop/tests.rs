@@ -7,7 +7,7 @@ use windows::Win32::Foundation::HANDLE;
 #[test]
 fn tray_clear_cache_command_routes_without_opening_a_window() {
     EVENTS.with_borrow_mut(VecDeque::clear);
-    // WM_COMMAND is handled before any window or shell API is called.
+    // SAFETY: WM_COMMAND is handled before any window or Shell API uses the HWND.
     unsafe {
         procedure(HWND::default(), WM_COMMAND, WPARAM(4), LPARAM(0));
     }

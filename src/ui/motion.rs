@@ -7,10 +7,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const CONTENT: Duration = Duration::from_millis(220);
-pub(super) const PANEL: Duration = Duration::from_millis(320);
-pub(super) const MODAL: Duration = Duration::from_millis(260);
-pub(super) const FEEDBACK: Duration = Duration::from_millis(280);
+pub(super) const CONTENT: Duration = Duration::from_millis(120);
+pub(super) const PANEL: Duration = Duration::from_millis(180);
+// Exit CSS lasts 140 ms; keep one frame of headroom before removing the layer.
+pub(super) const MODAL: Duration = Duration::from_millis(160);
+pub(super) const FEEDBACK: Duration = Duration::from_millis(180);
 
 type ActiveMotion = (glib::WeakRef<gtk::Widget>, &'static str, Rc<Cell<bool>>);
 
@@ -99,14 +100,7 @@ pub(super) fn animate(
     let weak = widget.downgrade();
     // A saturated GPU may stop frame callbacks while the main loop still accepts
     // input. Completion and cancellation cannot depend on another rendered frame.
-    glib::timeout_add_local(Duration::from_millis(16), move || {
-        if running.get()
-            && animations_enabled()
-            && started.elapsed() < duration
-            && weak.upgrade().is_some_and(|widget| widget.is_mapped())
-        {
-            return glib::ControlFlow::Continue;
-        }
+    glib::timeout_add_local_once(duration, move || {
         if let Some(id) = tick_id.take() {
             id.remove();
         }
@@ -120,7 +114,6 @@ pub(super) fn animate(
         } else {
             done.take();
         }
-        glib::ControlFlow::Break
     });
 }
 
@@ -134,23 +127,26 @@ pub(super) fn class_once(widget: &impl IsA<gtk::Widget>, class: &'static str, du
     if widget.has_css_class(class) {
         return;
     }
+    cancel(widget, class);
+    let running = Rc::new(Cell::new(true));
+    ACTIVE.with_borrow_mut(|active| {
+        active.push((widget.downgrade(), class, running.clone()));
+    });
     widget.add_css_class(class);
     let weak = widget.downgrade();
-    animate(
-        widget,
-        Some(class),
-        duration,
-        |_, _| {},
-        move || {
-            if let Some(widget) = weak.upgrade() {
-                widget.remove_css_class(class);
-            }
-        },
-    );
+    // CSS already owns the frame clock. Class cleanup needs only one deadline.
+    glib::timeout_add_local_once(duration, move || {
+        if running.replace(false)
+            && let Some(widget) = weak.upgrade()
+        {
+            widget.remove_css_class(class);
+        }
+    });
 }
 
 pub(super) fn smooth(progress: f64) -> f64 {
-    cubic_bezier(progress, (0.22, 0.0), (0.35, 1.0))
+    let remaining = 1.0 - progress.clamp(0.0, 1.0);
+    1.0 - remaining * remaining * remaining
 }
 
 pub(super) fn set_reduce_motion(reduced: bool) {

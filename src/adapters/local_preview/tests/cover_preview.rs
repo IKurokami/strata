@@ -44,6 +44,8 @@ fn comic_and_epub_requests_render_covers_instead_of_archive_trees() {
         let emit = events.clone();
         let _handle = provider.load_with_renderer(
             PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: PreviewRequestId(1),
                 entry,
                 text_byte_limit: 1024,

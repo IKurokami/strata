@@ -14,8 +14,8 @@ use windows::{
     Win32::{
         Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE},
         Storage::FileSystem::{
-            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, FlushFileBuffers, GetDriveTypeW,
-            GetLogicalDrives, GetVolumeInformationW, OPEN_EXISTING,
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, FlushFileBuffers, GetDiskFreeSpaceExW,
+            GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, OPEN_EXISTING,
         },
         System::Ioctl::{
             FSCTL_DISMOUNT_VOLUME, FSCTL_LOCK_VOLUME, FSCTL_UNLOCK_VOLUME,
@@ -53,8 +53,50 @@ pub struct VolumeInfo {
     pub serial_number: Option<u32>,
 }
 
+/// Space reported by the filesystem, without enumerating files or directories.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VolumeSpace {
+    pub available: u64,
+    pub total: u64,
+    pub free: u64,
+}
+
+/// Queries one mounted filesystem. Call from a worker: remote devices can block.
+pub fn volume_space(root: &Path) -> io::Result<VolumeSpace> {
+    let _error_mode = QuietErrors::new();
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = root.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut space = VolumeSpace {
+        available: 0,
+        total: 0,
+        free: 0,
+    };
+    // SAFETY: wide is terminated and all output pointers reference live u64 values.
+    unsafe {
+        GetDiskFreeSpaceExW(
+            PCWSTR(wide.as_ptr()),
+            Some(&mut space.available),
+            Some(&mut space.total),
+            Some(&mut space.free),
+        )
+    }
+    .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xffff))?;
+    Ok(space)
+}
+
 /// Enumerates all mounted logical drives on Windows without blocking on offline network shares.
 pub fn enumerate_volumes() -> Vec<VolumeInfo> {
+    let mut volumes = drive_roots();
+    for volume in &mut volumes {
+        if volume.drive_type != DriveType::Remote {
+            populate_volume_info(volume);
+        }
+    }
+    volumes
+}
+
+/// Discovers drive letters and kinds without probing their contents or metadata.
+pub fn drive_roots() -> Vec<VolumeInfo> {
     // SAFETY: GetLogicalDrives takes no pointers and has no side effects.
     let mask = unsafe { GetLogicalDrives() };
     let mut volumes = Vec::new();
@@ -77,24 +119,55 @@ pub fn enumerate_volumes() -> Vec<VolumeInfo> {
                 _ => DriveType::Unknown,
             };
 
-            // Skip network drives for volume info to prevent UI hangs if offline
-            let (label, fs_type, serial_number) = if drive_type != DriveType::Remote {
-                get_volume_info(&root_wide)
-            } else {
-                (None, None, None)
-            };
-
             volumes.push(VolumeInfo {
                 root: PathBuf::from(root_str),
                 drive_type,
-                label,
-                fs_type,
-                serial_number,
+                label: None,
+                fs_type: None,
+                serial_number: None,
             });
         }
     }
 
     volumes
+}
+
+/// Queries a single drive's label and filesystem on a worker thread.
+pub fn populate_volume_info(volume: &mut VolumeInfo) {
+    let _error_mode = QuietErrors::new();
+    use std::os::windows::ffi::OsStrExt;
+    let root: Vec<u16> = volume
+        .root
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    (volume.label, volume.fs_type, volume.serial_number) = get_volume_info(&root);
+}
+
+struct QuietErrors(Option<windows::Win32::System::Diagnostics::Debug::THREAD_ERROR_MODE>);
+
+impl QuietErrors {
+    fn new() -> Self {
+        use windows::Win32::System::Diagnostics::Debug::{
+            SEM_FAILCRITICALERRORS, SetThreadErrorMode, THREAD_ERROR_MODE,
+        };
+        let mut previous = THREAD_ERROR_MODE::default();
+        // SAFETY: the output pointer is valid; this changes only the current worker's error mode.
+        let success = unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, Some(&mut previous)) };
+        Self(success.ok().map(|()| previous))
+    }
+}
+
+impl Drop for QuietErrors {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0 {
+            // SAFETY: restore the mode captured on this same thread, without an output pointer.
+            let _ = unsafe {
+                windows::Win32::System::Diagnostics::Debug::SetThreadErrorMode(previous, None)
+            };
+        }
+    }
 }
 
 fn get_volume_info(root_wide: &[u16]) -> (Option<String>, Option<String>, Option<u32>) {

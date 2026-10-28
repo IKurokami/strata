@@ -16,6 +16,7 @@ pub(super) fn build_index(
     time_budget: Duration,
     exclusions: &SearchExclusions,
 ) {
+    index.native_paths.store(true, Ordering::Release);
     let start = Instant::now();
     let mut last_publish = start;
     let mut count = 0;

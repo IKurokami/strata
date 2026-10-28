@@ -975,6 +975,9 @@ pub(crate) fn icon_folder_height_scale(texture: &gdk::Texture) -> f64 {
 
 type IconTextureKey = (String, String, i32);
 
+mod parallel;
+pub(crate) use parallel::{cached_file_icon_texture, file_icon_texture};
+
 struct CachedIconTexture {
     texture: gdk::Texture,
     bytes: usize,

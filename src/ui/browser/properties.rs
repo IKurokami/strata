@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 
 mod media;
 
+#[cfg(all(test, windows))]
+mod tests;
+
 const SIZE_PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
 
 #[derive(Default)]
@@ -407,6 +410,13 @@ impl ViewState {
         entry: Option<FileEntry>,
         rename_depth: Option<usize>,
     ) {
+        #[cfg(windows)]
+        if crate::ui::preferences::PreferenceManager::shared().windows_properties()
+            && let Some(path) = location.native_path()
+        {
+            crate::ui::windows_open::properties(vec![path.to_path_buf()], &self.overlay);
+            return;
+        }
         let Some(ModalHost {
             overlay: window_overlay,
             blurred_root,
@@ -869,6 +879,22 @@ impl ViewState {
 
 impl ViewState {
     pub(super) fn show_selection_properties(self: &Rc<Self>, entries: Vec<FileEntry>) {
+        #[cfg(windows)]
+        if crate::ui::preferences::PreferenceManager::shared().windows_properties()
+            && !entries.is_empty()
+            && let Some(paths) = entries
+                .iter()
+                .map(|entry| {
+                    entry
+                        .location
+                        .native_path()
+                        .map(std::path::Path::to_path_buf)
+                })
+                .collect::<Option<Vec<_>>>()
+        {
+            crate::ui::windows_open::properties(paths, &self.overlay);
+            return;
+        }
         if entries.len() < 2 {
             if let Some(entry) = entries.into_iter().next() {
                 self.show_entry_properties(entry);

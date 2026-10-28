@@ -19,6 +19,11 @@ if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
     throw "Portable release staging did not create its destination: $Destination"
 }
 
+$python = Join-Path $UcrtRoot 'bin/python.exe'
+if (-not (Test-Path -LiteralPath $python)) { $python = 'python' }
+& $python (Join-Path $PSScriptRoot '../smart_search_runtime.py') --platform windows --destination (Join-Path $Destination 'bin/smart-search')
+if ($LASTEXITCODE -ne 0) { throw 'Verified Smart Search runtime staging failed' }
+
 $files = Get-ChildItem -LiteralPath $Destination -Recurse -File |
     Sort-Object FullName |
     ForEach-Object {

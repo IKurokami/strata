@@ -441,6 +441,7 @@ pub(super) struct ColumnView {
     pub(super) presentation: LoadPresentation,
     pub(super) model: EntryListModel,
     pub(super) filtered_model: gtk::FilterListModel,
+    pub(super) day_sections: crate::ui::day_sections::DaySections,
     pub(super) map: ViewMap,
     pub(super) model_generation: Rc<Cell<u64>>,
     pub(super) header_actions: gtk::Box,
@@ -637,13 +638,7 @@ pub(super) fn prune_missing_search_results(column: &ColumnView) -> bool {
     if !column.search_session.is_active() {
         return false;
     }
-    let items: Vec<_> = column
-        .search_results
-        .borrow()
-        .iter()
-        .filter(|item| crate::ui::inline_search::search_path_present(&item.path))
-        .cloned()
-        .collect();
+    let items: Vec<_> = column.search_results.borrow().iter().cloned().collect();
     if items.len() == column.search_results.borrow().len() {
         return false;
     }
@@ -962,7 +957,7 @@ pub(in crate::ui) fn max_child_natural_width(widget: &gtk::Widget) -> i32 {
     max_natural
 }
 
-fn animate_horizontal_scroll(
+pub(super) fn animate_horizontal_scroll(
     scroller: &gtk::ScrolledWindow,
     adjustment: &gtk::Adjustment,
     target: f64,
@@ -1266,6 +1261,10 @@ impl ViewState {
     }
 
     pub(super) fn append_column(self: &Rc<Self>, depth: usize, location: &Location) {
+        #[cfg(windows)]
+        if crate::adapters::computer::is_root(location) {
+            return;
+        }
         let column = crate::ui::accessibility::pane_box();
         column.add_css_class("directory-column");
         crate::ui::accessibility::describe_pane(
@@ -1422,7 +1421,22 @@ impl ViewState {
             filtered_model.clone(),
             None,
         );
-        let selection = gtk::MultiSelection::new(Some(filtered_model.clone()));
+        let day_sections = {
+            let browser = Rc::downgrade(&self.browser);
+            let map = map.clone();
+            crate::ui::day_sections::DaySections::new(
+                &filtered_model,
+                Rc::new(move |position| {
+                    let browser = browser.upgrade()?;
+                    crate::ui::day_sections::timestamp(
+                        &browser,
+                        depth,
+                        map.source_position(position)?,
+                    )
+                }),
+            )
+        };
+        let selection = gtk::MultiSelection::new(Some(day_sections.clone()));
         let recursive_search_active = Rc::new(Cell::new(false));
         let hits = Rc::new(RefCell::new(ColumnHits::default()));
         let syncing_selection = Rc::new(Cell::new(false));
@@ -1678,6 +1692,7 @@ impl ViewState {
         );
 
         let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
+        list.set_header_factory(Some(&day_sections.header_factory()));
         list.add_css_class("file-list");
         list.set_enable_rubberband(false);
         list.set_single_click_activate(false);
@@ -2141,6 +2156,7 @@ impl ViewState {
             presentation,
             model,
             filtered_model,
+            day_sections,
             map,
             model_generation: self.source_generation.clone(),
             header_actions,
@@ -2178,7 +2194,11 @@ impl ViewState {
         }
         self.refresh_active_path_rows();
         let swapped = self.swap_slot.take() == Some(depth);
-        animate_column_entry(&column, swapped);
+        // Navigation replaces data, not the whole page. Only a genuinely new
+        // child column receives arrival feedback; root/sibling swaps stay solid.
+        if depth > 0 && !swapped {
+            animate_column_entry(&column, false);
+        }
         self.reveal_column(shell);
     }
 

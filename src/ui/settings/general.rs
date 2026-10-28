@@ -61,6 +61,16 @@ pub(super) fn general_page(
     append_date_format_option(&date_time, &manager);
 
     let performance = super::settings_group(&preferences, "PERFORMANCE");
+    append_preference_switch(
+        &performance,
+        &manager,
+        PreferenceSwitch {
+            title: "Fast RAW preview",
+            description: "Use embedded RAW previews first. Develop full detail only when requested.",
+            read: PreferenceManager::fast_raw_preview,
+            write: PreferenceManager::set_fast_raw_preview,
+        },
+    );
     append_auto_refresh_option(&performance, &manager);
     append_thumbnail_workers_option(&performance, &manager);
     append_video_preview_option(&performance, &manager);
@@ -110,6 +120,17 @@ pub(super) fn general_page(
     #[cfg(windows)]
     {
         let desktop = super::settings_group(&preferences, "DESKTOP INTEGRATION");
+        append_preference_switch(
+            &desktop,
+            &manager,
+            PreferenceSwitch {
+                title: "Use Windows properties",
+                description: "Open the Windows Properties dialog instead of Strata's custom properties.",
+                read: PreferenceManager::windows_properties,
+                write: PreferenceManager::set_windows_properties,
+            },
+        );
+
         append_preference_switch(
             &desktop,
             &manager,

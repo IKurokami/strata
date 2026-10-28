@@ -118,6 +118,9 @@ struct PreviewCache {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct PreviewCacheKey {
+    fast_raw: bool,
+    raw_develop: bool,
+    revision: Option<crate::services::smart_search::result::FileRevision>,
     path: PathBuf,
     modified: i64,
     pdf_page: Option<(i32, PdfRenderSize)>,
@@ -373,7 +376,7 @@ impl PreviewProvider for LocalPreviewProvider {
 impl LocalPreviewProvider {
     fn load_with_renderer(
         &self,
-        request: PreviewRequest,
+        mut request: PreviewRequest,
         emit: Rc<dyn Fn(PreviewEvent)>,
         render: impl FnOnce(
             &Path,
@@ -393,6 +396,12 @@ impl LocalPreviewProvider {
         let abort_safe = Rc::new(Cell::new(true));
         let abort_safe_for_task = abort_safe.clone();
         let task = glib::MainContext::default().spawn_local(async move {
+            if let Some(hit)=request.search_hit.clone(){
+                let revision=hit.revision.clone();let path=hit.path.clone();
+                let valid=gio::spawn_blocking(move||std::fs::metadata(path).is_ok_and(|metadata|crate::services::smart_search::result::FileRevision::from_metadata(&metadata)==revision)).await;
+                if !matches!(valid,Ok(true)) {emit(PreviewEvent::Failed{request_id,entry,message:"The file changed; search again to locate this match".into()});return;}
+                if let Some(page)=hit.locator.page(){request.pdf_page=page.min(i32::MAX as u32) as i32;}
+            }
             let (guessed_type, uncertain) =
                 gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
             let mut content_type = guessed_type.to_string();
@@ -687,7 +696,7 @@ impl LocalPreviewProvider {
                 PreviewContent::Pdf { .. } => Some(ParseOperation::PreviewPdf(pdf_render_size(
                     request.media_size,
                 ))),
-                PreviewContent::Image => Some(ParseOperation::PreviewImage),
+                PreviewContent::Image => Some(if request.raw_develop {ParseOperation::PreviewRawDevelop} else if crate::sandbox::raw_metadata::is_raw(std::path::Path::new(&entry.native_name)) && !crate::sandbox::pixels::fast_raw() { ParseOperation::PreviewImageLegacy } else { ParseOperation::PreviewImage }),
                 PreviewContent::Media => None,
                 PreviewContent::Text { .. }
                 | PreviewContent::Model { .. }
@@ -749,6 +758,9 @@ impl LocalPreviewProvider {
                     _ => None,
                 };
                 let cache_key = modified.map(|modified| PreviewCacheKey {
+                    fast_raw: crate::sandbox::pixels::fast_raw(),
+                    raw_develop: request.raw_develop,
+                    revision: request.search_hit.as_ref().map(|hit|hit.revision.clone()),
                     path: path.clone(),
                     modified,
                     pdf_page,
@@ -771,7 +783,8 @@ impl LocalPreviewProvider {
                     return;
                 }
 
-                let heavy_permit = if matches!(operation, ParseOperation::PreviewPdf(_) | ParseOperation::PreviewModel(_) | ParseOperation::PreviewCover(_)) {
+                let heavy_permit = if matches!(operation, ParseOperation::PreviewPdf(_) | ParseOperation::PreviewModel(_) | ParseOperation::PreviewCover(_) | ParseOperation::PreviewRawDevelop | ParseOperation::PreviewImageLegacy)
+                    || (matches!(operation,ParseOperation::PreviewImage) && crate::sandbox::raw_metadata::is_raw(Path::new(&entry.native_name))) {
                     let Some(permit) = request_heavy_preview_permit().acquire().await else {
                         return;
                     };
@@ -788,6 +801,7 @@ impl LocalPreviewProvider {
                 let spawn_path = path.clone();
                 let mut thumbnail_to_store = None;
                 let for_render = operation.clone();
+                let expected_revision=request.search_hit.as_ref().map(|hit|hit.revision.clone());
                 let render = gio::spawn_blocking(move || {
                     let _staged = staged;
                     let output = render(
@@ -797,6 +811,7 @@ impl LocalPreviewProvider {
                         media_preview_backend,
                         &cancellation,
                     )?;
+                    if let Some(expected)=expected_revision && !std::fs::metadata(&spawn_path).is_ok_and(|metadata|crate::services::smart_search::result::FileRevision::from_metadata(&metadata)==expected){return Err("The file changed; search again to locate this match".into());}
                     Ok::<_, String>(output)
                 })
                 .await;
@@ -822,10 +837,16 @@ impl LocalPreviewProvider {
                         }
                     }
                     #[cfg(windows)]
-                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewImage)
+                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewImage | ParseOperation::PreviewImageLegacy | ParseOperation::PreviewRawDevelop)
                         && output.raster_dimensions.is_some() => {
                         let (width, height) = output.raster_dimensions.expect("validated image dimensions");
                         PreviewContent::RawImage { width, height, pixels: output.data }
+                    }
+                    Ok(Ok(output)) if output.data.starts_with(b"STRGBA01") => {
+                        match crate::sandbox::pixels::decode(output.data) {
+                            Ok(((width,height), pixels)) => PreviewContent::RawImage { width, height, pixels },
+                            Err(message) => { emit(PreviewEvent::Failed { request_id, entry, message }); return; }
+                        }
                     }
                     Ok(Ok(output)) => {
                         if let Some(mtime) = modified.filter(|_| !matches!(operation, ParseOperation::PreviewCover(_))) {
@@ -879,7 +900,7 @@ impl LocalPreviewProvider {
                 let file = read_file_for_location(&entry.location);
                 let native_path = entry.location.native_path().map(ToOwned::to_owned);
                 content =
-                    match read_text(&file, native_path.as_deref(), request.text_byte_limit).await {
+                    match read_text(&file, native_path.as_deref(), request.text_byte_limit,request.search_hit.as_ref().map(|hit|hit.revision.clone())).await {
                         Ok((source, truncated)) => {
                             if let Some(kind) = document_kind {
                                 if truncated {
@@ -993,6 +1014,7 @@ async fn read_text(
     file: &gio::File,
     native_path: Option<&Path>,
     byte_limit: usize,
+    revision: Option<crate::services::smart_search::result::FileRevision>,
 ) -> Result<(String, bool), glib::Error> {
     let byte_limit = byte_limit.min(16 * 1024 * 1024);
     if let Some(path) = native_path {
@@ -1010,6 +1032,17 @@ async fn read_text(
             file.take(byte_limit as u64 + 1)
                 .read_to_end(&mut bytes)
                 .map_err(io_failure)?;
+            if let Some(expected) = revision
+                && !std::fs::metadata(&path).is_ok_and(|metadata| {
+                    crate::services::smart_search::result::FileRevision::from_metadata(&metadata)
+                        == expected
+                })
+            {
+                return Err(glib::Error::new(
+                    gio::IOErrorEnum::Failed,
+                    "The file changed; search again to locate this match",
+                ));
+            }
             let truncated = bytes.len() > byte_limit;
             let sample = &bytes[..bytes.len().min(byte_limit)];
             Ok((decode_text_sample(sample), truncated))
@@ -1041,7 +1074,28 @@ pub(crate) fn clear_preview_cache() {
 }
 
 fn decode_text_sample(sample: &[u8]) -> String {
-    normalize_preview_text(&String::from_utf8_lossy(sample)).into_owned()
+    let decoded = if sample.starts_with(&[0xff, 0xfe]) || sample.starts_with(&[0xfe, 0xff]) {
+        let little = sample[0] == 0xff;
+        String::from_utf16_lossy(
+            &sample[2..]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| {
+                    if little {
+                        u16::from_le_bytes([pair[0], pair[1]])
+                    } else {
+                        u16::from_be_bytes([pair[0], pair[1]])
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        String::from_utf8_lossy(sample)
+            .trim_start_matches('\u{feff}')
+            .to_owned()
+    };
+    normalize_preview_text(&decoded).into_owned()
 }
 
 #[cfg(all(test, not(windows)))]
