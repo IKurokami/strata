@@ -529,6 +529,7 @@ fn render_results(
     if state.history.borrow().is_none()
         && let Some(panel) = state.smart.borrow().as_ref()
     {
+        state.truncated_hint.set_visible(coverage.is_partial());
         state.visible_results.replace(results.clone());
         panel.names(results);
         state.results.set_visible_child_name("smart");
