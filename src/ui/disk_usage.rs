@@ -14,6 +14,7 @@ use std::{
 
 mod accessibility;
 mod layout;
+mod weights;
 type ContextTrigger = Rc<dyn Fn(f64, f64)>;
 #[cfg(test)]
 mod tests;
@@ -377,6 +378,7 @@ impl DiskUsageView {
             .map(|(_, rect)| *rect)?;
         let field = gtk::Entry::new();
         field.add_css_class("inline-rename");
+        super::accessibility::set_label(&field, &crate::i18n::tr("Rename"));
         field.set_halign(gtk::Align::Start);
         field.set_valign(gtk::Align::Start);
         field.set_margin_start(rect.x.max(0.0) as i32 + 6);
@@ -585,7 +587,11 @@ impl DiskUsageView {
         if snapshot.other_bytes > 0 {
             weights.push(snapshot.other_bytes);
         }
-        let rectangles = layout::squarify(&weights, f64::from(width), f64::from(height));
+        let rectangles = layout::squarify(
+            &weights::balanced(&weights),
+            f64::from(width),
+            f64::from(height),
+        );
         self.other_rect.set(if snapshot.other_bytes > 0 {
             rectangles.last().copied()
         } else {

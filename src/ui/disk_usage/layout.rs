@@ -14,17 +14,17 @@ impl Rect {
     }
 }
 
-pub(super) fn squarify(weights: &[u64], width: f64, height: f64) -> Vec<Rect> {
+pub(super) fn squarify(weights: &[f64], width: f64, height: f64) -> Vec<Rect> {
     if width <= 0.0 || height <= 0.0 || !width.is_finite() || !height.is_finite() {
         return Vec::new();
     }
-    let sum: f64 = weights.iter().map(|weight| *weight as f64).sum();
+    let sum: f64 = weights.iter().sum();
     if sum <= 0.0 {
         return Vec::new();
     }
     let areas: Vec<_> = weights
         .iter()
-        .map(|weight| *weight as f64 / sum * width * height)
+        .map(|weight| *weight / sum * width * height)
         .collect();
     let mut remaining = Rect {
         x: 0.0,

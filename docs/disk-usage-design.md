@@ -149,6 +149,11 @@ breadcrumb, preview rules and existing browser history.
 Use one native canvas/custom snapshot widget. A pure Rust squarify implementation
 consumes a bounded snapshot, sorts positive weights deterministically by size and
 stable identity, and groups the remaining entries into an explicit Other result.
+Use balanced display weights: share 60% equally among positive-size entries and
+40% according to measured logical bytes. This bounds a dominant entry to
+`0.4 + 0.6 / entry_count` of the map and keeps small entries discoverable.
+Apply the same rule to Other. Keep measured totals, labels, percentages and
+selection identities independent of display weights.
 Start at 300 tiles maximum, adapting visible labels and minimum area to viewport
 and scale. Other opens a bounded list of real entries; it is not a synthetic
 filesystem path and cannot itself be renamed, dragged or deleted.

@@ -1,9 +1,14 @@
 # Disk Usage
 
 Select **Appearance → Disk Usage** or press **Ctrl+4** to show the current native
-folder as a treemap. Area represents measured logical bytes in that folder,
-including hidden files. It does not represent whole-drive capacity or guaranteed
-reclaimable space. Hard-linked paths can each contribute to the logical sum.
+folder as a treemap, including hidden files. Tile sizes use a balanced scale:
+60% of the map is shared equally among positive-size entries and 40% follows
+their measured logical bytes. A very large folder stays larger without hiding
+the small files. With ten entries, for example, one folder can occupy at most
+46% of the map. The displayed byte counts and percentages remain the actual
+measurements, rather than the adjusted tile areas. They do not represent
+whole-drive capacity or guaranteed reclaimable space. Hard-linked paths can
+each contribute to the logical sum.
 
 Select a tile to use shared preview/file commands; double-click a folder to enter
 it. Arrow keys move spatially and Home/End select the first/last rendered item.

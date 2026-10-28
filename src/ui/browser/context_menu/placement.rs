@@ -11,8 +11,8 @@ pub(super) fn position(popover: &gtk::Popover, anchor: &gtk::Widget, x: f64, y: 
         return;
     };
     let margin = super::CONTEXT_MENU_EDGE_MARGIN;
-    let (top, bottom) = vertical_bounds(anchor, &parent, point)
-        .unwrap_or((0, parent.height().max(1)));
+    let (top, bottom) =
+        vertical_bounds(anchor, &parent, point).unwrap_or((0, parent.height().max(1)));
     let available = bottom.saturating_sub(top).saturating_sub(2 * margin).max(1);
     let scroll = first_scroll(popover.upcast_ref());
     if let Some(scroll) = &scroll {
