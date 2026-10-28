@@ -83,6 +83,7 @@ pub fn fold_for_search(text: &str) -> String {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchItem {
+    pub(crate) content_hit: Option<Arc<super::smart_search::result::SearchHit>>,
     pub path: PathBuf,
     pub name: String,
     pub is_directory: bool,
@@ -94,6 +95,36 @@ pub struct SearchItem {
 }
 
 impl SearchItem {
+    pub(crate) fn preview_entry(&self) -> crate::model::FileEntry {
+        if let Some(hit) = self.content_hit.as_ref() {
+            return hit.entry();
+        }
+        crate::model::FileEntry {
+            location: crate::model::Location::local(&self.path),
+            thumbnail_path: None,
+            native_name: self.path.file_name().unwrap_or_default().to_owned(),
+            display_name: self.name.clone(),
+            kind: self.kind,
+            size: MetadataValue::Unknown,
+            modified_unix_seconds: MetadataValue::Unknown,
+            recent_unix_seconds: MetadataValue::Unknown,
+            recent_uri: None,
+            mode: self.mode.clone(),
+            image_dimensions: MetadataValue::Unknown,
+            child_count: MetadataValue::Unknown,
+            duration_seconds: MetadataValue::Unknown,
+            is_hidden: false,
+        }
+    }
+
+    pub(crate) fn for_hit(hit: Arc<super::smart_search::result::SearchHit>) -> Self {
+        let path = hit.path.clone();
+        let root = path.parent().unwrap_or(Path::new("/")).to_owned();
+        let mut item =
+            Self::with_metadata(path, &root, false, EntryKind::File, MetadataValue::Unknown);
+        item.content_hit = Some(hit);
+        item
+    }
     #[cfg(test)]
     pub(crate) fn for_test(path: PathBuf, is_directory: bool) -> Self {
         Self::new(
@@ -118,6 +149,7 @@ impl SearchItem {
                 position + std::path::MAIN_SEPARATOR.len_utf8()
             }) as u32;
         Self {
+            content_hit: None,
             path,
             name,
             is_directory: true,
@@ -174,6 +206,7 @@ impl SearchItem {
                 position + std::path::MAIN_SEPARATOR.len_utf8()
             }) as u32;
         Self {
+            content_hit: None,
             name,
             path,
             is_directory,
@@ -253,14 +286,16 @@ struct IndexLifecycle {
     retired: bool,
 }
 
+#[derive(Clone)]
 struct IndexState {
     revision: usize,
-    items: Vec<SearchItem>,
+    items: Arc<Vec<SearchItem>>,
     indexing: bool,
     coverage: SearchCoverage,
 }
 
 struct SharedIndex {
+    native_paths: AtomicBool,
     state: RwLock<IndexState>,
     subscribers: Mutex<Vec<(usize, Sender<SearchCommand>)>>,
     next_subscriber: AtomicUsize,
@@ -289,9 +324,10 @@ struct RefreshState {
 impl SharedIndex {
     fn new() -> Self {
         Self {
+            native_paths: AtomicBool::new(false),
             state: RwLock::new(IndexState {
                 revision: 0,
-                items: Vec::new(),
+                items: Arc::new(Vec::new()),
                 indexing: true,
                 coverage: SearchCoverage::default(),
             }),
@@ -823,6 +859,7 @@ fn request_index_refresh(
     refresh.rerun = false;
     drop(refresh);
     for attempt in 0..2 {
+        index.native_paths.store(true, Ordering::Release);
         let worker_index = index.clone();
         match std::thread::Builder::new()
             .name("strata-search-refresh".into())
@@ -922,6 +959,7 @@ fn refresh_index(index: &Arc<SharedIndex>) {
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let revision = state.revision.wrapping_add(1);
+            index.native_paths.store(true, Ordering::Release);
             *state = fresh;
             state.revision = revision;
             drop(state);
@@ -1108,7 +1146,8 @@ fn run_search_session(
         let state = index
             .state
             .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         if let Some((query, limit)) = next_query {
             progress.normalized_query = fold_for_search(&query);
             progress.query = query;
@@ -1144,7 +1183,7 @@ fn run_search_session(
         let coverage = state.coverage;
         drop(state);
         if query_changed || (index_changed && (lists || !indexing)) {
-            publish(events, &progress, indexing, coverage);
+            publish(events, &progress, indexing, coverage, index);
         }
     }
 }
@@ -1300,6 +1339,7 @@ fn build_index(
     budget: TraversalBudget,
     exclusions: SearchExclusions,
 ) {
+    index.native_paths.store(true, Ordering::Release);
     let TraversalBudget {
         max_entries,
         max_depth,
@@ -1555,7 +1595,7 @@ fn append_index_items(
         items.clear();
         return;
     }
-    state.items.append(items);
+    Arc::make_mut(&mut state.items).append(items);
     state.indexing = indexing;
     state.coverage = coverage;
 }
@@ -1580,28 +1620,35 @@ fn score_index_with_limit(
         score_range(index, normalized_query, 0, scorer, limit)
     } else {
         let chunk_size = index.len().div_ceil(worker_count);
-        std::thread::scope(|scope| {
-            let workers = index
-                .chunks(chunk_size)
-                .enumerate()
-                .map(|(chunk, items)| {
-                    scope.spawn(move || {
+        use rayon::prelude::*;
+        static POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+        let pool = POOL.get_or_init(|| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(4)
+                .thread_name(|index| format!("filename-score-{index}"))
+                .build()
+                .ok()
+        });
+        if let Some(pool) = pool {
+            let candidates = pool.install(|| {
+                index
+                    .par_chunks(chunk_size)
+                    .enumerate()
+                    .map(|(chunk, items)| {
                         score_range(items, normalized_query, chunk * chunk_size, scorer, limit)
                     })
-                })
-                .collect::<Vec<_>>();
+                    .collect::<Vec<_>>()
+            });
             let mut best = BinaryHeap::with_capacity(limit + 1);
-            for worker in workers {
-                let candidates = match worker.join() {
-                    Ok(candidates) => candidates,
-                    Err(payload) => std::panic::resume_unwind(payload),
-                };
+            for candidates in candidates {
                 for Reverse(candidate) in candidates {
                     retain_candidate(&mut best, candidate, limit);
                 }
             }
             best
-        })
+        } else {
+            score_range(index, normalized_query, 0, scorer, limit)
+        }
     };
     let mut ranked = best
         .into_iter()
@@ -1672,12 +1719,16 @@ fn publish(
     progress: &WalkProgress,
     indexing: bool,
     coverage: SearchCoverage,
+    index: &SharedIndex,
 ) {
     let _sent = sender.send(SearchEvent::Results {
         query: progress.query.clone(),
         items: progress
             .matches
             .iter()
+            .filter(|(_, item)| {
+                !index.native_paths.load(Ordering::Acquire) || search_path_present(&item.path)
+            })
             .map(|(_, item)| item.clone())
             .collect(),
         indexing,
@@ -1686,6 +1737,13 @@ fn publish(
             && progress.matches.len() == progress.limit
             && progress.limit < MAX_INDEX_ENTRIES,
     });
+}
+
+pub(crate) fn search_path_present(path: &Path) -> bool {
+    path.symlink_metadata().map_or_else(
+        |error| error.kind() != std::io::ErrorKind::NotFound,
+        |_| true,
+    )
 }
 
 fn filter_score_normalized(item: &SearchItem, query: &str) -> Option<i64> {

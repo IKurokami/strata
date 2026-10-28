@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 
+#[path = "sandbox/pixels.rs"]
+pub(crate) mod pixels;
+
 use std::{
     fs,
     io::{self, Read},
@@ -134,6 +137,7 @@ impl CoverFormat {
 pub(crate) enum ParseOperation {
     ThumbnailImage,
     ThumbnailRaw,
+    ThumbnailRawLegacy,
     ThumbnailPdf,
     ThumbnailVideo,
     ThumbnailAppImage,
@@ -141,6 +145,8 @@ pub(crate) enum ParseOperation {
     ThumbnailCover(CoverFormat),
     PreviewCover(CoverFormat),
     PreviewImage,
+    PreviewImageLegacy,
+    PreviewRawDevelop,
     InspectImage,
     ConvertImage,
     DocumentImage,
@@ -150,6 +156,10 @@ pub(crate) enum ParseOperation {
     },
     MediaMetadata,
     RawMetadata,
+    SearchExtract,
+    SearchMediaInfo,
+    SearchVideoFrame,
+    SearchAudioSegment,
     PreviewWorkbook,
     PreviewDocument,
     PreviewPdf(PdfRenderSize),
@@ -173,6 +183,7 @@ impl ParseOperation {
         match self {
             Self::ThumbnailImage => "thumbnail-image",
             Self::ThumbnailRaw => "thumbnail-raw",
+            Self::ThumbnailRawLegacy => "thumbnail-raw-legacy",
             Self::ThumbnailPdf => "thumbnail-pdf",
             Self::ThumbnailVideo => "thumbnail-video",
             Self::ThumbnailAppImage => "thumbnail-appimage",
@@ -180,6 +191,8 @@ impl ParseOperation {
             Self::ThumbnailCover(_) => "thumbnail-cover",
             Self::PreviewCover(_) => "preview-cover",
             Self::PreviewImage => "preview-image",
+            Self::PreviewImageLegacy => "preview-image-legacy",
+            Self::PreviewRawDevelop => "preview-raw-develop",
             Self::InspectImage => "inspect-image",
             Self::ConvertImage => "convert-image",
             Self::DocumentImage => "document-image",
@@ -188,6 +201,10 @@ impl ParseOperation {
             Self::DocumentMath { display: false } => "document-inline-math",
             Self::MediaMetadata => "media-metadata",
             Self::RawMetadata => "raw-metadata",
+            Self::SearchExtract => "search-extract",
+            Self::SearchMediaInfo => "search-media-info",
+            Self::SearchVideoFrame => "search-video-frame",
+            Self::SearchAudioSegment => "search-audio-segment",
             Self::PreviewWorkbook => "preview-workbook",
             Self::PreviewDocument => "preview-document",
             Self::PreviewPdf(_) => "preview-pdf",
@@ -223,6 +240,9 @@ impl ParseOperation {
                 | Self::AudioTags
                 | Self::AudioCover
                 | Self::MediaMetadata
+                | Self::SearchMediaInfo
+                | Self::SearchVideoFrame
+                | Self::SearchAudioSegment
         )
     }
 
@@ -232,6 +252,7 @@ impl ParseOperation {
             Self::MediaMetadata
                 | Self::AudioTags
                 | Self::RawMetadata
+                | Self::SearchExtract
                 | Self::PreviewWorkbook
                 | Self::PreviewDocument
                 | Self::InspectImage
@@ -248,8 +269,11 @@ impl ParseOperation {
 
     fn image_limits(&self) -> Option<(u32, u32, u64)> {
         match self {
+            Self::SearchVideoFrame => Some((640, 640, 640 * 640)),
+            Self::SearchExtract | Self::SearchMediaInfo | Self::SearchAudioSegment => None,
             Self::ThumbnailImage
             | Self::ThumbnailRaw
+            | Self::ThumbnailRawLegacy
             | Self::ThumbnailPdf
             | Self::ThumbnailVideo
             | Self::ThumbnailAppImage
@@ -262,6 +286,8 @@ impl ParseOperation {
                 crate::services::image_conversion::MAX_PIXELS,
             )),
             Self::PreviewImage
+            | Self::PreviewImageLegacy
+            | Self::PreviewRawDevelop
             | Self::DocumentImage
             | Self::DocumentMermaid
             | Self::DocumentMath { .. } => Some((800, 800, 800 * 800)),
@@ -288,9 +314,13 @@ impl ParseOperation {
         match self {
             Self::ThumbnailImage
             | Self::ThumbnailRaw
+            | Self::ThumbnailRawLegacy
             | Self::ThumbnailPdf
             | Self::PreviewImage
+            | Self::PreviewImageLegacy
+            | Self::PreviewRawDevelop
             | Self::RawMetadata
+            | Self::SearchExtract
             | Self::PreviewPdf(_) => Some(MAX_RASTER_INPUT_BYTES),
             Self::PreviewModel(_) | Self::ThumbnailModel(_) => Some(MAX_MODEL_INPUT_BYTES),
             Self::ThumbnailCover(_) | Self::PreviewCover(_) => {
@@ -317,6 +347,9 @@ impl ParseOperation {
             | Self::AudioTags
             | Self::AudioCover
             | Self::MediaMetadata
+            | Self::SearchMediaInfo
+            | Self::SearchVideoFrame
+            | Self::SearchAudioSegment
             | Self::ArchiveList { .. } => None,
         }
     }
@@ -925,6 +958,43 @@ pub(crate) fn numbered_name(name: &std::ffi::OsStr, prefix: &str) -> bool {
 }
 
 fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
+    if matches!(operation, ParseOperation::SearchExtract) {
+        return data.len() <= 1024 * 1024
+            && serde_json::from_slice::<crate::services::smart_search::result::Extraction>(data)
+                .is_ok_and(|value| {
+                    value.segments.len() <= 1024
+                        && value
+                            .segments
+                            .iter()
+                            .all(|segment| segment.text.len() <= 16000)
+                });
+    }
+    if matches!(operation, ParseOperation::SearchMediaInfo) {
+        return data.len() <= 64 * 1024
+            && serde_json::from_slice::<serde_json::Value>(data).is_ok();
+    }
+    if matches!(operation, ParseOperation::SearchAudioSegment) {
+        return data.len() <= 1024 * 1024
+            && data.get(..4) == Some(b"RIFF")
+            && data.get(8..12) == Some(b"WAVE");
+    }
+    if data.starts_with(b"STRGBA01") {
+        let permitted = matches!(
+            operation,
+            ParseOperation::ThumbnailRaw
+                | ParseOperation::PreviewImage
+                | ParseOperation::PreviewImageLegacy
+                | ParseOperation::PreviewRawDevelop
+        );
+        let edge = if matches!(operation, ParseOperation::ThumbnailRaw) {
+            256
+        } else {
+            2560
+        };
+        return permitted
+            && pixels::dimensions(data)
+                .is_some_and(|(width, height)| width <= edge && height <= edge);
+    }
     if matches!(operation, ParseOperation::InspectImage) {
         return data.len() <= 32
             && serde_json::from_slice::<crate::services::image_conversion::ImageKind>(data)

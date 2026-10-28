@@ -25,11 +25,13 @@ pub(crate) mod archive_cover;
 #[cfg(feature = "rar")]
 pub(crate) mod archive_rar;
 mod document_media;
+mod flashraw_preview;
 mod image_conversion;
 #[cfg(unix)]
 mod media;
 mod model;
 mod raw_metadata;
+mod search_extract;
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -199,9 +201,20 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     };
     let mut text_layer_bytes = None;
     let (png, metadata) = match operation.as_str() {
+        "search-extract" => (
+            search_extract::read(input, numeric_value()?.max(0) as u32)?,
+            None,
+        ),
+        "search-media-info" => (search_media(input, "info", 0)?, None),
+        "search-video-frame" => (search_media(input, "frame", numeric_value()?.max(0))?, None),
+        "search-audio-segment" => (search_media(input, "audio", numeric_value()?.max(0))?, None),
         "thumbnail-image" => (render_raw(input, numeric_value()?.clamp(16, 256))?, None),
         "thumbnail-raw" => (
             render_raw_thumbnail(input, numeric_value()?.clamp(16, 256))?,
+            None,
+        ),
+        "thumbnail-raw-legacy" => (
+            render_raw_thumbnail_legacy(input, numeric_value()?.clamp(16, 256))?,
             None,
         ),
         "thumbnail-pdf" => (
@@ -256,6 +269,11 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             None,
         ),
         "preview-image-rgba" => (render_rgba_envelope(input)?, None),
+        "preview-image-legacy" => (render_rgba_envelope_legacy(input)?, None),
+        "preview-raw-develop" => (flashraw_preview::render(input, 2560, true)?, None),
+        "preview-image" if crate::sandbox::raw_metadata::is_raw(input) => {
+            (render_rgba_envelope(input)?, None)
+        }
         "preview-image" | "document-image" => (document_media::image(input, 800)?, None),
         "document-mermaid" => (document_media::mermaid(input)?, None),
         "document-math" => (document_media::math(input, true)?, None),
@@ -315,6 +333,9 @@ pub(crate) fn render_browser_thumbnail(
     let png = match operation {
         crate::sandbox::ParseOperation::ThumbnailImage => render_raw(input, 256)?,
         crate::sandbox::ParseOperation::ThumbnailRaw => render_raw_thumbnail(input, 256)?,
+        crate::sandbox::ParseOperation::ThumbnailRawLegacy => {
+            render_raw_thumbnail_legacy(input, 256)?
+        }
         crate::sandbox::ParseOperation::ThumbnailPdf => render_pdf_thumbnail(input, 256)?,
         crate::sandbox::ParseOperation::ThumbnailVideo => render_media(input, 256)?,
         crate::sandbox::ParseOperation::ThumbnailModel(format) => {
@@ -344,10 +365,21 @@ pub(crate) fn render_browser_preview(
         return Err("Preview cancelled".to_owned());
     }
     validate_browser_input(input, operation)?;
-    if !matches!(operation, crate::sandbox::ParseOperation::PreviewImage) {
+    if !matches!(
+        operation,
+        crate::sandbox::ParseOperation::PreviewImage
+            | crate::sandbox::ParseOperation::PreviewImageLegacy
+            | crate::sandbox::ParseOperation::PreviewRawDevelop
+    ) {
         return Err("Not a browser image preview operation".to_owned());
     }
-    let rgba = render_rgba_envelope(input)?;
+    let rgba = match operation {
+        crate::sandbox::ParseOperation::PreviewImageLegacy => render_rgba_envelope_legacy(input)?,
+        crate::sandbox::ParseOperation::PreviewRawDevelop => {
+            flashraw_preview::render(input, 2560, true)?
+        }
+        _ => render_rgba_envelope(input)?,
+    };
     if cancellation.is_cancelled() {
         return Err("Preview cancelled".to_owned());
     }
@@ -578,6 +610,9 @@ pub(crate) fn browser_render(
             }
         }
         Operation::Raw => response.png = render_raw_thumbnail(input, 256).unwrap_or_default(),
+        Operation::RawLegacy => {
+            response.png = render_raw_thumbnail_legacy(input, 256).unwrap_or_default()
+        }
         Operation::Pdf => response.png = render_pdf_thumbnail(input, 256).unwrap_or_default(),
         Operation::Video => response.png = render_media(input, 256).unwrap_or_default(),
         Operation::ThreeMfThumbnail | Operation::FreeCadThumbnail => {
@@ -600,7 +635,18 @@ pub(crate) fn browser_render(
             response.metadata = read_media_metadata(input).unwrap_or_default()
         }
         Operation::PreviewImage => {
-            response.png = document_media::image(input, 800).unwrap_or_default();
+            response.png = if crate::sandbox::raw_metadata::is_raw(input) {
+                render_rgba_envelope(input)
+            } else {
+                document_media::image(input, 800)
+            }
+            .unwrap_or_default();
+        }
+        Operation::PreviewImageLegacy => {
+            response.png = render_rgba_envelope_legacy(input).unwrap_or_default()
+        }
+        Operation::PreviewRawDevelop => {
+            response.png = flashraw_preview::render(input, 2560, true).unwrap_or_default()
         }
         Operation::DocumentMermaid => {
             response.png = document_media::mermaid(input).unwrap_or_default();
@@ -792,6 +838,23 @@ fn render_image_crate(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 }
 
 fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
+    if crate::sandbox::raw_metadata::is_raw(path) {
+        match flashraw_preview::render(path, 1280, false) {
+            Ok(pixels) => return Ok(pixels),
+            Err(error) => tracing::debug!(reason = %error, "RAW preview uses legacy fallback"),
+        }
+    }
+    render_rgba_envelope_legacy(path)
+}
+
+fn render_rgba_envelope_legacy(path: &Path) -> Result<Vec<u8>, String> {
+    if crate::sandbox::raw_metadata::is_raw(path) {
+        let png = render_raw(path, 1280)?;
+        let image = image::load_from_memory(&png)
+            .map_err(|error| error.to_string())?
+            .into_rgba8();
+        return Ok(flashraw_preview::envelope(image));
+    }
     let dimensions = image_dimensions(path);
     if let Some((width, height)) = dimensions
         && (width <= 0
@@ -890,6 +953,13 @@ fn render_rgba_envelope(path: &Path) -> Result<Vec<u8>, String> {
 }
 
 fn render_raw_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {
+    if let Ok(pixels) = flashraw_preview::render(path, size.max(16) as u32, false) {
+        return Ok(pixels);
+    }
+    render_raw_thumbnail_legacy(path, size)
+}
+
+fn render_raw_thumbnail_legacy(path: &Path, size: i32) -> Result<Vec<u8>, String> {
     if let Some((width, height)) = image_dimensions(path)
         && exceeds_decoded_frame_budget(width, height)
     {
@@ -1395,6 +1465,77 @@ fn render_media(path: &Path, size: i32) -> Result<Vec<u8>, String> {
         return Err("Empty media thumbnail".into());
     }
     Ok(png)
+}
+
+fn search_media(path: &Path, kind: &str, start_ms: i32) -> Result<Vec<u8>, String> {
+    let mut command = Command::new(media_tool(if kind == "info" {
+        "ffprobe"
+    } else {
+        "ffmpeg"
+    }));
+    if kind == "info" {
+        command
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+            ])
+            .arg(path);
+    } else {
+        command
+            .args(["-v", "error", "-nostdin", "-threads", "1", "-ss"])
+            .arg(format!("{:.3}", f64::from(start_ms) / 1000.0))
+            .arg("-i")
+            .arg(path);
+        if kind == "frame" {
+            command.args([
+                "-an",
+                "-frames:v",
+                "1",
+                "-threads",
+                "1",
+                "-filter_threads",
+                "1",
+                "-vf",
+                "scale=640:640:force_original_aspect_ratio=decrease",
+                "-f",
+                "image2pipe",
+                "-c:v",
+                "png",
+                "pipe:1",
+            ]);
+        } else {
+            command.args([
+                "-vn",
+                "-t",
+                "30",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "wav",
+                "pipe:1",
+            ]);
+        }
+    }
+    let maximum = if kind == "info" {
+        64 * 1024
+    } else {
+        2 * 1024 * 1024
+    };
+    let output = bounded_output_with_timeout(&mut command, maximum, Duration::from_secs(15))
+        .map_err(|error| error.to_string())?
+        .ok_or("Content media extraction timed out")?;
+    if !output.status.success() {
+        return Err("Content media extraction failed".into());
+    }
+    Ok(output.stdout)
 }
 
 fn media_tool(name: &str) -> PathBuf {

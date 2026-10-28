@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "source": "https://github.com/ARahim3/DigUp",
+  "revision": "0943225c2690c0631c01041e5dcb77c53e04395e",
+  "version": "0.7.0-beta.3",
+  "windows": {
+    "url": "https://github.com/ARahim3/DigUp/releases/download/v0.7.0-beta.3/DigUp_0.7.0-beta.3_x64-setup.exe",
+    "bytes": 40567501,
+    "sha256": "013ee9bdc08eb1256cb1b49b0ec11549ae7929f07536e18fbc14fe46d6059fe1"
+  },
+  "linux": {
+    "url": "https://github.com/ARahim3/DigUp/releases/download/v0.7.0-beta.3/DigUp_0.7.0-beta.3_amd64.deb",
+    "bytes": 41565124,
+    "sha256": "81396e63fd92601dffe4b65c6b9a2e496bcfda2d188eb24220a2431b68e03bd8"
+  }
+}

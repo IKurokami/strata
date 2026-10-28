@@ -58,6 +58,8 @@ impl std::fmt::Debug for SecretString {
 
 #[derive(Clone, Debug)]
 pub struct PreviewRequest {
+    pub(crate) search_hit: Option<std::sync::Arc<super::smart_search::result::SearchHit>>,
+    pub(crate) raw_develop: bool,
     pub id: PreviewRequestId,
     pub entry: FileEntry,
     pub text_byte_limit: usize,
@@ -125,11 +127,7 @@ pub enum PreviewContent {
     Rasterized {
         png: Vec<u8>,
     },
-    /// Windows direct-upload image: decoded once to tightly packed RGBA.
-    #[cfg_attr(
-        not(windows),
-        expect(dead_code, reason = "constructed by the Windows preview decoder")
-    )]
+    /// Direct-upload image decoded once to tightly packed RGBA.
     RawImage {
         width: u32,
         height: u32,
@@ -394,6 +392,9 @@ pub(crate) fn content_family_for_file(
     name: impl AsRef<std::ffi::OsStr>,
     content_type: &str,
 ) -> PreviewContent {
+    if crate::sandbox::raw_metadata::is_raw(std::path::Path::new(name.as_ref())) {
+        return PreviewContent::Image;
+    }
     let content = content_family(content_type);
     if matches!(content, PreviewContent::Unsupported)
         && std::path::Path::new(name.as_ref())

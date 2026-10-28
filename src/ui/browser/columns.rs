@@ -638,13 +638,7 @@ pub(super) fn prune_missing_search_results(column: &ColumnView) -> bool {
     if !column.search_session.is_active() {
         return false;
     }
-    let items: Vec<_> = column
-        .search_results
-        .borrow()
-        .iter()
-        .filter(|item| crate::ui::inline_search::search_path_present(&item.path))
-        .cloned()
-        .collect();
+    let items: Vec<_> = column.search_results.borrow().iter().cloned().collect();
     if items.len() == column.search_results.borrow().len() {
         return false;
     }

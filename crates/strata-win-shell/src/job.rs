@@ -219,6 +219,12 @@ impl JobObject {
             .map_err(|error| io::Error::other(format!("AssignProcessToJobObject failed: {error}")))
     }
 
+    /// Attach a live standard-library child to this job's resource boundary.
+    pub fn assign_child(&self, child: &std::process::Child) -> io::Result<()> {
+        use std::os::windows::io::AsRawHandle;
+        self.assign_process(HANDLE(child.as_raw_handle()))
+    }
+
     /// Terminate all processes in this Job Object immediately.
     pub fn terminate(&self, exit_code: u32) -> io::Result<()> {
         // SAFETY: Valid job handle.

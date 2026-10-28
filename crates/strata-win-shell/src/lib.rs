@@ -14,6 +14,7 @@ pub mod file_manager;
 pub mod job;
 pub mod launch;
 mod operation_result;
+pub mod power;
 mod recycle_bin;
 pub mod shell_window;
 pub mod volume;

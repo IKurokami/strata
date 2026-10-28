@@ -7,6 +7,7 @@ mod audio;
 mod find;
 mod media_controls;
 mod pdf;
+mod search_hit;
 mod video;
 
 struct Pending {

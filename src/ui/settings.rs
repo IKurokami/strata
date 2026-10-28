@@ -32,6 +32,7 @@ mod exclusions;
 mod font_picker;
 mod general;
 mod search;
+mod smart_search;
 mod theme;
 mod wrap;
 use about::about_page;
@@ -884,6 +885,11 @@ pub fn build_layer(
             }
             if built.borrow_mut().insert(name) {
                 match name {
+                    "smart-search" => {
+                        let page = smart_search::page(preferences.clone());
+                        search::apply(&page, &search_state);
+                        stack.add_named(&page, Some("smart-search"));
+                    }
                     "theme" => {
                         let page =
                             theme_page(preferences.clone(), super::theme::ThemeManager::shared());
@@ -2989,12 +2995,19 @@ struct NavigationEntry {
 
 /// Settings pages in navigation order. Search finds page titles here and routes
 /// to the button built from each entry.
-static NAVIGATION: [NavigationEntry; 5] = [
+static NAVIGATION: [NavigationEntry; 6] = [
     NavigationEntry {
         page: "general",
         label: "General",
         subtitle: "Browsing, search, files",
         icon: icons::SLIDERS,
+        accessible_label: None,
+    },
+    NavigationEntry {
+        page: "smart-search",
+        label: "Smart Search",
+        subtitle: "Content, models, index",
+        icon: icons::SEARCH,
         accessible_label: None,
     },
     NavigationEntry {

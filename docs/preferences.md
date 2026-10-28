@@ -1,5 +1,13 @@
 # Preference lifecycle
 
+`fast_raw_preview` and `smart_search_enabled` default to true, including missing
+fields in upgraded settings. Smart Search roots default to an empty list;
+`smart_search_include_code`, `smart_search_index_on_battery` and
+`smart_search_paused` default to false. Consumers bind before Settings opens and
+observe changes through the shared preference manager across views. Settings
+only edit those values. See [RAW previews](raw-previews.md) and
+[local content search](smart-search.md) for worker lifecycle and resource policy.
+
 Application-wide preferences live in `ui::preferences::Preferences`. The
 `ui::preferences::PreferenceManager` loads them once per application process and
 persists changes atomically to

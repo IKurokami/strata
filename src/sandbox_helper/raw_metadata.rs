@@ -12,22 +12,26 @@ const NEW_SUBFILE_TYPE: Tag = Tag(exif::Context::Tiff, 254);
 const DEFAULT_CROP_SIZE: Tag = Tag(exif::Context::Tiff, 50720);
 
 pub(crate) fn read(input: &Path) -> Result<Vec<u8>, String> {
-    let mut metadata = RawMetadata::default();
-    for tool in ["raw-identify", "dcraw"] {
-        let mut command = Command::new(tool);
-        command.env("LC_ALL", "C");
-        if tool == "dcraw" {
-            command.arg("-i");
-        }
-        command.arg("-v").arg(input);
-        if let Ok(Some(output)) =
-            bounded_output_with_timeout(&mut command, MAX_METADATA_BYTES, Duration::from_secs(3))
-            && output.status.success()
-            && let Ok(output) = String::from_utf8(output.stdout)
-        {
-            metadata = parse_identify(&output);
-            if metadata != RawMetadata::default() {
-                break;
+    let mut metadata = super::flashraw_preview::metadata(input).unwrap_or_default();
+    if metadata == RawMetadata::default() {
+        for tool in ["raw-identify", "dcraw"] {
+            let mut command = Command::new(tool);
+            command.env("LC_ALL", "C");
+            if tool == "dcraw" {
+                command.arg("-i");
+            }
+            command.arg("-v").arg(input);
+            if let Ok(Some(output)) = bounded_output_with_timeout(
+                &mut command,
+                MAX_METADATA_BYTES,
+                Duration::from_secs(3),
+            ) && output.status.success()
+                && let Ok(output) = String::from_utf8(output.stdout)
+            {
+                metadata = parse_identify(&output);
+                if metadata != RawMetadata::default() {
+                    break;
+                }
             }
         }
     }

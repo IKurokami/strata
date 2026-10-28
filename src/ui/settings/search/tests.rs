@@ -477,6 +477,10 @@ fn every_page_row_is_registered_for_search() {
             let pages = [
                 ("general", super::super::general_page(manager.clone()).0),
                 (
+                    "smart-search",
+                    super::super::smart_search::page(manager.clone()),
+                ),
+                (
                     "theme",
                     super::super::theme_page(
                         manager.clone(),

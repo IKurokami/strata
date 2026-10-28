@@ -114,6 +114,7 @@ struct BoundRow {
 }
 
 pub(super) struct VirtualPreviewState {
+    reveal_revision: Cell<u64>,
     units: Rc<Vec<PreviewUnit>>,
     list: glib::WeakRef<gtk::ListView>,
     tables: RefCell<HashMap<usize, Rc<super::table_view::TableState>>>,
@@ -187,6 +188,7 @@ fn virtual_preview(
     document_path: Option<std::path::PathBuf>,
 ) -> (gtk::Box, Rc<VirtualPreviewState>) {
     let state = Rc::new(VirtualPreviewState {
+        reveal_revision: Cell::new(0),
         units: Rc::new(units),
         list: glib::WeakRef::new(),
         tables: RefCell::new(HashMap::new()),
@@ -365,6 +367,39 @@ fn virtual_preview(
 }
 
 impl VirtualPreviewState {
+    pub(super) fn cancel_pending_reveal(&self) {
+        self.reveal_revision
+            .set(self.reveal_revision.get().wrapping_add(1));
+    }
+    pub(super) fn reveal_character_range(self: &Rc<Self>, start: usize, end: usize) {
+        let mut consumed = 0;
+        let mut anchor = None;
+        let mut focus = None;
+        for (unit, value) in self.units.iter().enumerate() {
+            let len = value.selection_len();
+            if anchor.is_none() && start <= consumed + len {
+                anchor = Some(SelectionPoint {
+                    unit,
+                    offset: start.saturating_sub(consumed).min(len),
+                });
+            }
+            if end <= consumed + len {
+                focus = Some(SelectionPoint {
+                    unit,
+                    offset: end.saturating_sub(consumed).min(len),
+                });
+                break;
+            }
+            consumed += len
+                + usize::from(
+                    value.copy_text().ends_with('\n') && !value.display_text().ends_with('\n'),
+                );
+        }
+        if let (Some(anchor), Some(focus)) = (anchor, focus) {
+            self.select_and_reveal(DocumentSelection { anchor, focus });
+        }
+    }
+
     pub(super) fn can_find(&self) -> bool {
         self.units
             .iter()
@@ -420,6 +455,8 @@ impl VirtualPreviewState {
     }
 
     fn select_and_reveal(self: &Rc<Self>, selection: DocumentSelection) {
+        self.cancel_pending_reveal();
+        let revision = self.reveal_revision.get();
         self.selection.set(Some(selection));
         update_all_bound_selection(self);
         let Some(list) = self.list.upgrade() else {
@@ -437,7 +474,10 @@ impl VirtualPreviewState {
                 return glib::ControlFlow::Break;
             };
             frames.set(frames.get() + 1);
-            if state.selection.get() != Some(selection) || frames.get() > 30 {
+            if state.reveal_revision.get() != revision
+                || state.selection.get() != Some(selection)
+                || frames.get() > 30
+            {
                 return glib::ControlFlow::Break;
             }
             let view = state

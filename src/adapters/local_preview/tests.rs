@@ -30,6 +30,9 @@ fn cache_maintenance_releases_its_source_and_cached_data_with_the_last_provider(
     PREVIEW_CACHE.with_borrow_mut(|cache| {
         cache.insert(
             PreviewCacheKey {
+                fast_raw: true,
+                raw_develop: false,
+                revision: None,
                 path: "held.txt".into(),
                 modified: 1,
                 pdf_page: None,
@@ -59,6 +62,9 @@ fn cache_maintenance_releases_its_source_and_cached_data_with_the_last_provider(
 fn unused_preview_cache_expires_without_invalidating_the_published_content() {
     let mut cache = PreviewCache::default();
     let key = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("idle.txt"),
         modified: 1,
         pdf_page: None,
@@ -90,6 +96,9 @@ fn rendered_documents_with_large_retained_buffers_do_not_bypass_the_cache_budget
     use crate::services::{DocumentLayout, DocumentUnit, DocumentUnitKind};
     let mut cache = PreviewCache::default();
     let key = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("large.md"),
         modified: 1,
         pdf_page: None,
@@ -248,6 +257,8 @@ fn cold_previews_with_shared_thumbnails_match_rendered_cache_hits() {
                 assert_ne!(thumbnail, png);
 
                 let request = PreviewRequest {
+                    search_hit: None,
+                    raw_develop: false,
                     id: PreviewRequestId(1),
                     entry: FileEntry {
                         location: Location::local(&path),
@@ -341,6 +352,9 @@ fn preview_cache_stores_and_retrieves_entries() {
         last_used: None,
     };
     let key1 = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("test1.png"),
         modified: 100,
         pdf_page: None,
@@ -354,6 +368,9 @@ fn preview_cache_stores_and_retrieves_entries() {
     assert_eq!(cache.byte_count, 4);
 
     let key2 = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("test2.txt"),
         modified: 200,
         pdf_page: None,
@@ -368,12 +385,18 @@ fn preview_cache_stores_and_retrieves_entries() {
     assert_eq!(cache.byte_count, 4 + 11);
 
     let pdf_page_0 = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("doc.pdf"),
         modified: 300,
         pdf_page: Some((0, PdfRenderSize::new(640, 800))),
         model: None,
     };
     let pdf_page_1 = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("doc.pdf"),
         modified: 300,
         pdf_page: Some((1, PdfRenderSize::new(640, 800))),
@@ -397,6 +420,9 @@ fn preview_cache_stores_and_retrieves_entries() {
     assert_eq!(cache.get(&pdf_page_1), Some(page1_content));
     assert_eq!(
         cache.get(&PreviewCacheKey {
+            fast_raw: true,
+            raw_develop: false,
+            revision: None,
             path: PathBuf::from("doc.pdf"),
             modified: 300,
             pdf_page: Some((0, PdfRenderSize::new(800, 1_800))),
@@ -507,6 +533,8 @@ fn cancelled_in_flight_document_renders_keep_the_permit_and_emit_no_stale_events
         let (finish, receive_finish) = std::sync::mpsc::channel();
         let handle = provider.load_with_renderer(
             PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: PreviewRequestId(1),
                 entry: FileEntry {
                     location: Location::local(filename),
@@ -592,6 +620,8 @@ fn cancelled_archive_listings_emit_no_stale_events() {
     let (finish, receive_finish) = std::sync::mpsc::channel();
     let handle = provider.load_with_renderer(
         PreviewRequest {
+            search_hit: None,
+            raw_develop: false,
             id: PreviewRequestId(1),
             entry: FileEntry {
                 location: Location::local("cancelled.zip"),
@@ -653,6 +683,9 @@ fn preview_cache_evicts_the_least_recent_entry() {
     };
     let keys: Vec<_> = (0..=MAX_PREVIEW_CACHE_ENTRIES)
         .map(|index| PreviewCacheKey {
+            fast_raw: true,
+            raw_develop: false,
+            revision: None,
             path: PathBuf::from(format!("image-{index}.png")),
             modified: index as i64,
             pdf_page: None,
@@ -684,6 +717,9 @@ fn replacing_a_preview_cache_entry_updates_its_byte_count() {
         last_used: None,
     };
     let key = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("image.png"),
         modified: 1,
         pdf_page: None,
@@ -706,6 +742,9 @@ fn active_media_requests_are_never_retained_by_the_preview_cache() {
         last_used: None,
     };
     let key = PreviewCacheKey {
+        fast_raw: true,
+        raw_develop: false,
+        revision: None,
         path: PathBuf::from("clip.mp4"),
         modified: 1,
         pdf_page: None,
@@ -797,6 +836,8 @@ fn uncertain_file_names_resolve_their_preview_from_the_content() {
         let path = directory.path().join(name);
         fs::write(&path, bytes).expect("preview fixture");
         let request = PreviewRequest {
+            search_hit: None,
+            raw_develop: false,
             id: PreviewRequestId(1),
             entry: FileEntry {
                 location: Location::local(&path),
@@ -872,6 +913,8 @@ fn text_subclassed_names_resolve_their_preview_from_the_type_hierarchy() {
         let path = directory.path().join(name);
         fs::write(&path, bytes).expect("preview fixture");
         let request = PreviewRequest {
+            search_hit: None,
+            raw_develop: false,
             id: PreviewRequestId(1),
             entry: FileEntry {
                 location: Location::local(&path),
@@ -951,6 +994,8 @@ fn archives_list_member_trees_as_preview_content() {
             }
 
             let request = PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: PreviewRequestId(1),
                 entry: FileEntry {
                     location: Location::local(&path),
@@ -1060,6 +1105,8 @@ fn preview_archive_with_password(
     };
 
     let request = PreviewRequest {
+        search_hit: None,
+        raw_develop: false,
         id: PreviewRequestId(1),
         entry: FileEntry {
             location: Location::local(path),
@@ -1358,6 +1405,8 @@ fn unsupported_archive_preview_reports_unsupported_format() {
             let path = directory.path().join("sample.zip");
             fs::write(&path, b"placeholder").expect("write placeholder");
             let request = PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: PreviewRequestId(1),
                 entry: FileEntry {
                     location: Location::local(&path),

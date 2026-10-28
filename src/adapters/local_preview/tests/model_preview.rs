@@ -54,6 +54,8 @@ fn model_requests_reuse_only_matching_size_and_palette_without_ui_state() {
         let rendered = calls.clone();
         let _handle = provider.load_with_renderer(
             PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: PreviewRequestId(expected_calls as u64),
                 entry: entry.clone(),
                 text_byte_limit: 1024,

@@ -1319,6 +1319,7 @@ impl Browser {
     }
 
     pub fn navigate(self: &Rc<Self>, location: Location) {
+        crate::services::smart_search::note_interaction();
         self.navigate_with_selection(location, true);
     }
 
@@ -2010,6 +2011,7 @@ impl Browser {
     }
 
     pub fn select(&self, depth: usize, position: usize) {
+        crate::services::smart_search::note_interaction();
         let selected = self.state.borrow_mut().select(depth, position);
         if selected {
             self.emit(BrowserEvent::FocusChanged {

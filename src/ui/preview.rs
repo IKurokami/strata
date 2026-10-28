@@ -40,6 +40,7 @@ mod ease_in;
 mod find;
 mod keyboard;
 mod layout;
+mod search_hit;
 pub(in crate::ui) use layout::{separator, separator_width};
 pub(in crate::ui) mod media_layout;
 #[cfg(test)]
@@ -196,6 +197,10 @@ struct DocumentPreview {
 }
 
 struct PreviewState {
+    search_hit: RefCell<Option<Arc<crate::services::smart_search::result::SearchHit>>>,
+    raw_develop: Cell<bool>,
+    develop: gtk::Button,
+    interaction_epoch: Rc<Cell<u64>>,
     mutation_watch: RefCell<Option<crate::services::file_mutations::MutationWatch>>,
     provider: Rc<dyn PreviewProvider>,
     revealer: gtk::Revealer,
@@ -314,6 +319,9 @@ impl PreviewDrawer {
         document_view_button.update_property(&[gtk::accessible::Property::Label(
             &crate::i18n::tr("View source"),
         )]);
+        let develop = gtk::Button::with_label(&crate::i18n::tr("Develop RAW"));
+        develop.add_css_class("preview-header-action");
+        develop.set_visible(false);
         let print = gtk::Button::builder()
             .tooltip_text(crate::i18n::tr("Print"))
             .valign(gtk::Align::Center)
@@ -377,6 +385,7 @@ impl PreviewDrawer {
         header.append(&document_view_button);
         header.append(&find_button);
         header.append(&open);
+        header.append(&develop);
         header.append(&print);
         header.append(&wrap);
         header.append(&close);
@@ -427,6 +436,10 @@ impl PreviewDrawer {
         slot.append(&slot_overlay);
 
         let state = Rc::new(PreviewState {
+            search_hit: RefCell::new(None),
+            raw_develop: Cell::new(false),
+            develop,
+            interaction_epoch: Rc::new(Cell::new(0)),
             mutation_watch: RefCell::new(None),
             provider,
             revealer,
@@ -494,6 +507,18 @@ impl PreviewDrawer {
             continue_playback: RefCell::new(None),
             claim_on_resume: Cell::new(false),
         });
+        state.install_search_interaction_guard();
+        let weak = Rc::downgrade(&state);
+        state.develop.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                let entry = state.current.borrow().clone();
+                if let Some(entry) = entry {
+                    state.raw_develop.set(true);
+                    state.load_request(entry, 0, true, None);
+                }
+            }
+        });
+
         let weak = Rc::downgrade(&state);
         state.enabled_action.connect_activate(move |_, _| {
             if let Some(state) = weak.upgrade() {
@@ -546,6 +571,24 @@ impl PreviewDrawer {
             }
         });
         let preferences = super::preferences::PreferenceManager::shared();
+        let raw_changed = Rc::downgrade(&state);
+        preferences.bind_preference(
+            &state.pane,
+            super::preferences::PreferenceManager::fast_raw_preview,
+            move |_, enabled| {
+                crate::sandbox::pixels::set_fast_raw(enabled);
+                if let Some(state) = raw_changed.upgrade() {
+                    let entry = state.current.borrow().clone();
+                    if let Some(entry) = entry
+                        && crate::sandbox::raw_metadata::is_raw(Path::new(&entry.native_name))
+                        && state.revealer.reveals_child()
+                    {
+                        state.raw_develop.set(false);
+                        state.load(entry, 0);
+                    }
+                }
+            },
+        );
         let weak = Rc::downgrade(&state);
         preferences.bind_preference(
             &wrap,
@@ -789,7 +832,35 @@ impl PreviewDrawer {
         command.is_some_and(|(_, command)| self.has_video() && self.state.media_command(command))
     }
 
+    pub(crate) fn show_hit(
+        &self,
+        hit: Arc<crate::services::smart_search::result::SearchHit>,
+        depth: Option<usize>,
+    ) {
+        self.state.raw_develop.set(false);
+        let changed_page = self.state.search_hit.borrow().as_ref().is_none_or(|old| {
+            old.revision != hit.revision
+                || (hit.locator.page().is_some() && old.locator != hit.locator)
+        });
+        self.state.search_hit.replace(Some(hit.clone()));
+        if changed_page {
+            self.state.current_request.set(None);
+        }
+        let same = self
+            .state
+            .current
+            .borrow()
+            .as_ref()
+            .is_some_and(|entry| entry.location == hit.entry().location);
+        self.state.show(hit.entry(), depth);
+        if same {
+            self.state.apply_search_locator();
+        }
+    }
+
     pub fn show(&self, entry: FileEntry, depth: Option<usize>) {
+        self.state.search_hit.take();
+        self.state.raw_develop.set(false);
         self.state.set_enabled(true);
         if let Some(entry) = preview_target(Some(entry)) {
             self.state.show(entry, depth);
@@ -799,6 +870,16 @@ impl PreviewDrawer {
     }
 
     pub fn show_after_focus_change(&self, entry: FileEntry, depth: Option<usize>) {
+        if self
+            .state
+            .search_hit
+            .borrow()
+            .as_ref()
+            .is_none_or(|hit| entry.location.native_path() != Some(hit.path.as_path()))
+        {
+            self.state.search_hit.take();
+            self.state.raw_develop.set(false);
+        }
         if let Some(entry) = preview_target(Some(entry)) {
             self.state.show_after_focus_change(entry, depth);
         } else {
@@ -1181,6 +1262,8 @@ impl PreviewState {
         });
         let load = self.provider.load(
             PreviewRequest {
+                search_hit: None,
+                raw_develop: false,
                 id: request_id,
                 entry,
                 text_byte_limit: PRINT_TEXT_BYTE_LIMIT,
@@ -1405,7 +1488,13 @@ impl PreviewState {
         if self.focus_archive_on_ready.replace(false) {
             self.focus_archive_request.set(Some(request_id));
         }
-        self.show_loading(request_id);
+        if !self.raw_develop.get() {
+            self.show_loading(request_id);
+        }
+        self.develop.set_visible(
+            crate::sandbox::raw_metadata::is_raw(Path::new(&entry.native_name))
+                && crate::sandbox::pixels::fast_raw(),
+        );
         let weak = Rc::downgrade(self);
         let emit = Rc::new(move |event| {
             let Some(state) = weak.upgrade() else {
@@ -1415,11 +1504,22 @@ impl PreviewState {
         });
         let load = self.provider.load(
             PreviewRequest {
+                search_hit: self.search_hit.borrow().clone(),
+                raw_develop: self.raw_develop.get(),
                 id: request_id,
                 entry,
-                text_byte_limit: TEXT_BYTE_LIMIT,
+                text_byte_limit: if self.search_hit.borrow().is_some() {
+                    4 * TEXT_BYTE_LIMIT
+                } else {
+                    TEXT_BYTE_LIMIT
+                },
                 render_document,
-                pdf_page,
+                pdf_page: self
+                    .search_hit
+                    .borrow()
+                    .as_ref()
+                    .and_then(|hit| hit.locator.page())
+                    .map_or(pdf_page, |page| page as i32),
                 media_size: self.media_preview_size(),
                 model_palette: super::theme::ThemeManager::shared().active_model_palette(),
                 archive_password,
@@ -1462,6 +1562,13 @@ impl PreviewState {
                 // Failures carry English source messages: known ones have catalog
                 // entries, and system error text passes through unchanged.
                 let detail = crate::i18n::tr(&message);
+                if self.raw_develop.replace(false) {
+                    let notice = document_notice(&crate::i18n::tr(
+                        "RAW development failed; keeping the embedded preview",
+                    ));
+                    self.content.append(&notice);
+                    return;
+                }
                 if message == crate::services::INCORRECT_ARCHIVE_PASSWORD {
                     self.render_archive_password_prompt(entry, Some(&detail));
                 } else {
@@ -1639,8 +1746,8 @@ impl PreviewState {
                 let stride = (width as usize).saturating_mul(4);
                 if width == 0
                     || height == 0
-                    || width > 1280
-                    || height > 1280
+                    || width > 2560
+                    || height > 2560
                     || pixels.len() != stride.saturating_mul(height as usize)
                 {
                     self.show_message(
@@ -1830,6 +1937,7 @@ impl PreviewState {
             }
         }
         self.refresh_find();
+        self.apply_search_locator();
         self.hand_keys_to_document();
     }
 
@@ -2139,6 +2247,20 @@ impl PreviewState {
         >::new()));
         let text_layers = Rc::new(RefCell::new(HashMap::<i32, Arc<PdfTextLayer>>::new()));
         let pdf_ranges = Rc::new(RefCell::new(HashMap::<i32, (usize, usize)>::new()));
+        let search_page = initial_page;
+        if let Some(hit) = self.search_hit.borrow().as_ref()
+            && let crate::services::smart_search::result::ContentLocator::Pdf {
+                page_0,
+                start_char,
+                end_char,
+                ..
+            } = hit.locator
+            && page_0 as i32 == initial_page
+        {
+            pdf_ranges
+                .borrow_mut()
+                .insert(initial_page, (start_char as usize, end_char as usize));
+        }
         let pdf_drag = Rc::new(Cell::new(PdfDrag::Idle));
         let pdf_anchor = Rc::new(Cell::new((-1i32, 0usize)));
         let pdf_granularity = Rc::new(Cell::new(1u8));
@@ -2341,6 +2463,8 @@ impl PreviewState {
             });
             let load = provider.load(
                 PreviewRequest {
+                    search_hit: None,
+                    raw_develop: false,
                     id: request_id,
                     entry: entry_for_bind.clone(),
                     text_byte_limit: TEXT_BYTE_LIMIT,
@@ -2639,6 +2763,64 @@ impl PreviewState {
             glib::ControlFlow::Continue
         });
         self.content.append(&scroll);
+        if search_page > 0 {
+            list.scroll_to(search_page as u32, gtk::ListScrollFlags::NONE, None);
+        }
+        if self.search_hit.borrow().is_some() {
+            let weak = Rc::downgrade(self);
+            let request = self.current_request.get();
+            let epoch = self.interaction_epoch.get();
+            let frames = Cell::new(0);
+            let scroll = scroll.downgrade();
+            list.add_tick_callback(move |_, _| {
+                frames.set(frames.get() + 1);
+                let (Some(state), Some(scroll)) = (weak.upgrade(), scroll.upgrade()) else {
+                    return glib::ControlFlow::Break;
+                };
+                if frames.get() > 60
+                    || state.current_request.get() != request
+                    || state.interaction_epoch.get() != epoch
+                {
+                    return glib::ControlFlow::Break;
+                }
+                let Some((_, _, area)) = visible_pages.borrow().get(&search_page).cloned() else {
+                    return glib::ControlFlow::Continue;
+                };
+                let Some(layer) = text_layers.borrow().get(&search_page).cloned() else {
+                    return glib::ControlFlow::Continue;
+                };
+                let Some(&(start, end)) = pdf_ranges.borrow().get(&search_page) else {
+                    return glib::ControlFlow::Break;
+                };
+                let Some(bounds) = area.compute_bounds(&scroll) else {
+                    return glib::ControlFlow::Continue;
+                };
+                let Some(rect) = pdf_text::selection_runs(&layer, start, end)
+                    .first()
+                    .copied()
+                else {
+                    return glib::ControlFlow::Break;
+                };
+                if area.width() <= 0 || area.height() <= 0 {
+                    return glib::ControlFlow::Continue;
+                }
+                let (_, y, scale) = pdf_text::image_bounds(
+                    &layer,
+                    f64::from(area.width()),
+                    f64::from(area.height()),
+                );
+                let adjustment = scroll.vadjustment();
+                let top = f64::from(bounds.y()) + y + f64::from(rect[1]) * scale;
+                adjustment.set_value(
+                    (adjustment.value() + top - adjustment.page_size() * 0.25).clamp(
+                        adjustment.lower(),
+                        (adjustment.upper() - adjustment.page_size()).max(adjustment.lower()),
+                    ),
+                );
+                area.queue_draw();
+                glib::ControlFlow::Break
+            });
+        }
     }
 
     fn append_media_controls(
@@ -3073,6 +3255,20 @@ impl PreviewState {
         let family = self.current.borrow().as_ref().and_then(entry_family);
         self.reset_content(family);
         self.cancel_loading();
+        if let Some(entry) = self.current.borrow().as_ref()
+            && crate::sandbox::raw_metadata::is_raw(Path::new(&entry.native_name))
+            && let Some(texture) = super::thumbnail::cached_thumbnail(entry)
+        {
+            let picture = gtk::Picture::for_paintable(&texture);
+            picture.add_css_class("preview-image");
+            picture.set_can_shrink(true);
+            picture.set_content_fit(gtk::ContentFit::Contain);
+            picture.set_hexpand(true);
+            picture.set_vexpand(true);
+            self.content
+                .append(&media_layout::section(&picture, &texture));
+            return;
+        }
         if let Some(audio) = self.audio.borrow().as_ref() {
             let (folder, previous, next) = self.listing_position(MediaFamily::Audio);
             if let Some(entry) = self.current.borrow().as_ref() {

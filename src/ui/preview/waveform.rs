@@ -44,6 +44,7 @@ mod imp {
         pub(super) loudest: Cell<f32>,
         pub(super) stale: Cell<bool>,
         pub(super) chapters: RefCell<Vec<f64>>,
+        pub(super) matched: Cell<Option<(u64, u64)>>,
         pub(super) played_pixels: Cell<i32>,
         pub(super) spoken_second: Cell<i64>,
         pub(super) hover: Cell<Option<f64>>,
@@ -100,6 +101,11 @@ glib::wrapper! {
 }
 
 impl Waveform {
+    pub(super) fn set_match_range(&self, range: Option<(u64, u64)>) {
+        self.imp().matched.set(range);
+        self.queue_draw();
+    }
+
     pub(in crate::ui::preview) fn new() -> Self {
         let waveform: Self = glib::Object::new();
         waveform.add_css_class("preview-waveform");
@@ -425,6 +431,18 @@ impl Waveform {
             return;
         }
         let colors = palette();
+        if let Some((start, end)) = imp.matched.get()
+            && let Some(media) = imp.media.borrow().as_ref()
+            && media.duration() > 0
+        {
+            let duration = media.duration() as f32;
+            let left = (start as f32 / duration).clamp(0.0, 1.0) * width;
+            let right = (end as f32 / duration).clamp(0.0, 1.0) * width;
+            snapshot.append_color(
+                &with_alpha(colors.accent, 0.22),
+                &graphene::Rect::new(left, 0.0, (right - left).max(0.0), height),
+            );
+        }
         let played = self.played_fraction() as f32 * width;
         let hover = self
             .pointer_fraction()

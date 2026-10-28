@@ -19,6 +19,20 @@ impl BrowserView {
     }
 
     pub(super) fn bind_preferences(&self, manager: &PreferenceManager) {
+        self.bind_view_preference(manager, PreferenceManager::fast_raw_preview, |_, value| {
+            crate::sandbox::pixels::set_fast_raw(value)
+        });
+        self.bind_view_preference(
+            manager,
+            |manager| crate::services::smart_search::Config {
+                enabled: manager.smart_search_enabled(),
+                roots: manager.smart_search_roots(),
+                include_code: manager.smart_search_include_code(),
+                index_on_battery: manager.smart_search_index_on_battery(),
+                paused: manager.smart_search_paused(),
+            },
+            |_, config| crate::services::smart_search::configure(config),
+        );
         self.bind_view_preference(
             manager,
             PreferenceManager::thumbnail_workers,

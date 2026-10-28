@@ -114,6 +114,13 @@ fn transport_button(
 }
 
 impl VideoView {
+    pub(super) fn set_match_range(&self, range: Option<(u64, u64)>) {
+        self.timeline.set_match_range(range);
+    }
+    pub(super) fn seek_to_match(&self, time: u64) {
+        self.cover_seek(time);
+    }
+
     /// `decode_size` returns `None` while the pane animates open.
     pub(super) fn new(
         volume: &gtk::Widget,

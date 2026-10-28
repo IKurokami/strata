@@ -104,10 +104,26 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
     saved.remove("folder_peeking");
     saved.remove("columns_show_sizes");
     saved.remove("language");
+    for key in [
+        "fast_raw_preview",
+        "smart_search_enabled",
+        "smart_search_roots",
+        "smart_search_include_code",
+        "smart_search_index_on_battery",
+        "smart_search_paused",
+    ] {
+        saved.remove(key);
+    }
     let restored: Preferences = saved.try_into().expect("backward-compatible preferences");
     assert_eq!(
         restored,
         Preferences {
+            fast_raw_preview: true,
+            smart_search_enabled: true,
+            smart_search_roots: Vec::new(),
+            smart_search_include_code: false,
+            smart_search_index_on_battery: false,
+            smart_search_paused: false,
             language: crate::i18n::Language::Auto,
             filter_include_subfolders: true,
             open_folder_after_drop: false,
@@ -1213,6 +1229,12 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_preview_volume(0.8),
                 |m| m.set_preview_text_wrap(false),
                 |m| m.set_preview_autoplay(false),
+                |m| m.set_fast_raw_preview(true),
+                |m| m.set_smart_search_enabled(true),
+                |m| m.set_smart_search_roots(Vec::new()),
+                |m| m.set_smart_search_include_code(false),
+                |m| m.set_smart_search_index_on_battery(false),
+                |m| m.set_smart_search_paused(false),
                 |m| m.set_auto_refresh_interval(60),
                 |m| m.set_thumbnail_workers(3),
                 |m| m.set_icons_thumbnail_size(96),
@@ -1849,6 +1871,46 @@ fn inherited_folder_sorts_update_two_views_and_keep_explicit_child_choices_after
             for window in windows {
                 window.destroy();
             }
+        },
+    );
+}
+
+#[test]
+fn smart_search_and_flashraw_preferences_apply_before_settings_across_views_and_rebuild() {
+    gtk_test(
+        "ui::preferences::tests::preferences::smart_search_and_flashraw_preferences_apply_before_settings_across_views_and_rebuild",
+        || {
+            use crate::ui::browser::{BrowserView, PeekBehavior};
+            seed_saved_preferences_for_test();
+            let manager = PreferenceManager::shared();
+            let views: Vec<_> = (0..2)
+                .map(|_| {
+                    BrowserView::new(
+                        Rc::new(crate::adapters::LocalFileSource),
+                        PeekBehavior::default(),
+                    )
+                })
+                .collect();
+            assert!(!crate::sandbox::pixels::fast_raw());
+            manager.set_fast_raw_preview(true);
+            manager.set_smart_search_enabled(true);
+            assert!(crate::sandbox::pixels::fast_raw());
+            let roots = vec![PathBuf::from("/fixture/new-search-root")];
+            manager.set_smart_search_roots(roots.clone());
+            assert_eq!(crate::services::smart_search::configured_roots(), roots);
+            manager.set_smart_search_enabled(false);
+            manager.set_fast_raw_preview(false);
+            drop(views);
+            let _rebuilt = BrowserView::new(
+                Rc::new(crate::adapters::LocalFileSource),
+                PeekBehavior::default(),
+            );
+            assert!(!crate::sandbox::pixels::fast_raw());
+            assert_eq!(crate::services::smart_search::configured_roots(), roots);
+            manager.flush_preferences();
+            let restored = PreferenceManager::load();
+            assert!(!restored.smart_search_enabled());
+            assert!(!restored.fast_raw_preview());
         },
     );
 }

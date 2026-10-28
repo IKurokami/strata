@@ -160,6 +160,7 @@ pub(crate) fn thumbnail(
     let operation = match operation {
         ParseOperation::ThumbnailImage => Operation::Image,
         ParseOperation::ThumbnailRaw => Operation::Raw,
+        ParseOperation::ThumbnailRawLegacy => Operation::RawLegacy,
         ParseOperation::ThumbnailPdf => Operation::Pdf,
         ParseOperation::ThumbnailVideo => Operation::Video,
         ParseOperation::ThumbnailModel(ModelFormat::ThreeMf) => Operation::ThreeMfThumbnail,
@@ -199,6 +200,8 @@ pub(crate) fn preview(
 ) -> Option<Result<Vec<u8>, String>> {
     let operation = match operation {
         ParseOperation::PreviewImage | ParseOperation::DocumentImage => Operation::PreviewImage,
+        ParseOperation::PreviewImageLegacy => Operation::PreviewImageLegacy,
+        ParseOperation::PreviewRawDevelop => Operation::PreviewRawDevelop,
         ParseOperation::DocumentMermaid => Operation::DocumentMermaid,
         ParseOperation::DocumentMath { display: true } => Operation::DocumentMath,
         ParseOperation::DocumentMath { display: false } => Operation::DocumentMathInline,
@@ -227,6 +230,9 @@ fn parse_operation(operation: Operation) -> ParseOperation {
     match operation {
         Operation::Image => ParseOperation::ThumbnailImage,
         Operation::Raw => ParseOperation::ThumbnailRaw,
+        Operation::RawLegacy => ParseOperation::ThumbnailRawLegacy,
+        Operation::PreviewImageLegacy => ParseOperation::PreviewImageLegacy,
+        Operation::PreviewRawDevelop => ParseOperation::PreviewRawDevelop,
         Operation::Pdf => ParseOperation::ThumbnailPdf,
         Operation::Video => ParseOperation::ThumbnailVideo,
         Operation::ThreeMfThumbnail => ParseOperation::ThumbnailModel(ModelFormat::ThreeMf),
