@@ -13,7 +13,7 @@ use super::{Browser, BrowserEvent, RequestId, SelectionUpdate};
 const FIRST_PUBLISH_COUNT: usize = 128;
 const STAGE_INLINE_LIMIT: usize = 128;
 const INITIAL_PUBLISH_CHUNK: usize = 128;
-const MIN_PUBLISH_CHUNK: usize = 128;
+const MIN_PUBLISH_CHUNK: usize = 32;
 const MAX_PUBLISH_CHUNK: usize = 512;
 const PUBLISH_CHUNK_BUDGET: Duration = Duration::from_millis(4);
 const PUBLISH_SLICE_BUDGET: Duration = Duration::from_millis(4);

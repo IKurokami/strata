@@ -108,6 +108,9 @@ fn repeated_navigation_releases_context_menu_bindings() {
             for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
                 let first = tempfile::tempdir().expect("first menu fixture");
                 let second = tempfile::tempdir().expect("second menu fixture");
+                for directory in [&first, &second] {
+                    manager.set_folder_mode(&Location::local(directory.path()), mode);
+                }
                 let view = BrowserView::new(Rc::new(MenuSource), PeekBehavior::default());
                 view.set_view_mode(mode);
                 let window = gtk::Window::builder()

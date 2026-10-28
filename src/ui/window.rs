@@ -136,7 +136,14 @@ pub(in crate::ui) fn sidebar_fits_without_preview(content: &gtk::Paned) -> Optio
     let available = content
         .root()
         .map_or_else(|| content.width(), |root| root.width());
-    (available > 0).then(|| available > preferred_sidebar_width() + super::browser::COLUMN_WIDTH)
+    (available > 0).then(|| {
+        let preferences = PreferenceManager::shared();
+        let column = preferences
+            .browser_column_width()
+            .unwrap_or(super::browser::COLUMN_WIDTH);
+        let column = (f64::from(column) * preferences.interface_scale()).round() as i32;
+        available > preferred_sidebar_width().saturating_add(column)
+    })
 }
 const SIDEBAR_TRANSITION: Duration = crate::ui::motion::PANEL;
 const PINNED_DRAG_PREFIX: &str = "pinned:";
@@ -767,8 +774,6 @@ pub(super) fn apply_browser_mode(
     view.set_view_mode(mode);
     if view.browser().is_chooser_mode() {
         preferences.set_browser_mode(mode);
-    } else if let Some(location) = view.browser().active_location() {
-        preferences.set_folder_mode(&location, mode);
     }
 }
 

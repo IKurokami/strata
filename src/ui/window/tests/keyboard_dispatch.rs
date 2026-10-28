@@ -2486,6 +2486,7 @@ fn tenxer_icons_move_spatially_open_explicitly_and_peek() {
             std::fs::create_dir(root.join("nest")).expect("nest");
             std::fs::write(root.join("nest/inside.txt"), b"inside").expect("inside");
             std::fs::create_dir(root.join("empty")).expect("empty");
+            preferences.set_folder_mode(&Location::local(root.join("empty")), BrowserMode::Icons);
             for index in 0..12 {
                 std::fs::write(root.join(format!("tile-{index:02}.txt")), b"t").expect("tile");
             }

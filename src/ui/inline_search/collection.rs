@@ -469,12 +469,13 @@ fn install_result_interactions(
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .propagation_phase(gtk::PropagationPhase::Capture)
         .build();
-    crate::ui::file_drag::install(&drag, "inline_search");
+    let prepare_trace = crate::ui::file_drag::install(&drag, "inline_search");
     let weak_item = item.downgrade();
     let weak_widget = widget.downgrade();
     let selection_for_drag = selection.clone();
     let model_for_drag = model.clone();
     drag.connect_prepare(move |source, _, _| {
+        prepare_trace(source);
         let item = weak_item.upgrade()?;
         let widget = weak_widget.upgrade()?;
         let position = item.position();

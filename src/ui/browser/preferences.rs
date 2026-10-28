@@ -55,23 +55,28 @@ impl BrowserView {
             },
             |view, (_, size)| view.apply_resolved_icons_size(size),
         );
+        let weak = Rc::downgrade(&self.state);
         self.bind_view_preference(
             manager,
-            move |manager| (manager.folder_sorts_revision(), manager.browser_mode()),
-            |view, _| {
-                let manager = PreferenceManager::shared();
-                let mode = if view.browser().is_chooser_mode() {
-                    let mode = manager.browser_mode();
-                    if mode == BrowserMode::DiskUsage {
-                        BrowserMode::Columns
-                    } else {
-                        mode
+            move |manager| {
+                let state = weak.upgrade();
+                let location = state
+                    .as_ref()
+                    .and_then(|state| state.browser.active_location());
+                let mode = if state
+                    .as_ref()
+                    .is_some_and(|state| state.browser.is_chooser_mode())
+                {
+                    match manager.browser_mode() {
+                        BrowserMode::DiskUsage => BrowserMode::Columns,
+                        mode => mode,
                     }
                 } else {
-                    manager.folder_mode(view.browser().active_location().as_ref())
+                    manager.folder_mode(location.as_ref())
                 };
-                view.set_view_mode(mode);
+                (location, mode)
             },
+            |view, (_, mode)| view.apply_view_mode(mode),
         );
         self.bind_view_preference(
             manager,

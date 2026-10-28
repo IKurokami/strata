@@ -4159,12 +4159,13 @@ fn install_list_drag_drop(
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .build();
     drag.set_propagation_phase(gtk::PropagationPhase::Capture);
-    crate::ui::file_drag::install(&drag, "collection");
+    let prepare_trace = crate::ui::file_drag::install(&drag, "collection");
     let dragged_item = item.downgrade();
     let browser_for_drag = browser.clone();
     let map_for_drag = position_map.clone();
     let prepare_row = row.downgrade();
     drag.connect_prepare(move |source, x, y| {
+        prepare_trace(source);
         let prepare_row = prepare_row.upgrade()?;
         if prepare_row
             .pick(x, y, gtk::PickFlags::DEFAULT)

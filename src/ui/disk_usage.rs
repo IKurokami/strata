@@ -130,7 +130,7 @@ impl DiskUsageView {
                 {
                     if let Some(state) = view.context.borrow().as_ref().and_then(Weak::upgrade) {
                         super::browser::BrowserView::from_state(state)
-                            .set_view_mode(super::browser_modes::BrowserMode::List);
+                            .apply_view_mode(super::browser_modes::BrowserMode::List);
                     }
                     return;
                 }
@@ -199,14 +199,15 @@ impl DiskUsageView {
         let drag = gtk::DragSource::builder()
             .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
             .build();
+        let prepare_trace = super::file_drag::install(&drag, "disk_usage");
         let weak = Rc::downgrade(&view);
-        drag.connect_prepare(move |_, x, y| {
+        drag.connect_prepare(move |source, x, y| {
+            prepare_trace(source);
             let view = weak.upgrade()?;
             view.hovered.replace(view.hit(x, y));
             let (_, _, _, entry) = view.target()?;
             super::browser::file_drag_content(&[entry])
         });
-        super::file_drag::install(&drag, "disk_usage");
         view.canvas.add_controller(drag);
         view
     }

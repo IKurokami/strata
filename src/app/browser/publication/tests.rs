@@ -143,17 +143,17 @@ fn assert_selection_then_sorting(events: &[BrowserEvent], focused: usize) {
 
 #[test]
 fn chunks_are_bounded_by_budget_snapshot_and_current_model() {
-    for (published, total, available, expected) in [
-        (128, 5000, 5000, INITIAL_PUBLISH_CHUNK),
-        (128, 400, 900, 272),
-        (128, 900, 400, 272),
-        (700, 700, 900, 0),
-        (700, 900, 700, 0),
-        (700, 900, 600, 0),
+    for (published, total, available, budget, expected) in [
+        (128, 5000, 5000, 128, 128),
+        (128, 400, 900, 512, 272),
+        (128, 900, 400, 512, 272),
+        (700, 700, 900, 512, 0),
+        (700, 900, 700, 128, 0),
+        (700, 900, 600, 128, 0),
     ] {
         let staged = StagedPublish {
             published,
-            chunk_size: INITIAL_PUBLISH_CHUNK,
+            chunk_size: budget,
             measured_chunks: 0,
             plan: PublicationPlan {
                 request_id: RequestId(1),

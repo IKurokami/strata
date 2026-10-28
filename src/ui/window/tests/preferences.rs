@@ -507,6 +507,7 @@ fn folder_item_counts_fill_visible_rows_in_each_view() {
                     .browser
                     .navigate_location(crate::model::Location::local(directory.path()));
                 wait_until(|| !column_loading(&open, 0));
+                open.content.browser.set_view_mode(mode);
                 let row_class = match mode {
                     BrowserMode::Columns => "file-row",
                     BrowserMode::List => "list-row",
@@ -870,6 +871,7 @@ fn narrow_window_rails_automatically_and_the_toggle_reaches_every_mode() {
         "ui::window::tests::preferences::narrow_window_rails_automatically_and_the_toggle_reaches_every_mode",
         || {
             let manager = PreferenceManager::shared();
+            manager.set_browser_column_width(Some(540));
             manager.set_browser_mode(BrowserMode::Columns);
             let open = OpenWindow::open_with_width(700);
             let sidebar = &open.content.sidebar.state;
@@ -1360,13 +1362,15 @@ fn saved_folder_sorts_and_icon_sizes_apply_before_settings_and_follow_changes_ac
             manager.flush_folder_views();
             assert!(folder_views_file().contains("sort = \"type\""));
 
-            manager.set_browser_mode(BrowserMode::Icons);
+            manager.set_folder_mode(&sorted_location, BrowserMode::Icons);
+            manager.set_folder_mode(&plain_location, BrowserMode::Icons);
             wait_until(|| icons_size(&first) == Some(192) && icons_size(&second) == Some(192));
             let unremembered = plain
                 .path()
                 .join(std::ffi::OsStr::from_bytes(b"not-utf-8-\xff"));
             std::fs::create_dir(&unremembered).expect("folder that is not remembered");
             show(&first, &Location::local(&unremembered));
+            first.content.browser.set_view_mode(BrowserMode::Icons);
             wait_until(|| icons_size(&first) == Some(manager.icons_thumbnail_size()));
             icons_scale(&first)
                 .expect("icons size slider")
@@ -1410,7 +1414,8 @@ fn saved_folder_sorts_and_icon_sizes_apply_before_settings_and_follow_changes_ac
                 96,
                 "a size equal to a new default is no longer stored"
             );
-            manager.set_browser_mode(BrowserMode::Columns);
+            manager.set_folder_mode(&sorted_location, BrowserMode::Columns);
+            manager.set_folder_mode(&plain_location, BrowserMode::Columns);
             wait_until(|| sorting(&second) == Some((SortKey::Name, SortDirection::Ascending)));
 
             let size_ascending = (SortKey::Size, SortDirection::Ascending);

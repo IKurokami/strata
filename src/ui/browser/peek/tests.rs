@@ -27,8 +27,12 @@ impl Fixture {
         .expect("saved browsing preferences");
         let preferences = PreferenceManager::shared();
         let directory = tempfile::tempdir().expect("peek fixture");
-        std::fs::create_dir(directory.path().join("child")).expect("child folder");
-        std::fs::write(directory.path().join("child/note.txt"), "note").expect("peek entry");
+        for index in 0..2 {
+            let root = directory.path().join(index.to_string());
+            std::fs::create_dir_all(root.join("child")).expect("child folder");
+            std::fs::write(root.join("child/note.txt"), "note").expect("peek entry");
+            preferences.set_folder_mode(&Location::local(&root), BrowserMode::Icons);
+        }
         let views = std::array::from_fn(|_| {
             BrowserView::new(
                 Rc::new(LocalFileSource),
@@ -47,7 +51,8 @@ impl Fixture {
                 .child(&views[index].widget())
                 .build();
             window.present();
-            views[index].navigate_location(Location::local(directory.path()));
+            views[index]
+                .navigate_location(Location::local(directory.path().join(index.to_string())));
             window
         });
         wait_until(|| {
@@ -77,7 +82,7 @@ impl Fixture {
         anchor.set_state_flags(gtk::StateFlags::PRELIGHT, false);
         view.state.schedule_peek(
             0,
-            Location::local(self.directory.path().join("child")),
+            Location::local(self.directory.path().join(index.to_string()).join("child")),
             anchor,
         );
     }
@@ -91,7 +96,9 @@ impl Fixture {
             .map(|peek| peek.location.clone());
         assert_eq!(
             location,
-            shown.then(|| Location::local(self.directory.path().join("child")))
+            shown.then(|| Location::local(
+                self.directory.path().join(index.to_string()).join("child")
+            ))
         );
     }
 }

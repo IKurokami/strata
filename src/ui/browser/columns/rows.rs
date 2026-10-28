@@ -165,7 +165,7 @@ pub(super) fn column_rows(
                 .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
                 .build();
             drag.set_propagation_phase(gtk::PropagationPhase::Capture);
-            crate::ui::file_drag::install(&drag, "columns");
+            let prepare_trace = crate::ui::file_drag::install(&drag, "columns");
             let weak_state_for_drag = weak_state.clone();
             let dragged_item = item.downgrade();
             let map_for_drag = map_for_hover.clone();
@@ -176,6 +176,7 @@ pub(super) fn column_rows(
             let was_selected_for_drag = was_selected.clone();
             let press_origin_for_drag = press_origin.clone();
             drag.connect_prepare(move |source, x, y| {
+                prepare_trace(source);
                 let prepare_row = prepare_row.upgrade()?;
                 if let Some(current) = source.current_event().and_then(|event| event.position())
                     && !crate::ui::pointer::exceeds_drag_threshold(

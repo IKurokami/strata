@@ -125,10 +125,11 @@ impl PaneNavigation {
         self.is_restoring() && self.pending.is_none()
     }
 
-    fn settling_viewport(&self) -> Option<Viewport> {
-        self.applying
+    fn restoring_viewport(&self) -> Option<Viewport> {
+        self.pending
             .as_ref()
-            .filter(|_| self.is_settling())
+            .or(self.applying.as_ref())
+            .filter(|_| self.is_restoring())
             .map(PendingRestore::viewport)
     }
 
@@ -152,7 +153,7 @@ impl PaneNavigation {
         let Some((location, mut position)) = capture_position(pane, browser, mode) else {
             return;
         };
-        if let Some(target) = self.settling_viewport() {
+        if let Some(target) = self.restoring_viewport() {
             position.viewport = target;
         }
         self.history.retain(|(saved, _)| *saved != location);

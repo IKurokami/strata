@@ -1125,6 +1125,17 @@ impl BrowserView {
     }
 
     pub fn set_view_mode(&self, mode: BrowserMode) {
+        if self.browser().is_chooser_mode() {
+            if mode == BrowserMode::DiskUsage {
+                return;
+            }
+        } else if let Some(location) = self.browser().active_location() {
+            super::preferences::PreferenceManager::shared().set_folder_mode(&location, mode);
+        }
+        self.apply_view_mode(mode);
+    }
+
+    pub(in crate::ui) fn apply_view_mode(&self, mode: BrowserMode) {
         let previous = self.state.mode.get();
         if mode == previous {
             return;

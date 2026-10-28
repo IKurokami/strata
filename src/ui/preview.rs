@@ -4451,9 +4451,10 @@ fn install_preview_drag(widget: &impl IsA<gtk::Widget>, state: &Rc<PreviewState>
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .build();
     drag.set_propagation_phase(gtk::PropagationPhase::Capture);
-    super::file_drag::install(&drag, "preview");
+    let prepare_trace = super::file_drag::install(&drag, "preview");
     let weak = Rc::downgrade(state);
     drag.connect_prepare(move |source, _, _| {
+        prepare_trace(source);
         let state = weak.upgrade()?;
         let entries = preview_drag_entries(state.current.borrow().as_ref())?;
         if let Some((texture, hot_x, hot_y)) =

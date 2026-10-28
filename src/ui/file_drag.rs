@@ -59,17 +59,15 @@ fn trace(stage: &str, source: &gtk::DragSource, session: u64, origin: &str, deta
     }
 }
 
-/// Observe every file source without taking focus or altering GTK's cancel policy.
-/// Install before the source's prepare callback so the signal accumulator sees us.
-pub(super) fn install(source: &gtk::DragSource, origin: &'static str) {
+/// Call the returned observer from the actual prepare handler: GTK's prepare
+/// signal uses a first-wins accumulator, so an extra handler would replace it.
+#[must_use = "Call this observer from the source's provider callback"]
+pub(super) fn install(
+    source: &gtk::DragSource,
+    origin: &'static str,
+) -> impl Fn(&gtk::DragSource) + use<> {
     let session = Rc::new(Cell::new(0));
     let active = Rc::new(RefCell::new(HashMap::<usize, u64>::new()));
-    let prepared = session.clone();
-    source.connect_prepare(move |source, _, _| {
-        prepared.set(NEXT.fetch_add(1, Ordering::Relaxed));
-        trace("prepare", source, prepared.get(), origin, "");
-        None
-    });
     let begun = session.clone();
     let begun_active = active.clone();
     source.connect_drag_begin(move |source, drag| {
@@ -97,14 +95,15 @@ pub(super) fn install(source: &gtk::DragSource, origin: &'static str) {
         trace("cancel", source, id, origin, &format!("reason={reason:?}"));
         false
     });
+    let ended = session.clone();
     source.connect_drag_end(move |source, drag, delete_data| {
         super::browser::finish_file_drag(&drag.content());
         let id = active
             .borrow_mut()
             .remove(&(drag.as_ptr() as usize))
             .unwrap_or_default();
-        if session.get() == id {
-            session.set(0);
+        if ended.get() == id {
+            ended.set(0);
         }
         trace(
             "end",
@@ -117,4 +116,11 @@ pub(super) fn install(source: &gtk::DragSource, origin: &'static str) {
             ),
         );
     });
+    move |source| {
+        session.set(NEXT.fetch_add(1, Ordering::Relaxed));
+        trace("prepare", source, session.get(), origin, "");
+    }
 }
+
+#[cfg(test)]
+mod tests;

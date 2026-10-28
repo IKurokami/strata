@@ -87,6 +87,12 @@ is idempotent and scoped by session ID/provider identity: a late end from an old
 source must not clear a newly prepared drag. Handle prepared-but-never-started
 providers and widget unmap/destruction explicitly.
 
+Prepare tracing runs inside the source's actual provider callback. Never attach
+an additional prepare observer: GTK's
+[first-wins accumulator](https://github.com/GNOME/gtk/blob/4.24.1/gtk/gtkdragsource.c#L351-L359)
+would consume the signal even if that observer returned no provider. Preset
+content must also continue through GTK's default handler unchanged.
+
 Keep GTK's cancel return semantics intact: diagnostics must not suppress default
 handling. Do not clear provider resources inside a cancel notification if OLE can
 still request GetData; mark the terminal reason and finish cleanup at the owning

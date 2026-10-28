@@ -404,10 +404,10 @@ def test_global_search_arrows_keep_typing_in_the_query_and_enter_opens_selection
         if any(node.name.endswith(f"/{name}") for name in names)
     ]
     assert len(results) == len(names)
-    assert results[0].has_state("selected")
+    assert not any(result.has_state("selected") for result in results)
     strata.keyboard.press("Down")
     strata.wait(
-        lambda: results[1].has_state("selected"),
+        lambda: results[0].has_state("selected"),
         "the first Down press to advance past the preselected result",
     )
     for _ in range(2):
@@ -429,8 +429,8 @@ def test_global_search_arrows_keep_typing_in_the_query_and_enter_opens_selection
         "the refined selected result",
     )
     strata.wait(
-        lambda: result.has_state("selected"),
-        "the refined result to be selected",
+        lambda: not result.has_state("selected"),
+        "a refined query to keep its default activation target without selecting it",
     )
     strata.keyboard.press("Return")
     strata.wait_for_directory("navigation-final")
@@ -512,6 +512,7 @@ def test_global_search_activation_selects_and_previews_the_file_result(strata, v
     parent, target = create_activation_folder(strata, "activation-parent")
     if visited:
         open_typed_folder(strata, parent)
+        strata.switch_view("List")
         strata.wait_for_focused_entry("alpha.txt")
         strata.keyboard.press("alt+Left")
         strata.wait_for_directory(strata.fixture.root.name)
@@ -544,6 +545,7 @@ def test_global_search_activation_in_the_open_folder_moves_the_selection(strata)
 def test_global_search_reveal_into_a_visited_list_folder_keeps_the_target(strata):
     parent, target = create_activation_folder(strata, "reveal-visited-parent")
     open_typed_folder(strata, parent)
+    strata.switch_view("List")
     strata.wait_for_focused_entry("alpha.txt")
     strata.keyboard.press("End")
     strata.wait_for_focused_entry("zeta.txt")
