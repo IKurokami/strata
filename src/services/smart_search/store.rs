@@ -328,9 +328,7 @@ pub(super) fn keyword(
         hit.score = super::hybrid::keyword_score(query, &hit);
         hits.push(hit);
     }
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit.score));
-    hits.truncate(100);
-    Ok(hits)
+    Ok(super::hybrid::distinct_files(hits, 100))
 }
 
 pub(super) struct VectorIndex {

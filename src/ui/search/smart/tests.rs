@@ -25,6 +25,7 @@ fn hit(path: &str, segment: i64, score: i64, weak: bool) -> SearchHit {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn filename_results_remain_available_during_content_refresh() {
     crate::test_support::gtk_test(
         "ui::search::smart::tests::filename_results_remain_available_during_content_refresh",
@@ -55,6 +56,7 @@ fn filename_results_remain_available_during_content_refresh() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn multiple_segments_share_one_row_and_keep_selected_file_across_updates() {
     crate::test_support::gtk_test(
         "ui::search::smart::tests::multiple_segments_share_one_row_and_keep_selected_file_across_updates",
@@ -111,6 +113,7 @@ fn multiple_segments_share_one_row_and_keep_selected_file_across_updates() {
 #[test]
 fn only_distinct_files_are_shown_for_semantic_segments() {
     let rows = unique_rows(
+        "",
         &[],
         &[
             hit("/files/video.mp4", 1, 9, false),
@@ -129,6 +132,32 @@ fn only_distinct_files_are_shown_for_semantic_segments() {
         2
     );
     assert_eq!(rows[1].path, std::path::PathBuf::from("/files/audio.mp3"));
+}
+
+#[test]
+fn relevant_semantic_results_precede_fuzzy_filenames_but_keep_exact_names_first() {
+    let rows = unique_rows(
+        "anime",
+        &[
+            SearchItem::for_test("/files/anime.txt".into(), false),
+            SearchItem::for_test("/files/unrelated-anime-notes.txt".into(), false),
+        ],
+        &[
+            hit("/files/bangthan.jpg", 1, 900_000, false),
+            hit("/files/weak.txt", 2, 700_000, true),
+        ],
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.path.file_name().unwrap().to_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "anime.txt",
+            "bangthan.jpg",
+            "unrelated-anime-notes.txt",
+            "weak.txt"
+        ]
+    );
 }
 
 #[test]

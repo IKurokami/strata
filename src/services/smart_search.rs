@@ -404,9 +404,7 @@ fn keyword(
             .iter()
             .any(|root| policy::within(&hit.path, root))
     });
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit.score));
-    hits.truncate(100);
-    hits
+    hybrid::distinct_files(hits, 100)
 }
 
 fn run_lane(state: Arc<SessionState>, semantic: bool) {

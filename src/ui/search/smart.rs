@@ -425,7 +425,11 @@ impl Panel {
 
     fn render(&self) {
         let selected_key = self.selected().map(|item| result_key(&item.path));
-        let rows = unique_rows(&self.names.borrow(), &self.hits.borrow());
+        let rows = unique_rows(
+            &self.query.borrow(),
+            &self.names.borrow(),
+            &self.hits.borrow(),
+        );
         self.status.set_visible(rows.is_empty());
         if *self.rows.borrow() == rows {
             return;
@@ -576,7 +580,7 @@ fn result_key(path: &Path) -> String {
     }
 }
 
-fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
+fn unique_rows(query: &str, names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
     let mut positions: HashMap<String, usize> = HashMap::with_capacity(names.len() + hits.len());
     let mut rows = Vec::with_capacity(names.len() + hits.len());
     for item in names {
@@ -602,9 +606,25 @@ fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
             rows.push(item);
         }
     }
+    let query = crate::services::fold_for_search(query.trim());
+    rows.sort_by_key(|item| {
+        let exact_name = !query.is_empty()
+            && (crate::services::fold_for_search(&item.name) == query
+                || item.path.file_stem().is_some_and(|stem| {
+                    crate::services::fold_for_search(&stem.to_string_lossy()) == query
+                }));
+        let (tier, score) = if exact_name {
+            (0, 0)
+        } else if let Some(hit) = &item.content_hit {
+            (if hit.weak { 3 } else { 1 }, hit.score)
+        } else {
+            (2, 0)
+        };
+        (tier, std::cmp::Reverse(score))
+    });
     rows.truncate(200);
     rows
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests;

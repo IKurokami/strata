@@ -5,6 +5,18 @@ workers. Folder history and inline filename filtering keep their existing roles.
 Documents and queries are not uploaded. Logs contain generations, durations and
 counts rather than queries or document contents.
 
+Ranking combines normalized semantic similarity with a bounded lexical bonus.
+Lexical coverage matches complete Unicode words after case/accent folding, so
+short Vietnamese words do not match arbitrary parts of longer words. Modality
+outlier bonuses are capped; explicit leading image/video/audio nouns provide a
+soft preference without excluding other file types. Each file contributes its
+best segment before applying result limits, retaining that segment's locator.
+Expensive lexical reranking is bounded to 256 distinct files per modality plus
+keyword candidates. Modality statistics count each file once, so a long document
+with many chunks cannot distort calibration or crowd other files out.
+The merged list keeps exact filename/stem matches first, then strong content
+matches, remaining filename matches and weaker semantic suggestions.
+
 Add roots in **Settings → Smart Search → Indexed folders**. No roots are selected
 by default. Code/configuration indexing requires a separate opt-in and database.
 Secrets, build/vendor caches, symlinks, `CACHEDIR.TAG` directories and Windows
