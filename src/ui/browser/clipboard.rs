@@ -233,9 +233,17 @@ fn active_drag_locations(target: &gtk::DropTarget) -> Option<Rc<[Location]>> {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn clear_active_drag() {
     ACTIVE_DRAG.with(|cell| {
         cell.borrow_mut().take();
+    });
+}
+
+pub(crate) fn finish_file_drag(content: &gtk::gdk::ContentProvider) {
+    ACTIVE_DRAG.with(|cell| {
+        let matches = cell.borrow().as_ref().is_some_and(|active| active.content.upgrade().as_ref() == Some(content));
+        if matches { cell.borrow_mut().take(); }
     });
 }
 

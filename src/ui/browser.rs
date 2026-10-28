@@ -73,13 +73,13 @@ mod transfer;
 mod trash;
 
 #[cfg(test)]
-pub(super) use crate::ui::browser::clipboard::clipboard_mark;
+pub(super) use crate::ui::browser::clipboard::{clipboard_mark, clear_active_drag};
 pub(in crate::ui) use crate::ui::browser::clipboard::drag_preview_icon;
 pub(super) use crate::ui::browser::clipboard::{
     ClipboardMark, ClipboardMarks, file_drag_content, mark_in, set_mark_result_style,
 };
 pub(crate) use crate::ui::browser::clipboard::{
-    PreparedFileDrop, arm_spring_load_navigation, clear_active_drag, drag_actions_for_modifiers,
+    PreparedFileDrop, arm_spring_load_navigation, finish_file_drag, drag_actions_for_modifiers,
     file_drag_hover_target, file_drop_action, file_drop_commit, locations_from_file_list_value,
     prepare_file_drop_target,
 };
@@ -978,6 +978,8 @@ impl BrowserView {
         self.state.mode_views.borrow().refresh_source_filter();
     }
 
+    pub(in crate::ui) fn from_state(state: Rc<ViewState>) -> Self { Self { state } }
+
     pub fn browser(&self) -> Rc<Browser> {
         self.state.browser.clone()
     }
@@ -1088,6 +1090,8 @@ impl BrowserView {
         });
     }
 
+    pub(in crate::ui) fn disk_usage_key(&self, press: &super::keys::KeyPress) -> bool { self.state.mode_views.borrow().disk_usage_key(press) }
+
     pub fn view_mode(&self) -> BrowserMode {
         self.state.mode.get()
     }
@@ -1105,6 +1109,7 @@ impl BrowserView {
                 let mode = match stack.visible_child_name().as_deref() {
                     Some("icons") => BrowserMode::Icons,
                     Some("list") => BrowserMode::List,
+                    Some("disk_usage") => BrowserMode::DiskUsage,
                     _ => BrowserMode::Columns,
                 };
                 if let Some(state) = state.upgrade() {
@@ -1131,7 +1136,7 @@ impl BrowserView {
         self.state.mode.set(mode);
         let filter = match previous {
             BrowserMode::Columns => self.state.capture_active_column_filter(),
-            BrowserMode::Icons | BrowserMode::List => {
+            BrowserMode::Icons | BrowserMode::List | BrowserMode::DiskUsage => {
                 self.state.mode_views.borrow().capture_active_filter()
             }
         };
@@ -1150,7 +1155,7 @@ impl BrowserView {
             // The columns view is already hidden, so an exit animation here
             // would never be seen.
             BrowserMode::Columns => self.state.truncate_for_replacement(0),
-            BrowserMode::Icons | BrowserMode::List => self
+            BrowserMode::Icons | BrowserMode::List | BrowserMode::DiskUsage => self
                 .state
                 .mode_views
                 .borrow_mut()

@@ -30,6 +30,7 @@ catalog! {
         VIEW_COLUMNS: Binding = Binding::ctrl(Key::_1);
         VIEW_ICONS: Binding = Binding::ctrl(Key::_2);
         VIEW_LIST: Binding = Binding::ctrl(Key::_3);
+        VIEW_DISK_USAGE: Binding = Binding::ctrl(Key::_4);
         TEXT_LARGER: Binding = Binding::ctrl(Key::plus);
         TEXT_SMALLER: Binding = Binding::ctrl(Key::minus);
         TEXT_RESET: Binding = Binding::ctrl(Key::_0);

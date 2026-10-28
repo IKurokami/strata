@@ -9,6 +9,27 @@ use windows::Win32::{
     },
 };
 
+#[derive(Debug)]
+pub struct DragState {
+    pub origin: isize,
+    pub foreground: isize,
+    pub capture_on_caller: isize,
+    pub foreground_pid: u32,
+    pub caller_thread: u32,
+}
+
+/// Read native input state on the calling UI thread without changing activation.
+pub fn drag_state(origin: isize) -> DragState {
+    use windows::Win32::{System::Threading::GetCurrentThreadId, UI::{Input::KeyboardAndMouse::GetCapture, WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId}}};
+    // SAFETY: These read-only APIs accept a nullable window and owned stack output.
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let mut foreground_pid = 0;
+        let _ = GetWindowThreadProcessId(foreground, Some(&mut foreground_pid));
+        DragState { origin, foreground: foreground.0 as isize, capture_on_caller: GetCapture().0 as isize, foreground_pid, caller_thread: GetCurrentThreadId() }
+    }
+}
+
 /// Work area of the monitor containing a client point, in client pixel coordinates.
 pub fn popup_vertical_bounds(handle: isize, point: [i32; 2]) -> windows_core::Result<[i32; 2]> {
     use windows::Win32::{

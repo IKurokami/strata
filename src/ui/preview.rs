@@ -4443,6 +4443,7 @@ fn install_preview_drag(widget: &impl IsA<gtk::Widget>, state: &Rc<PreviewState>
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .build();
     drag.set_propagation_phase(gtk::PropagationPhase::Capture);
+    super::file_drag::install(&drag, "preview");
     let weak = Rc::downgrade(state);
     drag.connect_prepare(move |source, _, _| {
         let state = weak.upgrade()?;
@@ -4462,7 +4463,6 @@ fn install_preview_drag(widget: &impl IsA<gtk::Widget>, state: &Rc<PreviewState>
     });
     let weak = Rc::downgrade(state);
     drag.connect_drag_end(move |_, _, _| {
-        super::browser::clear_active_drag();
         if let Some(state) = weak.upgrade() {
             state.content.remove_css_class("dragging");
             super::browser::slide_out(&state.content);

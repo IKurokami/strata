@@ -15,6 +15,9 @@ use crate::{
 
 impl ModeViews {
     pub(crate) fn handle_with_deferred_empty(&mut self, event: &BrowserEvent, defer_empty: bool) {
+        if self.mode == BrowserMode::DiskUsage {
+            self.disk_usage.refresh();
+        }
         #[cfg(windows)]
         if self
             .browser
@@ -121,6 +124,7 @@ impl ModeViews {
     fn rebuild_active_mode(&mut self) {
         match self.mode {
             BrowserMode::Columns => {}
+            BrowserMode::DiskUsage => self.disk_usage.refresh(),
             BrowserMode::Icons => self.rebuild_icons(),
             BrowserMode::List => self.rebuild_list(),
         }

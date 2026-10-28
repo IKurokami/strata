@@ -2176,6 +2176,10 @@ impl Browser {
         });
     }
 
+    pub fn entry_for_location(&self, depth: usize, location: &Location) -> Option<(usize, FileEntry)> {
+        self.state.borrow().entry_for_location(depth, location)
+    }
+
     pub fn entry_at(&self, depth: usize, position: usize) -> Option<FileEntry> {
         self.state.borrow().entry_at(depth, position)
     }

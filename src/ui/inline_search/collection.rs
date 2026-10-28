@@ -469,6 +469,7 @@ fn install_result_interactions(
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .propagation_phase(gtk::PropagationPhase::Capture)
         .build();
+    crate::ui::file_drag::install(&drag, "inline_search");
     let weak_item = item.downgrade();
     let weak_widget = widget.downgrade();
     let selection_for_drag = selection.clone();

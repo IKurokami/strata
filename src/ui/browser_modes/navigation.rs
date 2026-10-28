@@ -503,7 +503,7 @@ fn adjustments(pane: &Pane, mode: BrowserMode) -> Option<(gtk::Adjustment, gtk::
         .downcast::<gtk::ScrolledWindow>()
         .ok()?;
     match mode {
-        BrowserMode::Columns => None,
+        BrowserMode::Columns | BrowserMode::DiskUsage => None,
         BrowserMode::Icons => Some((vertical.vadjustment(), vertical.hadjustment())),
         BrowserMode::List => {
             let horizontal = vertical

@@ -189,11 +189,12 @@ fn control_digits_select_each_browser_presentation() {
         (Key::_1, BrowserMode::Columns),
         (Key::_2, BrowserMode::Icons),
         (Key::_3, BrowserMode::List),
+        (Key::_4, BrowserMode::DiskUsage),
         (Key::KP_3, BrowserMode::List),
     ] {
         assert_eq!(browser_mode_for_digit(&press(key, CONTROL)), Some(mode));
     }
-    assert_eq!(browser_mode_for_digit(&press(Key::_4, CONTROL)), None);
+    assert_eq!(browser_mode_for_digit(&press(Key::_5, CONTROL)), None);
     assert_eq!(browser_mode_for_digit(&press(Key::a, CONTROL)), None);
     assert_eq!(browser_mode_for_digit(&press(Key::_1, NONE)), None);
 }

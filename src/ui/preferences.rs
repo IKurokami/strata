@@ -392,6 +392,7 @@ fn browser_mode_from_stored(value: &str) -> super::browser_modes::BrowserMode {
     match value {
         "icons" | "grid" => super::browser_modes::BrowserMode::Icons,
         "list" | "explorer" => super::browser_modes::BrowserMode::List,
+        "disk_usage" => super::browser_modes::BrowserMode::DiskUsage,
         _ => super::browser_modes::BrowserMode::Columns,
     }
 }
@@ -401,6 +402,7 @@ fn stored_browser_mode(mode: super::browser_modes::BrowserMode) -> &'static str 
         super::browser_modes::BrowserMode::Columns => "columns",
         super::browser_modes::BrowserMode::Icons => "icons",
         super::browser_modes::BrowserMode::List => "list",
+        super::browser_modes::BrowserMode::DiskUsage => "disk_usage",
     }
 }
 
@@ -1514,7 +1516,7 @@ impl PreferenceManager {
                 preferences.icons_file_clicks,
                 preferences.icons_folder_clicks,
             ),
-            BrowserMode::List => (preferences.list_file_clicks, preferences.list_folder_clicks),
+            BrowserMode::List | BrowserMode::DiskUsage => (preferences.list_file_clicks, preferences.list_folder_clicks),
         };
         let defaults = ClickActivation::default_for(mode);
         ClickActivation {
@@ -1542,7 +1544,7 @@ impl PreferenceManager {
                 preferences.icons_file_clicks = files;
                 preferences.icons_folder_clicks = folders;
             }
-            BrowserMode::List => {
+            BrowserMode::List | BrowserMode::DiskUsage => {
                 preferences.list_file_clicks = files;
                 preferences.list_folder_clicks = folders;
             }

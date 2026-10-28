@@ -2195,6 +2195,10 @@ impl NavigationState {
         Some((parent_depth, self.columns[parent_depth].selected))
     }
 
+    pub fn entry_for_location(&self, depth: usize, location: &Location) -> Option<(usize, FileEntry)> {
+        self.columns.get(depth)?.entries.iter().enumerate().find(|(_, entry)| &entry.location == location).map(|(position, entry)| (position, entry.clone()))
+    }
+
     pub fn entry_at(&self, depth: usize, position: usize) -> Option<FileEntry> {
         self.columns.get(depth)?.entries.get(position).cloned()
     }

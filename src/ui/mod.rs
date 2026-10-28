@@ -18,6 +18,8 @@ mod collection_interaction;
 mod computer;
 mod controls;
 mod day_sections;
+mod disk_usage;
+mod file_drag;
 mod desktop_integration;
 mod document_media;
 mod document_view;

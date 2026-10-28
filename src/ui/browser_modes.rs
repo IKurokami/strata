@@ -109,9 +109,18 @@ pub enum BrowserMode {
     Columns,
     Icons,
     List,
+    DiskUsage,
 }
 
 impl BrowserMode {
+    pub(crate) fn stored(self) -> &'static str {
+        match self { Self::Columns => "columns", Self::Icons => "icons", Self::List => "list", Self::DiskUsage => "disk_usage" }
+    }
+
+    pub(crate) fn from_stored(value: &str) -> Option<Self> {
+        match value { "columns" => Some(Self::Columns), "icons" => Some(Self::Icons), "list" => Some(Self::List), "disk_usage" => Some(Self::DiskUsage), _ => None }
+    }
+
     /// File-type headings are List-only. Icons clustering is wired but gated off.
     pub fn supports_type_grouping(self) -> bool {
         matches!(self, Self::List)
@@ -160,7 +169,7 @@ impl ClickActivation {
             files: ClickCount::Two,
             folders: match mode {
                 BrowserMode::Columns => ClickCount::One,
-                BrowserMode::Icons | BrowserMode::List => ClickCount::Two,
+                BrowserMode::Icons | BrowserMode::List | BrowserMode::DiskUsage => ClickCount::Two,
             },
         }
     }
@@ -429,6 +438,7 @@ pub struct ModeViews {
     stack: gtk::Stack,
     #[cfg(windows)]
     computer: std::cell::OnceCell<Rc<super::computer::ComputerView>>,
+    disk_usage: Rc<super::disk_usage::DiskUsageView>,
     icons_root: gtk::Box,
     list_root: gtk::Box,
     icons_panes: Vec<Pane>,
@@ -499,12 +509,15 @@ impl ModeViews {
             .hexpand(true)
             .vexpand(true)
             .build();
+        let disk_usage = super::disk_usage::DiskUsageView::new(&browser);
+        stack.add_named(&disk_usage.widget, Some("disk_usage"));
         stack.add_named(columns, Some("columns"));
         stack.add_named(&icons_scroll, Some("icons"));
         stack.add_named(&list_scroll, Some("list"));
         stack.set_visible_child_name("columns");
 
         Self {
+            disk_usage,
             stack,
             #[cfg(windows)]
             computer: std::cell::OnceCell::new(),
@@ -559,7 +572,7 @@ impl ModeViews {
     /// panes can run a drag into whichever view the current mode shows.
     pub(super) fn leading_marquee(&self) -> Option<super::marquee::Marquee> {
         let pane = match self.mode {
-            BrowserMode::Columns => return None,
+            BrowserMode::Columns | BrowserMode::DiskUsage => return None,
             BrowserMode::Icons => self.icons_panes.first(),
             BrowserMode::List => self.list_pane.as_ref(),
         }?;
@@ -570,7 +583,7 @@ impl ModeViews {
 
     fn single_pane(&self) -> Option<&Pane> {
         match self.mode {
-            BrowserMode::Columns => None,
+            BrowserMode::Columns | BrowserMode::DiskUsage => None,
             BrowserMode::Icons => self.icons_panes.first(),
             BrowserMode::List => self.list_pane.as_ref(),
         }
@@ -700,7 +713,7 @@ impl ModeViews {
 
     pub fn selected_positions(&self) -> Option<(usize, Vec<usize>)> {
         let pane = match self.mode {
-            BrowserMode::Columns => return None,
+            BrowserMode::Columns | BrowserMode::DiskUsage => return None,
             BrowserMode::Icons => self.icons_panes.first(),
             BrowserMode::List => self.list_pane.as_ref(),
         }?;
@@ -863,7 +876,7 @@ impl ModeViews {
 
     pub fn begin_search_rename(&self, depth: usize, entry: &FileEntry) -> bool {
         let pane = match self.mode {
-            BrowserMode::Columns => return false,
+            BrowserMode::Columns | BrowserMode::DiskUsage => return false,
             BrowserMode::Icons => self.icons_panes.iter().find(|pane| pane.depth == depth),
             BrowserMode::List => self.list_pane.as_ref().filter(|pane| pane.depth == depth),
         };
@@ -885,8 +898,13 @@ impl ModeViews {
 
     pub fn begin_rename(&self, depth: usize, source_position: usize, entry: &FileEntry) -> bool {
         self.cancel_rename();
+        if self.mode == BrowserMode::DiskUsage {
+            let Some(mut target) = self.disk_usage.rename_target(entry) else { return false; };
+            self.bind_rename_cancellation(&mut target, &entry.location);
+            return super::collection_edit::begin(&self.active_rename, entry.clone(), target, self.rename_submit());
+        }
         let pane = match self.mode {
-            BrowserMode::Columns => return false,
+            BrowserMode::Columns | BrowserMode::DiskUsage => return false,
             BrowserMode::Icons => self.icons_panes.iter().find(|pane| pane.depth == depth),
             BrowserMode::List => self.list_pane.as_ref().filter(|pane| pane.depth == depth),
         };
@@ -976,6 +994,7 @@ impl ModeViews {
 
     /// Whether the listing of `depth` holds focus, rather than its filter session.
     pub(in crate::ui) fn listing_holds_focus(&self, depth: usize) -> bool {
+        if self.mode == BrowserMode::DiskUsage { return self.browser.active_depth() == Some(depth) && self.disk_usage.widget.root().and_then(|root| root.focus()).is_some_and(|focus| focus.is_ancestor(&self.disk_usage.widget)); }
         self.panes_at(depth)
             .iter()
             .any(|pane| pane_holds_keyboard_focus(pane))
@@ -1060,7 +1079,10 @@ impl ModeViews {
                 .any(|entry| !entry.text().trim().is_empty())
     }
 
+    pub fn disk_usage_key(&self, press: &super::keys::KeyPress) -> bool { self.mode == BrowserMode::DiskUsage && self.disk_usage.key(press) }
+
     pub fn item_view_has_focus(&self) -> bool {
+        if self.mode == BrowserMode::DiskUsage { return self.disk_usage.has_focus(); }
         let focused = self.stack.root().and_then(|root| root.focus());
         self.icons_panes
             .iter()
@@ -1085,7 +1107,7 @@ impl ModeViews {
 
     pub fn show_filter_with_query(&self, query: Option<&str>) -> bool {
         let pane = match self.mode {
-            BrowserMode::Columns => None,
+            BrowserMode::Columns | BrowserMode::DiskUsage => None,
             BrowserMode::Icons => self.icons_panes.first(),
             BrowserMode::List => self.list_pane.as_ref(),
         };
@@ -1238,6 +1260,7 @@ impl ModeViews {
         }
         match mode {
             BrowserMode::Columns => {}
+            BrowserMode::DiskUsage => self.disk_usage.refresh(),
             BrowserMode::Icons => self.prepare_icons(),
             BrowserMode::List => self.prepare_list(),
         }
@@ -1322,6 +1345,7 @@ impl ModeViews {
         }
         self.stack.set_visible_child_name(match mode {
             BrowserMode::Columns => "columns",
+            BrowserMode::DiskUsage => "disk_usage",
             BrowserMode::Icons => "icons",
             BrowserMode::List => "list",
         });
@@ -1342,6 +1366,7 @@ impl ModeViews {
         }
         match mode {
             BrowserMode::Columns => {}
+            BrowserMode::DiskUsage => self.disk_usage.stop(),
             BrowserMode::Icons => self.deactivate_icons(),
             BrowserMode::List => self.deactivate_list(),
         }
@@ -1365,7 +1390,7 @@ impl ModeViews {
 
     pub fn set_click_activation(&self, mode: BrowserMode, activation: ClickActivation) {
         match mode {
-            BrowserMode::Columns => {}
+            BrowserMode::Columns | BrowserMode::DiskUsage => {}
             BrowserMode::Icons => self.icons_click_activation.set(activation),
             BrowserMode::List => self.list_click_activation.set(activation),
         }
@@ -1380,6 +1405,7 @@ impl ModeViews {
     }
 
     pub fn set_context_state(&self, state: Weak<super::browser::ViewState>) {
+        self.disk_usage.set_context(state.clone());
         self.context_state.replace(Some(state));
     }
 
@@ -1444,7 +1470,7 @@ impl ModeViews {
 
     fn visible_panes(&self) -> Vec<&Pane> {
         match self.mode {
-            BrowserMode::Columns => Vec::new(),
+            BrowserMode::Columns | BrowserMode::DiskUsage => Vec::new(),
             BrowserMode::Icons => self.icons_panes.iter().collect(),
             BrowserMode::List => self.list_pane.iter().collect(),
         }
@@ -1684,6 +1710,7 @@ impl ModeViews {
     }
 
     pub fn focus_visible_pane(&self, depth: usize) {
+        if self.mode == BrowserMode::DiskUsage { self.disk_usage.focus(); return; }
         #[cfg(windows)]
         if self.stack.visible_child_name().as_deref() == Some("computer") {
             self.computer_view().focus();
@@ -1792,7 +1819,7 @@ impl ModeViews {
 
     fn panes_at(&self, depth: usize) -> Vec<&Pane> {
         match self.mode {
-            BrowserMode::Columns => Vec::new(),
+            BrowserMode::Columns | BrowserMode::DiskUsage => Vec::new(),
             BrowserMode::Icons => self
                 .icons_panes
                 .iter()
@@ -4098,6 +4125,7 @@ fn install_list_drag_drop(
         .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
         .build();
     drag.set_propagation_phase(gtk::PropagationPhase::Capture);
+    crate::ui::file_drag::install(&drag, "collection");
     let dragged_item = item.downgrade();
     let browser_for_drag = browser.clone();
     let map_for_drag = position_map.clone();
@@ -4156,7 +4184,6 @@ fn install_list_drag_drop(
     let dragged_row = row.downgrade();
     let weak_state_for_end = state;
     drag.connect_drag_end(move |source, _, _| {
-        super::browser::clear_active_drag();
         source.set_actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE);
         if let Some(row) = dragged_row.upgrade() {
             row.remove_css_class("dragging");

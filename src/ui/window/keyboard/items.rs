@@ -199,6 +199,7 @@ impl Dispatcher {
     }
 
     pub(super) fn item_navigation(&self, browser: &Rc<Browser>, event: &KeyEvent) -> KeyResult {
+        if self.view.disk_usage_key(&event.press) { return Some(Propagation::Stop); }
         if event.without(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK)
             && !self.view.item_view_has_focus()
             && !event.header_left_boundary

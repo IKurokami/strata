@@ -18,7 +18,9 @@ fn volume(uuid: &str, relative: &str) -> FolderKey {
 }
 
 fn sorted(key: SortKey, direction: SortDirection) -> FolderView {
+        mode: None,
     FolderView {
+        mode: None,
         sort: Some((key, direction)),
         icons_size: None,
     }
@@ -43,6 +45,7 @@ fn saved_views_round_trip_through_the_state_file() {
         &mut views,
         &photos,
         FolderView {
+        mode: None,
             sort: Some((SortKey::Size, SortDirection::Ascending)),
             icons_size: Some(208),
         },
@@ -51,6 +54,7 @@ fn saved_views_round_trip_through_the_state_file() {
         &mut views,
         &drive_root,
         FolderView {
+        mode: None,
             sort: None,
             icons_size: Some(64),
         },
@@ -136,6 +140,7 @@ fn invalid_entries_and_fields_are_skipped_while_valid_ones_load() {
     assert_eq!(
         views.view(&local("/unknown-sort-keeps-size")),
         FolderView {
+        mode: None,
             sort: None,
             icons_size: Some(128),
         }
@@ -190,6 +195,7 @@ fn defaults_prune_matching_values_without_touching_other_fields() {
     let default = (SortKey::Modified, SortDirection::Descending);
     let other = (SortKey::Size, SortDirection::Ascending);
     let view = |sort, icons_size| FolderView {
+        mode: None,
         sort: Some(sort),
         icons_size,
     };
@@ -212,6 +218,7 @@ fn defaults_prune_matching_values_without_touching_other_fields() {
     assert_eq!(
         views.view(&local("/default-sort-and-size")),
         FolderView {
+        mode: None,
             sort: None,
             icons_size: Some(160),
         }
@@ -518,4 +525,34 @@ fn forgetting_all_on_an_empty_store_still_clears_what_another_process_wrote() {
 
     assert_eq!(merged.view(&local("/theirs")), FolderView::default());
     assert_eq!(merged.view(&local("/kept")), mine);
+}
+
+#[test]
+fn modes_survive_roundtrip_and_ephemeral_lru_without_inheriting_to_children() {
+    use crate::ui::browser_modes::BrowserMode;
+    let mut views = FolderViews::default();
+    let parent = local("/large-parent");
+    views.update(&parent, |view| view.mode = Some(BrowserMode::DiskUsage));
+    for index in 0..=FOLDER_VIEWS_LIMIT { views.update(&local(&format!("/temporary-{index}")), |view| view.icons_size = Some(96)); }
+    assert_eq!(views.view(&parent).mode, Some(BrowserMode::DiskUsage));
+    let (loaded, repaired) = FolderViews::parse(&views.to_toml().unwrap()).unwrap();
+    assert!(!repaired);
+    assert_eq!(loaded.view(&parent).mode, Some(BrowserMode::DiskUsage));
+    assert_eq!(loaded.view(&local("/large-parent/child")).mode, None);
+}
+
+#[test]
+fn unknown_mode_keeps_sort_and_mode_changes_merge_with_other_process_sort() {
+    use crate::ui::browser_modes::BrowserMode;
+    let (mut ours, repaired) = FolderViews::parse("[[folder]]\npath = \"/shared\"\nmode = \"future-mode\"\nsort = \"name\"\ndirection = \"ascending\"\n").unwrap();
+    assert!(repaired);
+    let key = local("/shared");
+    assert!(ours.view(&key).sort.is_some());
+    ours.mark_saved();
+    ours.update(&key, |view| view.mode = Some(BrowserMode::DiskUsage));
+    let mut theirs = FolderViews::default();
+    theirs.update(&key, |view| view.sort = Some((SortKey::Size, SortDirection::Descending)));
+    let merged = ours.merged_over(theirs);
+    assert_eq!(merged.view(&key).mode, Some(BrowserMode::DiskUsage));
+    assert_eq!(merged.view(&key).sort, Some((SortKey::Size, SortDirection::Descending)));
 }
