@@ -26,9 +26,15 @@ fn ansi_editing_undo_mode_changes_and_atomic_save_preserve_the_source() {
             std::fs::write(&path, "ảnh Việt").expect("source");
             let overlay = gtk::Overlay::new();
             overlay.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-            let window = gtk::Window::builder().child(&overlay).build();
+            let window = gtk::Window::builder()
+                .default_width(900)
+                .default_height(600)
+                .child(&overlay)
+                .build();
             window.present();
-            let editor = show(&overlay, path.clone()).expect("editor");
+            let editor = Editor::new(Some(path.clone()), "ảnh Việt");
+            overlay.set_child(Some(&editor.widget()));
+            editor.start_editing();
             wait(|| !editor.busy.get());
             assert_eq!(editor.mode.get(), Mode::Markdown);
             assert!(!editor.dirty.get());
@@ -39,6 +45,13 @@ fn ansi_editing_undo_mode_changes_and_atomic_save_preserve_the_source() {
                 "ảnh Việt"
             );
             editor.select(0..3);
+            wait(|| editor.format_popup.is_visible());
+            editor.selecting.set(true);
+            editor.show_selection_tools();
+            assert!(!editor.format_popup.is_visible());
+            editor.selecting.set(false);
+            editor.show_selection_tools();
+            assert!(editor.format_popup.is_visible());
             editor.style(|style, _, _| {
                 style.bold = true;
                 style.foreground = Some(model::Color(12, 34, 56));
@@ -70,7 +83,7 @@ fn ansi_editing_undo_mode_changes_and_atomic_save_preserve_the_source() {
             assert_eq!(editor.rich.document().text(), "ảnh Việt");
             editor.close(false);
             assert!(editor.discard.is_visible());
-            assert!(editor.layer.upgrade().expect("open").is_sensitive());
+            assert!(editor.is_editing());
             editor.save();
             wait(|| !editor.busy.get());
             let saved = std::fs::read_to_string(&path).expect("saved");
@@ -78,6 +91,8 @@ fn ansi_editing_undo_mode_changes_and_atomic_save_preserve_the_source() {
             assert_eq!(document, styled.document);
             assert!(!editor.dirty.get());
             editor.close(false);
+            assert!(!editor.is_editing());
+            assert!(!editor.text_view().is_editable());
             window.close();
         },
     );
@@ -93,9 +108,15 @@ fn closing_during_load_discards_late_results_and_markdown_preview_is_bounded() {
             std::fs::write(&path, "unchanged").expect("source");
             let overlay = gtk::Overlay::new();
             overlay.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-            let window = gtk::Window::builder().child(&overlay).build();
+            let window = gtk::Window::builder()
+                .default_width(900)
+                .default_height(600)
+                .child(&overlay)
+                .build();
             window.present();
-            let editor = show(&overlay, path.clone()).expect("editor");
+            let editor = Editor::new(Some(path.clone()), "ảnh Việt");
+            overlay.set_child(Some(&editor.widget()));
+            editor.start_editing();
             editor.close(true);
             let until = std::time::Instant::now() + std::time::Duration::from_millis(300);
             while std::time::Instant::now() < until {

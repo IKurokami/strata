@@ -68,6 +68,7 @@ The font is distributed unmodified. Strata materializes the embedded font in its
 
 - Project: <https://github.com/lucide-icons/lucide>
 - Version: 1.35.0
+- Typography and color-editing icons: revision `a79d711591318eaced16eeb9bbc923d0128cc3a1` (1.35.0), copied without geometry changes.
 - Copyright: Lucide Contributors and Feather Icons contributors
 - License: ISC
 - Included assets: curated and namespaced SVG icons under `data/icons/scalable/actions/`

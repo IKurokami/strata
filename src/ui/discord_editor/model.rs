@@ -34,18 +34,6 @@ impl Color {
     pub fn hex(self) -> String {
         format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
     }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        let value = value.trim().strip_prefix('#')?;
-        if value.len() != 6 || !value.is_ascii() {
-            return None;
-        }
-        Some(Self(
-            u8::from_str_radix(&value[..2], 16).ok()?,
-            u8::from_str_radix(&value[2..4], 16).ok()?,
-            u8::from_str_radix(&value[4..], 16).ok()?,
-        ))
-    }
 }
 
 // These are document colors, independent of Strata's interface theme.

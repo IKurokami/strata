@@ -3,7 +3,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -221,6 +221,9 @@ struct PreviewState {
     content: gtk::Box,
     document_view_button: gtk::Button,
     discord_edit: gtk::Button,
+    discord_editor: RefCell<Option<Rc<super::discord_editor::Editor>>>,
+    discord_drafts: RefCell<HashMap<PathBuf, Rc<super::discord_editor::Editor>>>,
+    discord_source: RefCell<String>,
     document_view_icon: gtk::Image,
     document_view: Cell<DocumentView>,
     document_preview: RefCell<Option<DocumentPreview>>,
@@ -467,6 +470,9 @@ impl PreviewDrawer {
             content,
             document_view_button: document_view_button.clone(),
             discord_edit: discord_edit.clone(),
+            discord_editor: RefCell::new(None),
+            discord_drafts: RefCell::new(HashMap::new()),
+            discord_source: RefCell::new(String::new()),
             document_view_icon,
             document_view: Cell::new(DocumentView::Rendered),
             document_preview: RefCell::new(None),
@@ -568,14 +574,8 @@ impl PreviewDrawer {
         });
         let weak = Rc::downgrade(&state);
         discord_edit.connect_clicked(move |_| {
-            if let Some(state) = weak.upgrade()
-                && let Some(path) = state
-                    .current
-                    .borrow()
-                    .as_ref()
-                    .and_then(|entry| entry.location.native_path().map(ToOwned::to_owned))
-            {
-                super::discord_editor::open(&state.pane, path);
+            if let Some(state) = weak.upgrade() {
+                state.begin_discord_edit();
             }
         });
         let weak = Rc::downgrade(&state);
@@ -1700,6 +1700,91 @@ impl PreviewState {
         self.reassert_keyboard_owner();
     }
 
+    fn configure_discord_source(&self, entry: &FileEntry, source: &str, truncated: bool) {
+        let editable = !truncated && source.len() <= 64 * 1024;
+        self.discord_edit
+            .set_visible(entry.location.native_path().is_some());
+        self.discord_edit.set_sensitive(editable);
+        self.discord_edit
+            .set_tooltip_text(Some(&crate::i18n::tr(if editable {
+                "Edit for Discord"
+            } else {
+                "Text is too large for Discord editing"
+            })));
+        if editable {
+            self.discord_source.replace(source.to_owned());
+        }
+    }
+    fn mount_discord_editor(self: &Rc<Self>, editor: Rc<super::discord_editor::Editor>) {
+        self.detach_find();
+        self.source_preview.cancel();
+        self.document_preview.take();
+        self.document_view_button.set_visible(false);
+        clear_box(&self.content);
+        editor.resume();
+        editor.set_wrapped(super::preferences::PreferenceManager::shared().preview_text_wrap());
+        let weak = Rc::downgrade(self);
+        editor.set_surface_changed(move || {
+            if let Some(state) = weak.upgrade() {
+                state.refresh_find();
+            }
+        });
+        self.content.append(&editor.widget());
+        self.discord_editor.replace(Some(editor));
+        self.refresh_find();
+    }
+    fn restore_discord_draft(self: &Rc<Self>, entry: &FileEntry) -> bool {
+        let Some(path) = entry.location.native_path() else {
+            return false;
+        };
+        let editor = self
+            .discord_drafts
+            .borrow_mut()
+            .remove(path)
+            .filter(|editor| editor.has_draft());
+        if let Some(editor) = editor {
+            self.mount_discord_editor(editor);
+            true
+        } else {
+            false
+        }
+    }
+    fn render_ansi_preview(self: &Rc<Self>, entry: &FileEntry, source: &str) -> bool {
+        if !super::discord_editor::Editor::is_ansi(source) {
+            return false;
+        }
+        let editor = super::discord_editor::Editor::new(
+            entry.location.native_path().map(ToOwned::to_owned),
+            source,
+        );
+        self.mount_discord_editor(editor);
+        true
+    }
+    fn begin_discord_edit(self: &Rc<Self>) {
+        let entry = self.current.borrow().clone();
+        let Some(path) = entry
+            .as_ref()
+            .and_then(|entry| entry.location.native_path())
+            .map(ToOwned::to_owned)
+        else {
+            return;
+        };
+        self.discord_drafts
+            .borrow_mut()
+            .retain(|_, editor| editor.has_draft());
+        let editor = self.discord_editor.borrow().clone().unwrap_or_else(|| {
+            super::discord_editor::Editor::new(Some(path), &self.discord_source.borrow())
+        });
+        if !editor.is_editing() && self.discord_drafts.borrow().len() >= 8 {
+            self.mount_discord_editor(editor.clone());
+            editor.show_error("Save or discard another draft before editing this file");
+            return;
+        }
+        if self.discord_editor.borrow().is_none() {
+            self.mount_discord_editor(editor.clone());
+        }
+        editor.start_editing();
+    }
     fn render(self: &Rc<Self>, preview: Preview) {
         let continue_playback = self
             .continue_playback
@@ -1714,9 +1799,19 @@ impl PreviewState {
         match preview.content {
             PreviewContent::Text { content, truncated } => {
                 self.print.set_visible(true);
-                self.discord_edit
-                    .set_visible(preview.entry.location.native_path().is_some());
+                self.configure_discord_source(&preview.entry, &content, truncated);
                 self.wrap.set_visible(true);
+                if self.restore_discord_draft(&preview.entry)
+                    || self.render_ansi_preview(&preview.entry, &content)
+                {
+                    self.wrap.set_active(
+                        super::preferences::PreferenceManager::shared().preview_text_wrap(),
+                    );
+                    self.refresh_find();
+                    self.apply_search_locator();
+                    self.hand_keys_to_document();
+                    return;
+                }
                 let (view, virtualized) = self.source_preview.show(
                     &preview.entry,
                     &preview.content_type,
@@ -1743,12 +1838,19 @@ impl PreviewState {
                 truncated,
             } => {
                 self.print.set_visible(true);
-                self.discord_edit
-                    .set_visible(preview.entry.location.native_path().is_some());
+                self.configure_discord_source(&preview.entry, &source, truncated);
                 self.wrap.set_visible(true);
                 self.wrap.set_active(
                     super::preferences::PreferenceManager::shared().preview_text_wrap(),
                 );
+                if self.restore_discord_draft(&preview.entry)
+                    || self.render_ansi_preview(&preview.entry, &source)
+                {
+                    self.refresh_find();
+                    self.apply_search_locator();
+                    self.hand_keys_to_document();
+                    return;
+                }
                 self.render_document_preview(
                     PendingSourcePreview {
                         entry: preview.entry,
@@ -3239,6 +3341,19 @@ impl PreviewState {
         drop((scroll, virtual_state));
         self.document_view_button.set_visible(false);
         self.discord_edit.set_visible(false);
+        self.discord_source.borrow_mut().clear();
+        let previous_editor = self.discord_editor.borrow_mut().take();
+        if let Some(editor) = previous_editor {
+            editor.suspend();
+            if editor.has_draft()
+                && let Some(path) = editor.path()
+            {
+                self.discord_drafts
+                    .borrow_mut()
+                    .retain(|_, editor| editor.has_draft());
+                self.discord_drafts.borrow_mut().insert(path, editor);
+            }
+        }
         self.document_preview.borrow_mut().take();
         let audio = self.audio.borrow_mut().take();
         if let Some(audio) = audio.as_ref() {
@@ -3275,6 +3390,9 @@ impl PreviewState {
     }
 
     fn apply_text_wrap(&self, wrapped: bool) {
+        if let Some(editor) = self.discord_editor.borrow().as_ref() {
+            editor.set_wrapped(wrapped);
+        }
         self.source_preview.set_wrapped(wrapped);
         if let Some(preview) = self.document_preview.borrow().as_ref()
             && let Some(state) = preview.rendered_state.borrow().as_ref()

@@ -84,6 +84,26 @@ impl PreviewState {
             {
                 return glib::ControlFlow::Break;
             }
+            if let Some(editor) = state.discord_editor.borrow().as_ref()
+                && let ContentLocator::Text { anchor, .. } | ContentLocator::Code { anchor, .. } =
+                    &hit.locator
+            {
+                if !editor.is_editing() {
+                    let view = editor.text_view();
+                    let buffer = view.buffer();
+                    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
+                    if let Some((start, end)) =
+                        super::super::virtual_preview::match_ranges(&text, anchor)
+                            .into_iter()
+                            .next()
+                    {
+                        let mut first = buffer.iter_at_offset(start as i32);
+                        buffer.select_range(&first, &buffer.iter_at_offset(end as i32));
+                        view.scroll_to_iter(&mut first, 0.15, false, 0.0, 0.0);
+                    }
+                }
+                return glib::ControlFlow::Break;
+            }
             match &hit.locator {
                 ContentLocator::Audio { start_us, .. } | ContentLocator::Video { start_us, .. } => {
                     let Some(media) = state.media.borrow().clone() else {

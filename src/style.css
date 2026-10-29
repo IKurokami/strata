@@ -2686,6 +2686,33 @@ paned > separator {
   color: #dbdee1;
 }
 
+.discord-selection-tools { padding: 4px; }
+.discord-format-button,
+.discord-format-menu > button,
+.discord-color-swatch {
+  color: @strata_text;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px;
+  min-height: 22px;
+  min-width: 22px;
+  box-shadow: none;
+}
+.discord-format-button:hover,
+.discord-format-menu > button:hover,
+.discord-color-swatch:hover { background: alpha(@strata_accent, 0.15); border-color: alpha(@strata_accent, 0.4); }
+.discord-format-button:active,
+.discord-format-menu > button:active,
+.discord-color-swatch:active { background: alpha(@strata_accent, 0.24); }
+.discord-format-button:focus-visible,
+.discord-format-menu > button:focus-visible,
+.discord-color-swatch:focus-visible,
+.discord-color-map:focus-visible { outline: 2px solid @strata_accent; outline-offset: 1px; }
+.discord-format-button:disabled,
+.discord-format-menu > button:disabled { color: @strata_dim_text; opacity: 0.5; }
+.discord-color-map { border: 1px solid @strata_border; border-radius: 3px; }
+
 .preview-text border.left {
   background: @strata_surface;
   border-right: 1px solid mix(@strata_bg, @strata_border, 0.6);

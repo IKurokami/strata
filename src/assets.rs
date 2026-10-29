@@ -80,6 +80,14 @@ pub mod icons {
     pub const PACKAGE_OPEN: &str = "strata-package-open";
     pub const PACKAGE_PLUS: &str = "strata-package-plus";
     pub const PENCIL: &str = "strata-pencil";
+    pub const BOLD: &str = "strata-bold";
+    pub const ITALIC: &str = "strata-italic";
+    pub const UNDERLINE: &str = "strata-underline";
+    pub const STRIKETHROUGH: &str = "strata-strikethrough";
+    pub const REDO_2: &str = "strata-redo-2";
+    pub const PAINT_BUCKET: &str = "strata-paint-bucket";
+    pub const BLEND: &str = "strata-blend";
+    pub const REMOVE_FORMATTING: &str = "strata-remove-formatting";
     pub const PIN: &str = "strata-pin";
     pub const PLAY: &str = "strata-play";
     pub const MAXIMIZE: &str = "strata-maximize";

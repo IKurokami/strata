@@ -298,6 +298,9 @@ impl PreviewState {
     /// The document's own widget, so its select-all and copy handlers receive
     /// **Ctrl+A** / **Ctrl+C**.
     fn document_key_target(&self) -> Option<gtk::Widget> {
+        if let Some(editor) = self.discord_editor.borrow().as_ref() {
+            return Some(editor.text_view().upcast());
+        }
         fn visit(widget: &gtk::Widget) -> Option<gtk::Widget> {
             if !widget.is_visible() {
                 return None;
@@ -436,6 +439,9 @@ impl PreviewState {
     /// The tallest scrollable view in the content, which is the document body
     /// rather than a breadcrumb strip or metadata scroller.
     fn primary_scroll(&self) -> Option<gtk::ScrolledWindow> {
+        if let Some(editor) = self.discord_editor.borrow().as_ref() {
+            return editor.text_view().parent().and_downcast();
+        }
         fn visit(widget: &gtk::Widget, best: &mut Option<gtk::ScrolledWindow>) {
             if !widget.is_visible() {
                 return;
