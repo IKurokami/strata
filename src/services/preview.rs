@@ -214,7 +214,10 @@ pub trait PreviewProvider {
 }
 
 pub(crate) fn guess_content_type(path: &Path) -> (String, bool) {
-    if path.extension().is_some_and(|extension| extension.as_encoded_bytes().eq_ignore_ascii_case(b"h264")) {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.as_encoded_bytes().eq_ignore_ascii_case(b"h264"))
+    {
         return ("video/h264".to_owned(), false);
     }
     let (guessed, uncertain) = gio::content_type_guess(Some(path), None::<&[u8]>);

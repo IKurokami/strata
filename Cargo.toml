@@ -1,13 +1,13 @@
 [package]
 name = "strata"
-version = "1.0.0"
+version = "1.0.1"
 default-run = "strata"
 edition = "2024"
-description = "A fast, keyboard-first file manager for Linux"
+description = "A Windows-focused, keyboard-first file manager built with GTK4"
 authors = ["LGSE Ltd."]
 license = "MIT"
-repository = "https://github.com/LGSE/strata"
-keywords = ["file-manager", "gtk4", "linux", "wayland"]
+repository = "https://github.com/IKurokami/strata"
+keywords = ["file-manager", "gtk4", "windows"]
 categories = ["filesystem", "gui"]
 
 [features]
