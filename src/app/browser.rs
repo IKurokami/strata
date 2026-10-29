@@ -1817,6 +1817,15 @@ impl Browser {
 
     /// Folders-first is application-wide: every column re-sorts, `depth` first.
     pub fn set_folders_first(self: &Rc<Self>, depth: usize, folders_first: bool) {
+        if self
+            .location_at(depth)
+            .is_some_and(|location| location.is_flat_modified_location())
+        {
+            self.apply_column_preferences(depth, SortOrigin::Chosen, move |preferences| {
+                preferences.folders_first = folders_first;
+            });
+            return;
+        }
         if self.preferences.get().folders_first == folders_first {
             return;
         }
@@ -2174,6 +2183,14 @@ impl Browser {
             focused,
             take_focus: true,
         });
+    }
+
+    pub fn entry_for_location(
+        &self,
+        depth: usize,
+        location: &Location,
+    ) -> Option<(usize, FileEntry)> {
+        self.state.borrow().entry_for_location(depth, location)
     }
 
     pub fn entry_at(&self, depth: usize, position: usize) -> Option<FileEntry> {

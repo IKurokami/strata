@@ -606,6 +606,12 @@ fn children(widget: &gtk::Widget) -> Vec<gtk::Widget> {
         child = widget.next_sibling();
         children.push(widget);
     }
+    if let Some(expander) = widget.downcast_ref::<gtk::Expander>()
+        && let Some(content) = expander.child()
+        && !children.contains(&content)
+    {
+        children.push(content);
+    }
     children
 }
 
@@ -627,6 +633,12 @@ fn filter_tree(widget: &gtk::Widget, matches: Option<&Matches>) -> Option<bool> 
         return None;
     }
     let visible = results.contains(&Some(true));
+    if matches.is_some()
+        && visible
+        && let Some(expander) = widget.downcast_ref::<gtk::Expander>()
+    {
+        expander.set_expanded(true);
+    }
     if widget.has_css_class("settings-group") {
         widget.set_visible(visible);
     }

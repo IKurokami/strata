@@ -37,6 +37,7 @@ pub(super) fn page(manager: Rc<PreferenceManager>) -> gtk::Widget {
     );
 
     let folders = super::settings_group(&details, "Indexed folders");
+    super::search::tag(&folders, "Indexed folders");
     folders.add_css_class("smart-settings-folder-group");
     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
     folders.append(&list);
@@ -414,6 +415,7 @@ fn refresh_status(
         && !status.downloading
         && !running
         && (status.indexed > 0 || status.failed);
+    super::search::set_available(rebuild, can_rebuild);
     rebuild.set_visible(can_rebuild);
     rebuild_row.set_visible(can_rebuild);
 }

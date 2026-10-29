@@ -24,6 +24,7 @@ use windows::{
 
 const FIRST_COMMAND: u32 = 1;
 const LAST_COMMAND: u32 = 0x7fff;
+mod lifetime;
 
 struct Apartment;
 impl Drop for Apartment {
@@ -142,6 +143,7 @@ pub fn properties(paths: &[impl AsRef<Path>]) -> io::Result<()> {
     // native property sheet returns; Shell extensions never enter GTK.
     unsafe { OleInitialize(None) }.map_err(io::Error::other)?;
     let _apartment = Apartment;
+    let _lifetime = lifetime::ShellLifetime::new()?;
     let data: IDataObject = selection_object(paths, &BHID_DataObject)?;
     // SAFETY: The Shell-created data object contains the selected absolute PIDLs
     // and remains alive for the duration of the native property sheet.
@@ -175,6 +177,7 @@ pub struct Session {
     _messages: Box<MenuMessages>,
     context: IContextMenu,
     allowed: HashSet<u32>,
+    paths: Vec<std::path::PathBuf>,
     _apartment: Apartment,
 }
 
@@ -241,6 +244,10 @@ impl Session {
                 _messages: messages,
                 context,
                 allowed: HashSet::new(),
+                paths: paths
+                    .iter()
+                    .map(|path| path.as_ref().to_path_buf())
+                    .collect(),
                 _apartment: apartment,
             })
         }
@@ -385,6 +392,11 @@ impl Session {
         } else {
             String::new()
         };
+        if verb.eq_ignore_ascii_case("properties")
+            || verb.eq_ignore_ascii_case("windows.properties")
+        {
+            return properties(&self.paths);
+        }
         invoke_command(&self.context, self.owner.0, command)?;
         if verb.eq_ignore_ascii_case("copy") || verb.eq_ignore_ascii_case("cut") {
             // SAFETY: Persist the explicitly selected clipboard operation before

@@ -63,6 +63,7 @@ def _worker_pids(strata):
     return [int(pid) for pid in re.findall(r"browser sandbox started pid=(\d+)", log)]
 
 
+@pytest.mark.preferences(browser_mode="icons")
 def test_icons_rename_reuses_loaded_thumbnail_and_details(strata, test_environment):
     strata.switch_view("Icons")
     strata.open_directory("photos-a")
@@ -176,6 +177,7 @@ def test_cached_icons_fill_dimensions_across_multiple_batches_after_a_jump(strat
         name = hashlib.md5(path.as_uri().encode()).hexdigest() + ".png"
         Image.new("RGB", (64, 32), (40, 160, 80)).save(bucket / name, pnginfo=tags)
     strata.open_directory("cached-photos")
+    strata.switch_view("Icons")
     strata.select_entry("photo-0000.png")
     strata.keyboard.press("End")
     names = strata.wait(

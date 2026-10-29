@@ -22,9 +22,32 @@ impl ModeViews {
             .and_then(|depth| self.browser.location_at(depth))
             .is_some_and(|location| crate::adapters::computer::is_root(&location))
         {
+            self.disk_usage.stop();
             self.show_mode(self.mode);
             if matches!(event, BrowserEvent::ColumnReloading { .. }) {
                 self.computer_view().refresh();
+            }
+            return;
+        }
+        if self.mode == BrowserMode::DiskUsage {
+            match event {
+                BrowserEvent::NavigationStarting { .. } => {
+                    self.cancel_rename();
+                }
+                BrowserEvent::Reset => self.disk_usage.stop(),
+                BrowserEvent::ColumnAdded { .. }
+                | BrowserEvent::ColumnsTruncated {
+                    replacing: false, ..
+                }
+                | BrowserEvent::ColumnsRelocated { .. } => {
+                    self.show_mode(self.mode);
+                    self.disk_usage.refresh();
+                }
+                BrowserEvent::ColumnReloading { .. } => self.disk_usage.invalidate(),
+                BrowserEvent::FocusChanged { .. }
+                | BrowserEvent::SelectionSetChanged { .. }
+                | BrowserEvent::SelectionSynced { .. } => self.disk_usage.update_selection(),
+                _ => {}
             }
             return;
         }
@@ -121,6 +144,7 @@ impl ModeViews {
     fn rebuild_active_mode(&mut self) {
         match self.mode {
             BrowserMode::Columns => {}
+            BrowserMode::DiskUsage => self.disk_usage.refresh(),
             BrowserMode::Icons => self.rebuild_icons(),
             BrowserMode::List => self.rebuild_list(),
         }

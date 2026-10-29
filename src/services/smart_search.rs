@@ -50,7 +50,6 @@ pub(crate) struct Status {
     pub downloaded: u64,
     pub total: u64,
     pub indexed: usize,
-    pub skipped: usize,
     pub running: bool,
     pub failed: bool,
     pub folder_counts: HashMap<PathBuf, usize>,
@@ -193,7 +192,6 @@ pub(crate) fn status() -> Status {
         downloaded: shared.downloaded.load(Ordering::Relaxed),
         total: model::TOTAL_BYTES,
         indexed: shared.indexed.load(Ordering::Relaxed),
-        skipped: shared.skipped.load(Ordering::Relaxed),
         running: shared.indexing.load(Ordering::Acquire),
         failed: shared.failed.load(Ordering::Acquire),
         folder_counts: (**shared.folder_counts.load()).clone(),
@@ -406,9 +404,7 @@ fn keyword(
             .iter()
             .any(|root| policy::within(&hit.path, root))
     });
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit.score));
-    hits.truncate(100);
-    hits
+    hybrid::distinct_files(hits, 100)
 }
 
 fn run_lane(state: Arc<SessionState>, semantic: bool) {
@@ -650,29 +646,6 @@ pub(crate) fn configured_roots() -> Vec<PathBuf> {
 
 pub(crate) fn cancel_download() {
     control().download_cancel.store(true, Ordering::Release);
-}
-
-pub(crate) fn skipped_report() -> std::sync::mpsc::Receiver<Vec<(String, String)>> {
-    let (send, receive) = std::sync::mpsc::sync_channel(1);
-    let data = control().data.clone();
-    let _ = std::thread::Builder::new()
-        .name("content-index-report".into())
-        .spawn(move || {
-            let mut result = Vec::new();
-            for name in ["index.sqlite", "code.sqlite"] {
-                if let Ok(connection) = store::connect(&data.join(name), false)
-                    && let Ok(mut statement) = connection
-                        .prepare("SELECT path,reason FROM files WHERE state='skipped' LIMIT 100")
-                    && let Ok(rows) = statement.query_map([], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                    })
-                {
-                    result.extend(rows.filter_map(Result::ok));
-                }
-            }
-            let _ = send.send(result);
-        });
-    receive
 }
 
 fn interrupt_on_new_request(

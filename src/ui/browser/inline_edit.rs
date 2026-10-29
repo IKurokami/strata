@@ -255,6 +255,7 @@ fn prepare_rename_reveal(
 impl ViewState {
     fn rename_collection_view(&self, depth: usize, mode: BrowserMode) -> Option<gtk::Widget> {
         match mode {
+            BrowserMode::DiskUsage => None,
             BrowserMode::Columns => self
                 .columns
                 .borrow()

@@ -9,7 +9,6 @@ fn status(models_ready: bool, downloading: bool, failed: bool) -> smart_search::
         downloaded: 0,
         total: 100,
         indexed: 0,
-        skipped: 0,
         running: false,
         failed,
         folder_counts: std::collections::HashMap::new(),
@@ -45,6 +44,7 @@ fn displaying_verbatim_windows_folders_does_not_change_native_identity() {
 }
 
 #[test]
+#[cfg(windows)]
 fn folder_indexed_count_resolves_verbatim_and_standard_paths() {
     let mut state = status(true, false, false);
     state

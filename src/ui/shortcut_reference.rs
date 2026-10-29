@@ -311,6 +311,7 @@ fn navigation_title(mode: BrowserMode) -> &'static str {
         BrowserMode::Columns => "Columns navigation",
         BrowserMode::Icons => "Icons navigation",
         BrowserMode::List => "List navigation",
+        BrowserMode::DiskUsage => "Disk Usage",
     }
 }
 
@@ -329,7 +330,7 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
                 "Close the current pane or go to the parent folder",
             ),
         ],
-        BrowserMode::Icons => vec![
+        BrowserMode::Icons | BrowserMode::DiskUsage => vec![
             row(
                 Any(&[UP, DOWN, LEFT, RIGHT]),
                 "Move spatially between tiles",
@@ -408,7 +409,7 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
                 "Enter its preview; keys move into the drawer",
             ),
         ],
-        BrowserMode::Icons => vec![
+        BrowserMode::Icons | BrowserMode::DiskUsage => vec![
             row(
                 Any(&[VIM_LEFT, VIM_DOWN, VIM_UP, VIM_RIGHT, UP, DOWN, LEFT, RIGHT]),
                 "Move spatially between tiles",
@@ -953,7 +954,7 @@ const SELECT_TAB: Shortcut = row(
 )
 .mentioning(Mention::Held(TAB_NUMBERS.modifiers()));
 
-const VIEW_MODES: Keys = Any(&[VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST]);
+const VIEW_MODES: Keys = Any(&[VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST, VIEW_DISK_USAGE]);
 
 const TEXT_SIZE: Keys = Any(&[TEXT_LARGER, TEXT_SMALLER, TEXT_RESET]);
 

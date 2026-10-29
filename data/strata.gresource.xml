@@ -68,6 +68,15 @@
     <file>icons/scalable/actions/strata-panel-left-symbolic.svg</file>
     <file>icons/scalable/actions/strata-pause.svg</file>
     <file>icons/scalable/actions/strata-pencil.svg</file>
+    <file>icons/scalable/actions/strata-bold.svg</file>
+    <file>icons/scalable/actions/strata-italic.svg</file>
+    <file>icons/scalable/actions/strata-underline.svg</file>
+    <file>icons/scalable/actions/strata-strikethrough.svg</file>
+    <file>icons/scalable/actions/strata-redo-2.svg</file>
+    <file>icons/scalable/actions/strata-paint-bucket.svg</file>
+    <file>icons/scalable/actions/strata-blend.svg</file>
+    <file>icons/scalable/actions/strata-remove-formatting.svg</file>
+    <file>icons/scalable/actions/strata-save.svg</file>
     <file>icons/scalable/actions/strata-pin.svg</file>
     <file>icons/scalable/actions/strata-play.svg</file>
     <file>icons/scalable/actions/strata-maximize.svg</file>

@@ -164,6 +164,9 @@ def strata(
     for marker in request.node.iter_markers("preferences"):
         overrides.update(marker.kwargs)
     test_environment.write_preferences(overrides)
+    mode = overrides.get("browser_mode")
+    if mode in {"icons", "list", "disk_usage"}:
+        test_environment.write_folder_modes(fixture_tree.root, str(mode))
 
     application = Application(
         display=headless_display,

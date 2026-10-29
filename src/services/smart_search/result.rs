@@ -47,17 +47,6 @@ pub(crate) enum ContentLocator {
 }
 
 impl ContentLocator {
-    pub fn anchor(&self) -> Option<&str> {
-        match self {
-            Self::Pdf { anchor, .. }
-            | Self::Text { anchor, .. }
-            | Self::Code { anchor, .. }
-            | Self::Slide { anchor, .. }
-            | Self::Sheet { anchor, .. } => Some(anchor),
-            _ => None,
-        }
-    }
-
     pub fn page(&self) -> Option<u32> {
         if let Self::Pdf { page_0, .. } = self {
             Some(*page_0)
@@ -189,6 +178,10 @@ pub(crate) fn accepts_phase(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "The index retains category filters; the compact UI currently queries all kinds."
+)]
 pub(crate) enum SearchKind {
     Any,
     Documents,
@@ -198,16 +191,6 @@ pub(crate) enum SearchKind {
     Code,
 }
 impl SearchKind {
-    pub fn from_index(index: usize) -> Self {
-        match index {
-            1 => Self::Documents,
-            2 => Self::Images,
-            3 => Self::Audio,
-            4 => Self::Video,
-            5 => Self::Code,
-            _ => Self::Any,
-        }
-    }
     pub fn accepts(self, path: &std::path::Path) -> bool {
         match self {
             Self::Any => true,

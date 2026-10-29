@@ -9,13 +9,14 @@ pub(super) fn clear(done: impl FnOnce(io::Result<()>) + 'static) {
     crate::adapters::clear_preview_cache();
     super::thumbnail::clear_memory_cache();
     gtk::glib::MainContext::default().spawn_local(async move {
+        let usage = crate::services::disk_usage::clear_cache().await;
         let result = gio::spawn_blocking(super::thumbnail_cache::clear_owned)
             .await
             .unwrap_or_else(|_| Err(io::Error::from(io::ErrorKind::Interrupted)));
         if let Err(error) = &result {
             tracing::warn!(%error, "unable to clear preview cache");
         }
-        done(result);
+        done(result.and(usage));
     });
 }
 

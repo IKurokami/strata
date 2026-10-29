@@ -27,9 +27,8 @@ def test_appearance_menu_switches_presentation(strata, mode):
     assert strata.pane().name == directory
     assert "documents" in strata.entry_names()
     strata.wait(
-        lambda: strata.environment.read_preferences().get("browser_mode")
-        == STORED_MODES[mode],
-        "the chosen view to be written to settings.toml",
+        lambda: strata.environment.read_folder_mode(strata.fixture.root) == mode.lower(),
+        "the chosen view to be written for this folder",
     )
 
 

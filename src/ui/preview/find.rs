@@ -7,7 +7,7 @@ use crate::ui::keys::bindings::{
 
 #[derive(Clone)]
 enum Target {
-    Source(sourceview5::View),
+    Source(gtk::TextView),
     Document(Rc<super::super::virtual_preview::VirtualPreviewState>),
 }
 
@@ -219,6 +219,9 @@ impl PreviewState {
     }
 
     fn find_target(&self) -> Option<Target> {
+        if let Some(editor) = self.discord_editor.borrow().as_ref() {
+            return Some(Target::Source(editor.text_view()));
+        }
         if let Some(preview) = self.document_preview.borrow().as_ref()
             && self.document_view.get() == DocumentView::Rendered
         {
@@ -241,7 +244,7 @@ impl PreviewState {
             .borrow()
             .as_ref()
             .and_then(|_| self.source_preview.view.borrow().clone())
-            .map(Target::Source)
+            .map(|view| Target::Source(view.upcast()))
     }
 
     pub(super) fn refresh_find(self: &Rc<Self>) {

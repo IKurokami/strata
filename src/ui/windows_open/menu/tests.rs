@@ -29,9 +29,12 @@ fn extra_shell_commands_remove_covered_verbs_without_matching_translated_labels(
     let mut empty = leaf("Empty", 0, true, false);
     empty.command = None;
     empty.submenu = true;
-    let mut nodes = vec![submenu, empty];
+    let mut properties = leaf("Properties", 50, true, false);
+    properties.verb = "Windows.Properties".into();
+    let mut nodes = vec![submenu, empty, properties];
     retain_extra_commands(&mut nodes, false);
-    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes.len(), 2);
+    assert_eq!(nodes[1].command, Some(50));
     assert_eq!(
         nodes[0]
             .children

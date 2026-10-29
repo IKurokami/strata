@@ -157,6 +157,27 @@ class TestEnvironment:
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
         self.settings_path.write_text(_render_toml(values))
 
+    def write_folder_modes(self, root: Path, mode: str) -> None:
+        """Give an existing fixture tree explicit view overrides, without inheritance."""
+        if mode == "columns":
+            return
+        paths = [root, *(path for path in root.rglob("*") if not path.is_symlink() and path.is_dir())]
+        directory = self.state_home / "strata"
+        directory.mkdir(parents=True, exist_ok=True)
+        entries = ["version = 1\n"]
+        for path in paths:
+            entries.append("[[folder]]\n" + _render_toml({"path": str(path), "mode": mode, "used": 1}))
+        (directory / "folder-views.toml").write_text("\n".join(entries))
+
+    def read_folder_mode(self, path: Path) -> str:
+        import tomllib
+
+        try:
+            values = tomllib.loads((self.state_home / "strata/folder-views.toml").read_text())
+        except FileNotFoundError:
+            return "columns"
+        return next((folder.get("mode", "columns") for folder in values.get("folder", []) if folder.get("path") == str(path)), "columns")
+
     def read_preferences(self) -> dict[str, str]:
         """The persisted preferences as raw `key = value` strings."""
 

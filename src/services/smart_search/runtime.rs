@@ -23,13 +23,15 @@ pub(super) struct Embedder {
 pub(super) fn executable() -> Option<PathBuf> {
     let name = if cfg!(windows) { "digup.exe" } else { "digup" };
     let parent = std::env::current_exe().ok()?.parent()?.to_owned();
-    let mut candidates = vec![
+    let candidates = vec![
         parent.join("smart-search").join(name),
         parent.join("../embedding-runtime").join(name),
         parent.join("../../embedding-runtime").join(name),
         parent.join("../lib/strata/smart-search").join(name),
         parent.join("../libexec/strata/smart-search").join(name),
     ];
+    #[cfg(windows)]
+    let mut candidates = candidates;
     #[cfg(windows)]
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
         candidates.push(

@@ -179,6 +179,23 @@ fn file_sizes_use_the_language_decimal_separator_and_unit_symbols() {
     }
     assert_eq!(transfer_rate_in("en", 1_000), "1 kB/s");
     assert_eq!(transfer_rate_in("ru", 128_500_000), "128,5 МБ/с");
+    for (locale, bytes, expected) in [
+        ("en", 274_250_854_400, "255 GB"),
+        ("en", 16_368_750_592, "15.2 GB"),
+        ("en", 6_802_415_616, "6.33 GB"),
+        ("en", 3_766_321_152, "3.50 GB"),
+        ("en", 235_575_177_216, "219 GB"),
+        ("en", 61_243_293_696, "57.0 GB"),
+        ("en", 249_227_636_736, "232 GB"),
+        ("en", 69_862_277_120, "65.0 GB"),
+        ("de", 6_802_415_616, "6,33 GB"),
+    ] {
+        assert_eq!(
+            drive_capacity_in(locale, bytes),
+            expected,
+            "{locale}/{bytes}"
+        );
+    }
 }
 
 #[test]

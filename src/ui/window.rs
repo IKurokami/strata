@@ -136,7 +136,14 @@ pub(in crate::ui) fn sidebar_fits_without_preview(content: &gtk::Paned) -> Optio
     let available = content
         .root()
         .map_or_else(|| content.width(), |root| root.width());
-    (available > 0).then(|| available > preferred_sidebar_width() + super::browser::COLUMN_WIDTH)
+    (available > 0).then(|| {
+        let preferences = PreferenceManager::shared();
+        let column = preferences
+            .browser_column_width()
+            .unwrap_or(super::browser::COLUMN_WIDTH);
+        let column = (f64::from(column) * preferences.interface_scale()).round() as i32;
+        available > preferred_sidebar_width().saturating_add(column)
+    })
 }
 const SIDEBAR_TRANSITION: Duration = crate::ui::motion::PANEL;
 const PINNED_DRAG_PREFIX: &str = "pinned:";
@@ -761,8 +768,13 @@ pub(super) fn apply_browser_mode(
     preferences: &super::preferences::PreferenceManager,
     mode: BrowserMode,
 ) {
+    if view.browser().is_chooser_mode() && mode == BrowserMode::DiskUsage {
+        return;
+    }
     view.set_view_mode(mode);
-    preferences.set_browser_mode(mode);
+    if view.browser().is_chooser_mode() {
+        preferences.set_browser_mode(mode);
+    }
 }
 
 pub(super) fn browser_mode_for_digit(press: &KeyPress) -> Option<BrowserMode> {
@@ -770,6 +782,10 @@ pub(super) fn browser_mode_for_digit(press: &KeyPress) -> Option<BrowserMode> {
         (VIEW_COLUMNS, BrowserMode::Columns),
         (VIEW_ICONS, BrowserMode::Icons),
         (VIEW_LIST, BrowserMode::List),
+        (
+            crate::ui::keys::bindings::VIEW_DISK_USAGE,
+            BrowserMode::DiskUsage,
+        ),
     ]
     .into_iter()
     .find(|(view, _)| press.is(*view))
@@ -823,6 +839,14 @@ pub(super) fn build_appearance_menu(
         true,
         gtk::AccessibleRole::MenuItemRadio,
     );
+    let (disk_usage, disk_check, _) = appearance_option(
+        crate::assets::icons::HARD_DRIVE,
+        "Disk Usage",
+        current_mode == BrowserMode::DiskUsage,
+        true,
+        gtk::AccessibleRole::MenuItemRadio,
+    );
+    disk_usage.set_visible(!controller.is_chooser_mode());
     let grouped = preferences.group_by_type();
     let (group_by_type, group_check, _) = appearance_option(
         crate::assets::icons::LIST_CHECKS,
@@ -879,6 +903,7 @@ pub(super) fn build_appearance_menu(
         (&columns, BrowserMode::Columns),
         (&icons, BrowserMode::Icons),
         (&list, BrowserMode::List),
+        (&disk_usage, BrowserMode::DiskUsage),
     ] {
         let view = view.downgrade();
         let preferences = preferences.clone();
@@ -905,6 +930,7 @@ pub(super) fn build_appearance_menu(
         let columns_check = columns_check.clone();
         let icons_check = icons_check.clone();
         let list_check = list_check.clone();
+        let disk_check = disk_check.clone();
         let group_by_type = group_by_type.clone();
         let column_sizes = column_sizes.clone();
         let button_icon = button_icon.clone();
@@ -912,6 +938,7 @@ pub(super) fn build_appearance_menu(
             columns_check.set_visible(mode == BrowserMode::Columns);
             icons_check.set_visible(mode == BrowserMode::Icons);
             list_check.set_visible(mode == BrowserMode::List);
+            disk_check.set_visible(mode == BrowserMode::DiskUsage);
             group_by_type.set_sensitive(mode.supports_type_grouping());
             column_sizes.set_visible(mode == BrowserMode::Columns);
             crate::assets::set_primary_icon(&button_icon, browser_mode_icon(mode));
@@ -920,6 +947,7 @@ pub(super) fn build_appearance_menu(
     content.append(&columns);
     content.append(&icons);
     content.append(&list);
+    content.append(&disk_usage);
     let (row, check, _) = appearance_row(
         crate::assets::icons::EYE,
         "Preview panel",
@@ -1140,6 +1168,7 @@ pub(super) fn build_appearance_menu(
 fn browser_mode_icon(mode: BrowserMode) -> &'static str {
     match mode {
         BrowserMode::Columns => crate::assets::icons::COLUMNS,
+        BrowserMode::DiskUsage => crate::assets::icons::HARD_DRIVE,
         BrowserMode::Icons => crate::assets::icons::ICONS,
         BrowserMode::List => crate::assets::icons::LIST,
     }

@@ -167,6 +167,7 @@ pub(super) fn describe_menu_item(
 pub(super) fn view_name(mode: BrowserMode) -> String {
     crate::i18n::tr(match mode {
         BrowserMode::Columns => "Columns view",
+        BrowserMode::DiskUsage => "Disk Usage",
         BrowserMode::Icons => "Icons view",
         BrowserMode::List => "List view",
     })

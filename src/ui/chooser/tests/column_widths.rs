@@ -280,6 +280,7 @@ fn list_resizes_persist_across_windows_without_changing_the_other_scope() {
             crate::ui::prepare_portal_ui();
             let preferences = PreferenceManager::shared();
             let root = fixture_root();
+            preferences.set_folder_mode(&Location::local(root.path()), BrowserMode::List);
             for chooser in [true, false] {
                 let other = saved_list(!chooser);
                 let first = open_browser(root.path(), chooser);

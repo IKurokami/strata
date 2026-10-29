@@ -190,3 +190,125 @@ diff --git a/gdk/win32/gdkclipdrop-win32.c b/gdk/win32/gdkclipdrop-win32.c
    GDK_NOTE (DND, g_print ("Registered clipboard format %S as 0x%x\n", &contentformat_w[offset], fmt.w32format));
    g_free (contentformat_w);
    fmt.contentformat = contentformat;
+diff --git a/gdk/win32/gdkdrag-win32.c b/gdk/win32/gdkdrag-win32.c
+index c2322c7..0485f02 100644
+--- a/gdk/win32/gdkdrag-win32.c
++++ b/gdk/win32/gdkdrag-win32.c
+@@ -1958,6 +1958,74 @@ gdk_win32_drag_drop_done (GdkDrag  *drag,
+   gdk_source_set_static_name_by_id (id, "[gtk] gdk_drag_anim_timeout");
+ }
+ 
++/* A background window that holds mouse capture only receives mouse input
++ * while the pointer is over its visible area. After Alt+Tab the source can no
++ * longer see motion or the button release elsewhere, which would confine the
++ * drag to the source window. While the source is not foreground, feed the
++ * same pointer state GDK would have delivered from the physical device.
++ */
++static gboolean
++drag_background_pointer_poll (gpointer user_data)
++{
++  GdkDrag *drag = GDK_DRAG (user_data);
++  GdkWin32Drag *drag_win32 = GDK_WIN32_DRAG (drag);
++  GdkWin32Clipdrop *clipdrop;
++  HWND root;
++  POINT pt;
++  DWORD key_state = 0;
++  gboolean pressed;
++  double x_root;
++  double y_root;
++
++  if (!drag_win32->grab_seat || !drag_win32->grab_surface || !drag_win32->drag_surface)
++    {
++      drag_win32->background_pointer_source = 0;
++      return G_SOURCE_REMOVE;
++    }
++
++  root = GetAncestor (GDK_SURFACE_HWND (drag_win32->grab_surface), GA_ROOT);
++  if (root == GetForegroundWindow ())
++    return G_SOURCE_CONTINUE;
++
++  if (!GetCursorPos (&pt))
++    return G_SOURCE_CONTINUE;
++
++  pressed = (GetAsyncKeyState (GetSystemMetrics (SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON) & 0x8000) != 0;
++  if (pressed)
++    key_state |= MK_LBUTTON;
++  if (GetAsyncKeyState (VK_CONTROL) & 0x8000)
++    key_state |= MK_CONTROL;
++  if (GetAsyncKeyState (VK_SHIFT) & 0x8000)
++    key_state |= MK_SHIFT;
++  if (GetAsyncKeyState (VK_MENU) & 0x8000)
++    key_state |= MK_ALT;
++
++  x_root = pt.x / (double) drag_win32->scale;
++  y_root = pt.y / (double) drag_win32->scale;
++
++  drag_win32->util_data.last_x = x_root;
++  drag_win32->util_data.last_y = y_root;
++  move_drag_surface (drag, x_root, y_root);
++
++  clipdrop = gdk_win32_display_get_clipdrop (gdk_surface_get_display (drag_win32->drag_surface));
++  API_CALL (PostThreadMessage, (clipdrop->dnd_thread_id,
++                                WM_MOUSEMOVE,
++                                key_state,
++                                MAKELPARAM (pt.x, pt.y)));
++
++  if (!pressed)
++    {
++      drag_win32->background_pointer_source = 0;
++      if (gdk_drag_get_selected_action (drag) != 0)
++        g_signal_emit_by_name (drag, "drop-performed");
++      else
++        gdk_drag_cancel (drag, GDK_DRAG_CANCEL_NO_TARGET);
++      return G_SOURCE_REMOVE;
++    }
++
++  return G_SOURCE_CONTINUE;
++}
++
+ static gboolean
+ drag_context_grab (GdkDrag *drag)
+ {
+@@ -1980,6 +2048,13 @@ drag_context_grab (GdkDrag *drag)
+   cursor = gdk_drag_get_cursor (drag, gdk_drag_get_selected_action (drag));
+   gdk_win32_drag_set_cursor (drag, cursor);
+ 
++  if (drag_win32->background_pointer_source == 0)
++    drag_win32->background_pointer_source =
++      g_timeout_add_full (G_PRIORITY_DEFAULT, 16,
++                          drag_background_pointer_poll,
++                          g_object_ref (drag),
++                          g_object_unref);
++
+   /* TODO: Should be grabbing keys here, to support keynav. SetWindowsHookEx()? */
+ 
+   return TRUE;
+@@ -1995,6 +2070,12 @@ drag_context_ungrab (GdkDrag *drag)
+                           drag,
+                           drag_win32->grab_seat));
+ 
++  if (drag_win32->background_pointer_source != 0)
++    {
++      g_source_remove (drag_win32->background_pointer_source);
++      drag_win32->background_pointer_source = 0;
++    }
++
+   if (!drag_win32->grab_seat)
+     return;
+ 
+diff --git a/gdk/win32/gdkwin32dnd-private.h b/gdk/win32/gdkwin32dnd-private.h
+index d6d1253..754ebb7 100644
+--- a/gdk/win32/gdkwin32dnd-private.h
++++ b/gdk/win32/gdkwin32dnd-private.h
+@@ -64,6 +64,11 @@ struct _GdkWin32Drag
+   GdkCursor       *cursor;
+   GdkSeat         *grab_seat;
+ 
++  /* Polls the pointer while the source window is not the foreground window,
++   * because Windows then withholds mouse input outside that window.
++   */
++  guint            background_pointer_source;
++
+   /* Used to keep track of current drag action, and
+    * emit an "action-changed" signal whenever it changes.
+    * In the end the actual action is decided on the basis of

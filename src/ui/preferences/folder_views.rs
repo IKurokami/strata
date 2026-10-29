@@ -97,11 +97,18 @@ fn local_path(path: &Path) -> Option<PathBuf> {
 pub(in crate::ui) struct FolderView {
     pub(in crate::ui) sort: Option<(SortKey, SortDirection)>,
     pub(in crate::ui) icons_size: Option<i32>,
+    pub(in crate::ui) mode: Option<crate::ui::browser_modes::BrowserMode>,
 }
 
 impl FolderView {
+    fn changed_fields(self, previous: Self) -> u8 {
+        u8::from(self.sort != previous.sort)
+            | (u8::from(self.icons_size != previous.icons_size) << 1)
+            | (u8::from(self.mode != previous.mode) << 2)
+    }
+
     fn is_empty(&self) -> bool {
-        self.sort.is_none() && self.icons_size.is_none()
+        self.sort.is_none() && self.icons_size.is_none() && self.mode.is_none()
     }
 }
 
@@ -129,6 +136,7 @@ pub(in crate::ui) struct FolderViews {
     /// Unsaved changes, kept so a save can merge them over what another Strata
     /// process (such as the portal chooser) wrote in the meantime.
     changed: HashSet<FolderKey>,
+    fields: BTreeMap<FolderKey, u8>,
     touched: HashSet<FolderKey>,
     cleared: bool,
 }
@@ -209,6 +217,8 @@ impl FolderViews {
         if view == previous {
             return false;
         }
+        let fields = view.changed_fields(previous);
+        *self.fields.entry(key.clone()).or_default() |= fields;
         self.changed.insert(key.clone());
         if view.is_empty() {
             self.entries.remove(key);
@@ -242,6 +252,7 @@ impl FolderViews {
             let previous = entry.view;
             change(&mut entry.view);
             if entry.view != previous {
+                *self.fields.entry(key.clone()).or_default() |= entry.view.changed_fields(previous);
                 changed.push(key.clone());
             }
             !entry.view.is_empty()
@@ -255,6 +266,7 @@ impl FolderViews {
         let changed = !self.entries.is_empty();
         self.entries.clear();
         self.changed.clear();
+        self.fields.clear();
         self.touched.clear();
         self.cleared = true;
         changed
@@ -281,6 +293,7 @@ impl FolderViews {
             for stale in self.keys_within(to) {
                 if !from.contains(&stale) {
                     self.entries.remove(&stale);
+                    self.fields.remove(&stale);
                     self.changed.insert(stale);
                 }
             }
@@ -293,8 +306,12 @@ impl FolderViews {
             let new = to
                 .filter(|_| !(merged && old == *from))
                 .and_then(|to| old.rebased(from, to));
+            self.fields.remove(&old);
             self.changed.insert(old);
             moved.extend(new.map(|new| (new, entry)));
+        }
+        for (key, _) in &moved {
+            self.fields.remove(key);
         }
         self.changed
             .extend(moved.iter().map(|(key, _)| key.clone()));
@@ -308,6 +325,7 @@ impl FolderViews {
             .into_iter()
             .filter_map(|key| {
                 let entry = self.entries.remove(&key)?;
+                self.fields.remove(&key);
                 self.changed.insert(key.clone());
                 Some((key, entry))
             })
@@ -323,6 +341,7 @@ impl FolderViews {
         taken.0.sort_unstable_by_key(|(_, entry)| entry.used);
         for (key, mut entry) in taken.0 {
             entry.used = self.tick();
+            self.fields.remove(&key);
             self.changed.insert(key.clone());
             self.entries.insert(key, entry);
         }
@@ -339,10 +358,48 @@ impl FolderViews {
         for key in &self.changed {
             match self.entries.get(key) {
                 Some(entry) => {
-                    merged.entries.insert(key.clone(), *entry);
+                    let mut value = merged.view(key);
+                    if let Some(fields) = self.fields.get(key) {
+                        if fields & 1 != 0 {
+                            value.sort = entry.view.sort;
+                        }
+                        if fields & 2 != 0 {
+                            value.icons_size = entry.view.icons_size;
+                        }
+                        if fields & 4 != 0 {
+                            value.mode = entry.view.mode;
+                        }
+                    } else {
+                        value = entry.view;
+                    }
+                    merged.entries.insert(
+                        key.clone(),
+                        Entry {
+                            view: value,
+                            used: entry.used,
+                        },
+                    );
                 }
                 None => {
-                    merged.entries.remove(key);
+                    if let Some(fields) = self.fields.get(key) {
+                        let mut value = merged.view(key);
+                        if fields & 1 != 0 {
+                            value.sort = None;
+                        }
+                        if fields & 2 != 0 {
+                            value.icons_size = None;
+                        }
+                        if fields & 4 != 0 {
+                            value.mode = None;
+                        }
+                        if value.is_empty() {
+                            merged.entries.remove(key);
+                        } else if let Some(entry) = merged.entries.get_mut(key) {
+                            entry.view = value;
+                        }
+                    } else {
+                        merged.entries.remove(key);
+                    }
                 }
             }
         }
@@ -360,6 +417,7 @@ impl FolderViews {
             }
         }
         merged.changed.clone_from(&self.changed);
+        merged.fields.clone_from(&self.fields);
         merged.touched.clone_from(&self.touched);
         merged.cleared = self.cleared;
         merged.evict_to(FOLDER_VIEWS_LIMIT);
@@ -372,6 +430,7 @@ impl FolderViews {
 
     pub(in crate::ui) fn mark_saved(&mut self) {
         self.changed.clear();
+        self.fields.clear();
         self.touched.clear();
         self.cleared = false;
     }
@@ -387,17 +446,24 @@ impl FolderViews {
     }
 
     fn evict_to(&mut self, limit: usize) {
-        if self.entries.len() <= limit {
+        let ephemeral = self
+            .entries
+            .values()
+            .filter(|entry| entry.view.mode.is_none())
+            .count();
+        if ephemeral <= limit {
             return;
         }
         let mut by_use: Vec<(u64, FolderKey)> = self
             .entries
             .iter()
+            .filter(|(_, entry)| entry.view.mode.is_none())
             .map(|(key, entry)| (entry.used, key.clone()))
             .collect();
         by_use.sort_unstable();
-        for (_, key) in by_use.into_iter().take(self.entries.len() - limit) {
+        for (_, key) in by_use.into_iter().take(ephemeral - limit) {
             self.entries.remove(&key);
+            *self.fields.entry(key.clone()).or_default() |= 3;
             self.changed.insert(key);
         }
     }
@@ -447,7 +513,13 @@ impl FolderViews {
                 }
             }
         }
-        if views.entries.len() > FOLDER_VIEWS_LIMIT {
+        if views
+            .entries
+            .values()
+            .filter(|entry| entry.view.mode.is_none())
+            .count()
+            > FOLDER_VIEWS_LIMIT
+        {
             repaired = true;
             views.evict_to(FOLDER_VIEWS_LIMIT);
         }
@@ -481,6 +553,7 @@ impl FolderViews {
                     sort: sort.map(|(key, _)| key),
                     direction: sort.map(|(_, direction)| direction.stored_name()),
                     icons_size: entry.view.icons_size,
+                    mode: entry.view.mode.map(|mode| mode.stored()),
                     used: entry.used,
                 })
             })
@@ -510,6 +583,8 @@ struct StoredFolder<'a> {
     direction: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     icons_size: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<&'static str>,
     used: u64,
 }
 
@@ -560,7 +635,21 @@ fn parse_entry(value: &toml::Value) -> Option<(FolderKey, Entry, bool)> {
             0
         }
     };
-    let view = FolderView { sort, icons_size };
+    let mode = match table.get("mode") {
+        None => None,
+        Some(value) => {
+            let parsed = value
+                .as_str()
+                .and_then(crate::ui::browser_modes::BrowserMode::from_stored);
+            clean &= parsed.is_some();
+            parsed.filter(|mode| *mode != crate::ui::browser_modes::BrowserMode::Columns)
+        }
+    };
+    let view = FolderView {
+        sort,
+        icons_size,
+        mode,
+    };
     if view.is_empty() {
         return None;
     }

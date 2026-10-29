@@ -114,6 +114,8 @@ def test_tenxer_icons_stay_on_tiles_at_edges_in_search_and_peek(strata):
     strata.select_entry("empty-icons")
     strata.keyboard.press("o")
     strata.wait_for_directory("empty-icons")
+    strata.keyboard.press("ctrl+2")
+    strata.wait_for_view("Icons")
     for key in ("h", "j", "k", "l", "Left", "Down", "i"):
         strata.keyboard.press(key)
         assert strata.current_directory() == "empty-icons"
@@ -360,6 +362,7 @@ def test_return_restores_nested_scroll_selection_and_keyboard_cursor(
         else:
             strata.open_directory(name)
         strata.wait_for_directory(name)
+        strata.switch_view(mode)
         return name, y
 
     parent = strata.fixture.path("archive")

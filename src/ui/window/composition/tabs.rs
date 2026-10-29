@@ -179,13 +179,12 @@ impl TabWindow {
                 move || {
                     let state = shell_state.upgrade()?;
                     let active = state.active.get();
-                    let browser = state
+                    state
                         .tabs
                         .borrow()
                         .iter()
                         .find(|tab| tab.id == active)
-                        .map(|tab| tab.content.browser.clone());
-                    browser
+                        .map(|tab| tab.content.browser.clone())
                 },
                 move |folder, files| {
                     if let Some(state) = reveal_state.upgrade() {

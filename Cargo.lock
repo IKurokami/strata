@@ -3261,6 +3261,7 @@ version = "1.0.0"
 dependencies = [
  "arc-swap",
  "ashpd",
+ "async-channel",
  "async-io",
  "base64 0.22.1",
  "cairo-rs",

@@ -206,6 +206,32 @@ impl PreferenceManager {
     }
 
     /// Changes whenever a saved folder sort may have changed, for bindings that resolve one.
+    pub(in crate::ui) fn folder_mode(
+        &self,
+        location: Option<&Location>,
+    ) -> crate::ui::browser_modes::BrowserMode {
+        location
+            .and_then(key_for_location)
+            .and_then(|key| self.folder_view_store().views.borrow().view(&key).mode)
+            .unwrap_or_default()
+    }
+
+    pub(in crate::ui) fn set_folder_mode(
+        &self,
+        location: &Location,
+        mode: crate::ui::browser_modes::BrowserMode,
+    ) {
+        let Some(key) = key_for_location(location) else {
+            return;
+        };
+        self.change_folder_views(Affects::Sorts, |views| {
+            views.update(&key, |view| {
+                view.mode =
+                    (mode != crate::ui::browser_modes::BrowserMode::Columns).then_some(mode);
+            })
+        });
+    }
+
     pub(in crate::ui) fn folder_sorts_revision(&self) -> u64 {
         self.folder_sorts_revision.get()
     }
@@ -265,8 +291,9 @@ impl PreferenceManager {
         let Some(key) = self.remembered_key(location) else {
             return;
         };
+        let default_sort = self.default_sort_for(location);
         let sort = Some((sort_key, sort_direction))
-            .filter(|sort| self.inherit_folder_sorts() || *sort != self.default_sort());
+            .filter(|sort| self.inherit_folder_sorts() || *sort != default_sort);
         self.change_folder_views(Affects::Sorts, |views| {
             views.update(&key, |view| view.sort = sort)
         });
@@ -283,6 +310,10 @@ impl PreferenceManager {
 
     pub(in crate::ui) fn default_sort(&self) -> (SortKey, SortDirection) {
         self.sort_preferences().sort()
+    }
+
+    pub(in crate::ui) fn default_sort_for(&self, location: &Location) -> (SortKey, SortDirection) {
+        crate::model::location_default_preferences(self.sort_preferences(), location).sort()
     }
 
     pub(in crate::ui) fn set_default_sort(&self, sort_key: SortKey, sort_direction: SortDirection) {

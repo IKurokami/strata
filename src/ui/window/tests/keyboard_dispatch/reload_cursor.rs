@@ -395,10 +395,19 @@ fn history_button(fixture: &KeyboardFixture, index: usize) -> Result<gtk::Button
     .ok_or_else(|| format!("setup: no history button {index} in the pane header"))
 }
 
-fn settled_value(adjustment: &gtk::Adjustment) -> f64 {
+fn settled_value(fixture: &KeyboardFixture, adjustment: &gtk::Adjustment) -> f64 {
+    let clock = fixture
+        .window
+        .frame_clock()
+        .expect("mapped window frame clock");
+    let last_frame = Cell::new(clock.frame_counter());
     let samples = RefCell::new(Vec::new());
-    settles(|| {
-        pump(16);
+    clock.begin_updating();
+    let settled = settles(|| {
+        let frame = clock.frame_counter();
+        if frame == last_frame.replace(frame) {
+            return false;
+        }
         let mut samples = samples.borrow_mut();
         samples.push(adjustment.value());
         samples.len() >= 3
@@ -406,6 +415,8 @@ fn settled_value(adjustment: &gtk::Adjustment) -> f64 {
                 .windows(2)
                 .all(|pair| pair[0] == pair[1])
     });
+    clock.end_updating();
+    assert!(settled, "the painted viewport did not settle");
     adjustment.value()
 }
 
@@ -420,9 +431,13 @@ fn capture_during_settle_case(during: DuringSettle) -> Result<(), String> {
     fixture.view.refresh();
     wait_until(|| entry_count(&browser) == 163);
     fixture.view.set_view_mode(BrowserMode::List);
+    PreferenceManager::shared().set_folder_mode(
+        &Location::local(fixture._directory.path().join("d080")),
+        BrowserMode::List,
+    );
     select_named(&fixture, "d080");
     let viewport = wait_for_viewport(&fixture).ok_or("setup: no scrollable list")?;
-    let target = settled_value(&viewport);
+    let target = settled_value(&fixture, &viewport);
     if target <= 0.0 {
         return Err("setup: selecting d080 did not scroll the listing".to_owned());
     }
@@ -454,7 +469,7 @@ fn capture_during_settle_case(during: DuringSettle) -> Result<(), String> {
         DuringSettle::Reload => reload(&fixture, Trigger::RefreshButton, &loads, During::Nothing)?,
     }
     let viewport = wait_for_viewport(&fixture).ok_or("no scrollable list after the return")?;
-    let restored = settled_value(&viewport);
+    let restored = settled_value(&fixture, &viewport);
     if (restored - target).abs() > 1.0 {
         return Err(format!("the viewport is at {restored}, not {target}"));
     }
@@ -534,6 +549,8 @@ fn icons_return_case(
     }
     wait_loaded(&browser, 0);
     fixture.view.set_view_mode(return_in);
+    PreferenceManager::shared()
+        .set_folder_mode(&Location::local(fixture._directory.path()), return_in);
     focus_files(&fixture);
     match route {
         Return::AltUp => {

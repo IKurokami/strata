@@ -9,10 +9,9 @@ use crate::ui::{
     browser::{
         ViewState,
         clipboard::{
-            ClipboardMark, PreparedFileDrop, clear_active_drag, clipboard_mark,
-            drag_actions_for_modifiers, drag_preview_icon, file_drag_content,
-            file_drag_hover_target, file_drop_action, file_drop_commit,
-            locations_from_file_list_value, prepare_file_drop_target,
+            ClipboardMark, PreparedFileDrop, clipboard_mark, drag_actions_for_modifiers,
+            drag_preview_icon, file_drag_content, file_drag_hover_target, file_drop_action,
+            file_drop_commit, locations_from_file_list_value, prepare_file_drop_target,
         },
         collection::{ViewMap, activate_recursive_search_result},
         entry::{
@@ -166,6 +165,7 @@ pub(super) fn column_rows(
                 .actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE)
                 .build();
             drag.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let prepare_trace = crate::ui::file_drag::install(&drag, "columns");
             let weak_state_for_drag = weak_state.clone();
             let dragged_item = item.downgrade();
             let map_for_drag = map_for_hover.clone();
@@ -176,6 +176,7 @@ pub(super) fn column_rows(
             let was_selected_for_drag = was_selected.clone();
             let press_origin_for_drag = press_origin.clone();
             drag.connect_prepare(move |source, x, y| {
+                prepare_trace(source);
                 let prepare_row = prepare_row.upgrade()?;
                 if let Some(current) = source.current_event().and_then(|event| event.position())
                     && !crate::ui::pointer::exceeds_drag_threshold(
@@ -250,7 +251,6 @@ pub(super) fn column_rows(
             let dragged_row = row.downgrade();
             let weak_state_for_end = weak_state.clone();
             drag.connect_drag_end(move |_, _, _| {
-                clear_active_drag();
                 if let Some(row) = dragged_row.upgrade() {
                     row.remove_css_class("dragging");
                 }

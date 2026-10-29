@@ -83,6 +83,8 @@ type PreviewKey = (
     )>,
 );
 
+type ResultMenu = Rc<dyn Fn(&gtk::Widget, SearchItem, f64, f64)>;
+
 pub(super) struct Panel {
     pub root: gtk::Box,
     store: gio::ListStore,
@@ -101,6 +103,7 @@ pub(super) struct Panel {
     reconciling: Cell<bool>,
     preview_key: RefCell<Option<PreviewKey>>,
     status: gtk::Label,
+    result_menu: Rc<RefCell<Option<ResultMenu>>>,
 }
 
 impl Panel {
@@ -112,7 +115,9 @@ impl Panel {
         selection.set_autoselect(false);
         selection.set_can_unselect(true);
         let factory = gtk::SignalListItemFactory::new();
-        factory.connect_setup(|_, object| {
+        let result_menu = Rc::new(RefCell::new(None::<ResultMenu>));
+        let menu_for_factory = result_menu.clone();
+        factory.connect_setup(move |_, object| {
             let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
@@ -143,6 +148,30 @@ impl Panel {
             detail.add_css_class("search-smart-secondary");
             labels.append(&detail);
             row.append(&labels);
+            let click = gtk::GestureClick::new();
+            click.set_button(gtk::gdk::BUTTON_SECONDARY);
+            click.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let weak_item = item.downgrade();
+            let menu = menu_for_factory.clone();
+            click.connect_pressed(move |gesture, _, x, y| {
+                let Some(item) = weak_item
+                    .upgrade()
+                    .and_then(|item| item.item())
+                    .and_downcast::<glib::BoxedAnyObject>()
+                else {
+                    return;
+                };
+                let target = item.borrow::<SearchItem>().clone();
+                let Some(anchor) = gesture.widget() else {
+                    return;
+                };
+                let Some(menu) = menu.borrow().clone() else {
+                    return;
+                };
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                menu(&anchor, target, x, y);
+            });
+            row.add_controller(click);
             item.set_child(Some(&row));
         });
         factory.connect_bind(|_, object| {
@@ -210,7 +239,7 @@ impl Panel {
                 place.set_text(&position);
             }
             let visible_path = display_search_path(&value.path);
-            crate::ui::accessibility::set_label(&row, &visible_path);
+            crate::ui::accessibility::describe_entry(item, &visible_path, None);
         });
         factory.connect_unbind(|_, object| {
             super::super::thumbnail::cancel_list_item_thumbnails(object);
@@ -280,6 +309,7 @@ impl Panel {
             reconciling: Cell::new(false),
             preview_key: RefCell::new(None),
             status,
+            result_menu,
         });
         let weak = Rc::downgrade(&state);
         super::super::preferences::PreferenceManager::shared().bind_preference(
@@ -332,6 +362,10 @@ impl Panel {
             glib::ControlFlow::Continue
         });
         state
+    }
+
+    pub fn set_result_menu(&self, handler: ResultMenu) {
+        self.result_menu.replace(Some(handler));
     }
 
     pub fn query(&self, query: &str) {
@@ -391,7 +425,11 @@ impl Panel {
 
     fn render(&self) {
         let selected_key = self.selected().map(|item| result_key(&item.path));
-        let rows = unique_rows(&self.names.borrow(), &self.hits.borrow());
+        let rows = unique_rows(
+            &self.query.borrow(),
+            &self.names.borrow(),
+            &self.hits.borrow(),
+        );
         self.status.set_visible(rows.is_empty());
         if *self.rows.borrow() == rows {
             return;
@@ -542,13 +580,13 @@ fn result_key(path: &Path) -> String {
     }
 }
 
-fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
+fn unique_rows(query: &str, names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
     let mut positions: HashMap<String, usize> = HashMap::with_capacity(names.len() + hits.len());
     let mut rows = Vec::with_capacity(names.len() + hits.len());
     for item in names {
         let key = result_key(&item.path);
-        if !positions.contains_key(&key) {
-            positions.insert(key, rows.len());
+        if let std::collections::hash_map::Entry::Vacant(entry) = positions.entry(key) {
+            entry.insert(rows.len());
             rows.push(item.clone());
         }
     }
@@ -568,9 +606,25 @@ fn unique_rows(names: &[SearchItem], hits: &[SearchHit]) -> Vec<SearchItem> {
             rows.push(item);
         }
     }
+    let query = crate::services::fold_for_search(query.trim());
+    rows.sort_by_key(|item| {
+        let exact_name = !query.is_empty()
+            && (crate::services::fold_for_search(&item.name) == query
+                || item.path.file_stem().is_some_and(|stem| {
+                    crate::services::fold_for_search(&stem.to_string_lossy()) == query
+                }));
+        let (tier, score) = if exact_name {
+            (0, 0)
+        } else if let Some(hit) = &item.content_hit {
+            (if hit.weak { 3 } else { 1 }, hit.score)
+        } else {
+            (2, 0)
+        };
+        (tier, std::cmp::Reverse(score))
+    });
     rows.truncate(200);
     rows
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests;

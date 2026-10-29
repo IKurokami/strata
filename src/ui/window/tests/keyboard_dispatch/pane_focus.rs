@@ -195,6 +195,9 @@ fn default_map_tab_leaves_the_listing_in_one_press() {
                             fixture.view.header_actions_have_focus()
                         }
                         BrowserMode::Columns => !file_panes_have_focus(&fixture),
+                        BrowserMode::DiskUsage => {
+                            unreachable!("canvas focus has separate coverage")
+                        }
                     };
                 assert!(
                     left,
@@ -292,6 +295,10 @@ fn empty_directory_focus_is_a_named_mapped_surface_and_tabs_out() {
             for mode in MODES {
                 fixture.view.set_view_mode(mode);
                 return_to(&fixture, &home);
+                PreferenceManager::shared().set_folder_mode(
+                    &Location::local(fixture._directory.path().join("empty")),
+                    mode,
+                );
                 open_empty_folder(&fixture);
 
                 let surface = focus(&fixture)

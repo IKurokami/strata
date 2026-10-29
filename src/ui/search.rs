@@ -417,6 +417,12 @@ impl SearchDialog {
                     (state.activate)(item);
                 }
             }));
+            let weak = Rc::downgrade(&self.state);
+            panel.set_result_menu(Rc::new(move |anchor, item, x, y| {
+                if let Some(state) = weak.upgrade() {
+                    show_result_menu(&state, anchor, item, x, y);
+                }
+            }));
             self.state.results.add_named(&panel.root, Some("smart"));
             self.state.smart.replace(Some(panel));
         }
@@ -803,27 +809,21 @@ fn result_row(state: &Rc<SearchState>, item: &SearchItem) -> gtk::ListBoxRow {
         if let Some(state) = weak.upgrade()
             && let Some(row) = gesture.widget().and_downcast::<gtk::ListBoxRow>()
         {
-            show_result_menu(&state, &row, target.clone(), x, y);
+            state.list.select_row(Some(&row));
+            show_result_menu(&state, row.upcast_ref(), target.clone(), x, y);
         }
     });
     row.add_controller(click);
     row
 }
 
-fn show_result_menu(
-    state: &Rc<SearchState>,
-    row: &gtk::ListBoxRow,
-    item: SearchItem,
-    x: f64,
-    y: f64,
-) {
+fn show_result_menu(state: &Rc<SearchState>, row: &gtk::Widget, item: SearchItem, x: f64, y: f64) {
     use super::browser::context_menu::{
         context_menu_option, context_menu_popover, show_context_popover,
     };
 
     close_result_menu(state);
     record_interaction(state);
-    state.list.select_row(Some(row));
     let content = super::accessibility::menu_box();
     content.add_css_class("folder-context-menu");
     let reveal = context_menu_option(
@@ -842,7 +842,7 @@ fn show_result_menu(
             reveal_result(&state, item.clone());
         }
     });
-    show_context_popover(&popover, &scroll, row.upcast_ref(), x, y);
+    show_context_popover(&popover, &scroll, row, x, y);
     state.context_menu.replace(Some(popover));
 }
 

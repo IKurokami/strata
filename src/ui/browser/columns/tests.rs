@@ -178,6 +178,8 @@ fn a_resize_during_a_column_entry_does_not_strand_its_animation() {
         || {
             PreferenceManager::seed_saved_preferences_for_test();
             let root = tempfile::tempdir().expect("entry fixture");
+            let child = root.path().join("child");
+            std::fs::create_dir(&child).expect("child column");
             let view = BrowserView::new(
                 Rc::new(crate::adapters::LocalFileSource),
                 crate::ui::browser::PeekBehavior::default(),
@@ -190,12 +192,15 @@ fn a_resize_during_a_column_entry_does_not_strand_its_animation() {
                 .child(&view.widget())
                 .build();
             window.present();
+            pump_until(|| view.widget().is_mapped(), "the browser window to map");
             view.browser().navigate(Location::local(root.path()));
+            pump_until(|| column_loaded(&view, 0), "root column load");
+            view.browser().descend(0, Location::local(child));
             let shell = view
                 .state
                 .columns
                 .borrow()
-                .first()
+                .get(1)
                 .map(|column| column.shell.clone())
                 .expect("column shell");
             let pane = column_pane(&shell);

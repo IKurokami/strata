@@ -32,7 +32,6 @@ pub mod icons {
     pub const COPY: &str = "strata-copy";
     pub const COPY_PLUS: &str = "strata-copy-plus";
     pub const COG: &str = "strata-cog";
-    pub const CORNER_DOWN_LEFT: &str = "strata-corner-down-left";
     pub const DISC: &str = "strata-disc";
     pub const DOCUMENTS: &str = "strata-file-text";
     pub const DOWNLOADS: &str = "strata-download";
@@ -81,6 +80,15 @@ pub mod icons {
     pub const PACKAGE_OPEN: &str = "strata-package-open";
     pub const PACKAGE_PLUS: &str = "strata-package-plus";
     pub const PENCIL: &str = "strata-pencil";
+    pub const BOLD: &str = "strata-bold";
+    pub const ITALIC: &str = "strata-italic";
+    pub const UNDERLINE: &str = "strata-underline";
+    pub const STRIKETHROUGH: &str = "strata-strikethrough";
+    pub const REDO_2: &str = "strata-redo-2";
+    pub const PAINT_BUCKET: &str = "strata-paint-bucket";
+    pub const BLEND: &str = "strata-blend";
+    pub const REMOVE_FORMATTING: &str = "strata-remove-formatting";
+    pub const SAVE: &str = "strata-save";
     pub const PIN: &str = "strata-pin";
     pub const PLAY: &str = "strata-play";
     pub const MAXIMIZE: &str = "strata-maximize";
@@ -249,7 +257,7 @@ thread_local! {
     static ICON_INK_HEIGHTS: RefCell<HashMap<usize, (glib::WeakRef<gdk::Texture>, f64)>> = RefCell::new(HashMap::new());
     static CATPPUCCIN_FLAVOR: Cell<CatppuccinFlavor> = const { Cell::new(CatppuccinFlavor::Mocha) };
     static CATPPUCCIN_THEME_COLORS: Cell<bool> = const { Cell::new(false) };
-    static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Catppuccin) };
+    static FILE_ICON_THEME: Cell<crate::ui::preferences::FileIconTheme> = const { Cell::new(crate::ui::preferences::FileIconTheme::Material) };
 }
 
 pub(crate) fn file_icon_theme() -> crate::ui::preferences::FileIconTheme {

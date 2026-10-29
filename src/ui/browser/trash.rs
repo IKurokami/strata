@@ -772,11 +772,7 @@ impl ViewState {
     }
 
     #[cfg(windows)]
-    pub(super) fn request_windows_delete(
-        self: &Rc<Self>,
-        entries: Vec<FileEntry>,
-        permanent: bool,
-    ) {
+    pub(super) fn request_windows_delete(self: &Rc<Self>, entries: Vec<FileEntry>) {
         if entries.is_empty()
             || entries.iter().any(|entry| {
                 entry.location.native_path().is_none()
@@ -785,21 +781,7 @@ impl ViewState {
         {
             return;
         }
-        if permanent {
-            self.show_delete_dialog_with_method(
-                entries,
-                DeleteDialog::Permanent,
-                Some(crate::services::PermanentDeleteMethod::Native),
-            );
-        } else if self.trash_unsupported_for(&entries) {
-            self.show_delete_dialog_with_method(
-                entries,
-                DeleteDialog::TrashUnavailable,
-                Some(crate::services::PermanentDeleteMethod::Native),
-            );
-        } else {
-            self.move_to_trash(entries);
-        }
+        self.move_to_trash(entries);
     }
 
     fn move_to_trash(self: &Rc<Self>, entries: Vec<FileEntry>) {
@@ -1117,3 +1099,5 @@ impl ViewState {
 
 #[cfg(all(test, not(windows)))]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_tests;

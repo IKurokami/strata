@@ -482,14 +482,13 @@ fn resolve_executable() -> Result<PathBuf, String> {
     let current = std::env::current_exe()
         .map_err(|error| format!("Unable to locate the Strata executable: {error}"))?;
 
-    if let Some(parent) = current.parent() {
-        if parent.file_name().is_some_and(|name| name == "deps") {
-            if let Some(grandparent) = parent.parent() {
-                let candidate = grandparent.join("strata.exe");
-                if candidate.is_file() {
-                    return Ok(candidate);
-                }
-            }
+    if let Some(parent) = current.parent()
+        && parent.file_name().is_some_and(|name| name == "deps")
+        && let Some(grandparent) = parent.parent()
+    {
+        let candidate = grandparent.join("strata.exe");
+        if candidate.is_file() {
+            return Ok(candidate);
         }
     }
 

@@ -670,12 +670,18 @@ fn fresh_preferences_select_tokyo_night_before_settings_opens() {
             assert!(!settings_path().exists());
             let themes = ThemeManager::shared();
             let manager = PreferenceManager::shared();
-            assert_eq!(themes.selected_id(), "tokyo-night");
+            let expected_id = crate::ui::preferences::default_theme_id();
+            let expected_name = if expected_id == "macos-classic-light" {
+                "macOS Classic Light"
+            } else {
+                "macOS Classic Dark"
+            };
+            assert_eq!(themes.selected_id(), expected_id);
             assert!(manager.filter_include_subfolders());
             assert!(!themes.follows_omarchy());
             assert_eq!(
                 themes.current_tokens().expect("selected theme").name,
-                "Tokyo Night"
+                expected_name
             );
             assert!(!settings_path().exists());
         },
@@ -689,12 +695,18 @@ fn fresh_preferences_still_follow_available_omarchy_theme() {
         || {
             seed_omarchy_for_test();
             let themes = ThemeManager::shared();
+            let expected_id = crate::ui::preferences::default_theme_id();
+            let expected_name = if expected_id == "macos-classic-light" {
+                "macOS Classic Light"
+            } else {
+                "macOS Classic Dark"
+            };
             assert!(themes.follows_omarchy());
-            assert_eq!(themes.selected_id(), "tokyo-night");
+            assert_eq!(themes.selected_id(), expected_id);
             themes.set_follow_omarchy(false);
             assert_eq!(
                 themes.current_tokens().expect("selected theme").name,
-                "Tokyo Night"
+                expected_name
             );
         },
     );
@@ -848,7 +860,7 @@ fn every_saved_preference_loads_before_any_settings_page_exists() {
                     show_hidden: true,
                     folders_first: false,
                     sort_key: SortKey::Size,
-                    sort_direction: SortDirection::Descending,
+                    sort_direction: SortDirection::Ascending,
                 }
             );
             assert!(!manager.remember_folder_views());
@@ -1180,7 +1192,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_element_glow(true),
                 |m| m.set_omarchy_variant(OmarchyVariant::HighContrast),
                 |m| m.set_file_icon_colors(FileIconColors::Brand),
-                |m| m.set_file_icon_theme(FileIconTheme::Catppuccin),
+                |m| m.set_file_icon_theme(FileIconTheme::Material),
                 |m| m.set_interface_font_family("JetBrains Mono".into()),
                 |m| m.set_inherit_folder_sorts(false),
                 |m| m.set_browser_mode(BrowserMode::Icons),
@@ -1219,7 +1231,14 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_sidebar_show_videos(true),
                 |m| m.set_sidebar_expanded(true),
                 |m| m.set_sidebar_compact(false),
-                |m| m.set_sort_preferences(ViewPreferences::default()),
+                |m| {
+                    m.set_sort_preferences(ViewPreferences {
+                        show_hidden: false,
+                        folders_first: true,
+                        sort_key: SortKey::Modified,
+                        sort_direction: SortDirection::Descending,
+                    })
+                },
                 |m| m.set_text_size(TextSize::new(11)),
                 |m| m.set_interface_renderer(InterfaceRenderer::System),
                 |m| m.set_language(crate::i18n::Language::Auto),
@@ -1911,6 +1930,62 @@ fn smart_search_and_flashraw_preferences_apply_before_settings_across_views_and_
             let restored = PreferenceManager::load();
             assert!(!restored.smart_search_enabled());
             assert!(!restored.fast_raw_preview());
+        },
+    );
+}
+
+#[test]
+fn exact_folder_modes_apply_across_views_and_rebuild_without_parent_inheritance() {
+    gtk_test(
+        "ui::preferences::tests::preferences::exact_folder_modes_apply_across_views_and_rebuild_without_parent_inheritance",
+        || {
+            use crate::ui::browser::{BrowserView, PeekBehavior};
+            seed_saved_preferences_for_test();
+            let manager = PreferenceManager::shared();
+            let directory = tempfile::tempdir().expect("folder modes");
+            std::fs::create_dir(directory.path().join("child")).expect("child folder");
+            let location = crate::model::Location::local(directory.path());
+            manager.set_browser_mode(BrowserMode::Icons);
+            manager.set_folder_mode(&location, BrowserMode::DiskUsage);
+            let views: Vec<_> = (0..2)
+                .map(|_| {
+                    BrowserView::new(
+                        Rc::new(crate::adapters::LocalFileSource),
+                        PeekBehavior::default(),
+                    )
+                })
+                .collect();
+            for view in &views {
+                view.browser().navigate(location.clone());
+            }
+            wait_for_theme(|| {
+                views
+                    .iter()
+                    .all(|view| view.view_mode() == BrowserMode::DiskUsage)
+            });
+            manager.set_folder_mode(&location, BrowserMode::List);
+            assert!(
+                views
+                    .iter()
+                    .all(|view| view.view_mode() == BrowserMode::List)
+            );
+            views[0].browser().navigate(crate::model::Location::local(
+                directory.path().join("child"),
+            ));
+            wait_for_theme(|| views[0].view_mode() == BrowserMode::Columns);
+            assert_eq!(views[1].view_mode(), BrowserMode::List);
+            manager.flush_folder_views();
+            let restored = PreferenceManager::load();
+            assert_eq!(restored.folder_mode(Some(&location)), BrowserMode::List);
+            drop(views);
+            let rebuilt = BrowserView::new(
+                Rc::new(crate::adapters::LocalFileSource),
+                PeekBehavior::default(),
+            );
+            rebuilt.browser().navigate(location.clone());
+            wait_for_theme(|| rebuilt.view_mode() == BrowserMode::List);
+            manager.set_folder_mode(&location, BrowserMode::Columns);
+            assert_eq!(rebuilt.view_mode(), BrowserMode::Columns);
         },
     );
 }

@@ -12,4 +12,7 @@ catalog! {
         /// The second **d** of **d d**: confirms the 10xer Move to Trash dialog.
         TENXER_DELETE_CONFIRM: Binding = Binding::plain(Key::d), after super::TENXER_DELETE;
     }
+    unlisted {
+        DISCORD_SAVE: Binding = Binding::ctrl(Key::s);
+    }
 }
