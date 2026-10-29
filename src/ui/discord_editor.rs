@@ -69,8 +69,17 @@ pub(super) struct Editor {
 }
 
 fn button(label: &str) -> gtk::Button {
-    let button = gtk::Button::with_label(&crate::i18n::tr(label));
-    button.add_css_class("action-dialog-cancel");
+    let icon = match label {
+        "Copy" => crate::assets::icons::COPY,
+        "Save" => crate::assets::icons::SAVE,
+        "Discard changes" => crate::assets::icons::UNDO_2,
+        "Reset" => crate::assets::icons::REMOVE_FORMATTING,
+        _ => crate::assets::icons::CHECK,
+    };
+    let button =
+        super::controls::properties_action(icon, label, super::controls::ModalTone::Accent);
+    button.set_hexpand(false);
+    button.add_css_class("discord-compact-action");
     button
 }
 
@@ -195,33 +204,36 @@ impl Editor {
         });
     }
     fn connect_selection(self: &Rc<Self>) {
-        let click = gtk::GestureClick::new();
-        click.set_button(1);
-        click.set_propagation_phase(gtk::PropagationPhase::Capture);
-        click.set_propagation_limit(gtk::PropagationLimit::SameNative);
+        // TextView claims drag sequences for selection. Observe the release
+        // without participating in gesture arbitration with its selection drag.
+        let input = gtk::EventControllerLegacy::new();
+        input.set_propagation_phase(gtk::PropagationPhase::Capture);
+        input.set_propagation_limit(gtk::PropagationLimit::SameNative);
         let weak = Rc::downgrade(self);
-        click.connect_pressed(move |_, _, x, y| {
-            if let Some(editor) = weak.upgrade() {
-                editor.pointer.set(Some((x, y)));
-                editor.selecting.set(true);
-                editor.format_popup.popdown();
+        input.connect_event(move |_, event| {
+            let Some(editor) = weak.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            let primary = event
+                .downcast_ref::<gtk::gdk::ButtonEvent>()
+                .is_some_and(|button| button.button() == 1);
+            match event.event_type() {
+                gtk::gdk::EventType::ButtonPress if primary => {
+                    editor.remember_pointer(event);
+                    editor.begin_selection();
+                }
+                gtk::gdk::EventType::ButtonRelease if primary => {
+                    editor.remember_pointer(event);
+                    editor.end_selection();
+                }
+                gtk::gdk::EventType::GrabBroken => {
+                    editor.end_selection();
+                }
+                _ => {}
             }
+            glib::Propagation::Proceed
         });
-        let weak = Rc::downgrade(self);
-        click.connect_released(move |_, _, x, y| {
-            if let Some(editor) = weak.upgrade() {
-                editor.pointer.set(Some((x, y)));
-                editor.selecting.set(false);
-                editor.queue_selection();
-            }
-        });
-        let weak = Rc::downgrade(self);
-        click.connect_cancel(move |_, _| {
-            if let Some(editor) = weak.upgrade() {
-                editor.selecting.set(false);
-            }
-        });
-        self.view.add_controller(click);
+        self.view.add_controller(input);
         let motion = gtk::EventControllerMotion::new();
         motion.set_propagation_limit(gtk::PropagationLimit::SameNative);
         let weak = Rc::downgrade(self);
@@ -237,6 +249,37 @@ impl Editor {
                 editor.queue_selection();
             }
         });
+        let weak = Rc::downgrade(self);
+        self.view.connect_map(move |_| {
+            if let Some(editor) = weak.upgrade() {
+                editor.queue_selection();
+            }
+        });
+    }
+    fn begin_selection(&self) {
+        self.selecting.set(true);
+        self.format_popup.popdown();
+    }
+    fn end_selection(self: &Rc<Self>) {
+        self.selecting.set(false);
+        self.queue_selection();
+    }
+    fn remember_pointer(&self, event: &gtk::gdk::Event) {
+        let Some((x, y)) = event.position() else {
+            return;
+        };
+        let Some(native) = self.view.native() else {
+            return;
+        };
+        let (dx, dy) = native.surface_transform();
+        let native: gtk::Widget = native.upcast();
+        if let Some(point) = native.compute_point(
+            &self.view,
+            &gtk::graphene::Point::new((x + dx) as f32, (y + dy) as f32),
+        ) {
+            self.pointer
+                .set(Some((f64::from(point.x()), f64::from(point.y()))));
+        }
     }
     fn queue_selection(self: &Rc<Self>) {
         if self.selection_task.borrow().is_some() {

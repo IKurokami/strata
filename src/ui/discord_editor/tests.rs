@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod selection;
+
 fn wait(mut condition: impl FnMut() -> bool) {
     let started = std::time::Instant::now();
     while !condition() {

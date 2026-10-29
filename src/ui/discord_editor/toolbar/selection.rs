@@ -16,7 +16,7 @@ pub(in crate::ui::discord_editor) fn icon_button(label: &str, icon: &str) -> gtk
     let label = crate::i18n::tr(label);
     button.set_tooltip_text(Some(&label));
     crate::ui::accessibility::set_label(&button, &label);
-    button.set_child(Some(&crate::assets::primary_icon(icon, 16)));
+    button.set_child(Some(&crate::assets::primary_icon(icon, 14)));
     button
 }
 
@@ -26,7 +26,7 @@ fn menu_button(label: &str, icon: &str) -> gtk::MenuButton {
     let label = crate::i18n::tr(label);
     menu.set_tooltip_text(Some(&label));
     crate::ui::accessibility::set_label(&menu, &label);
-    menu.set_child(Some(&crate::assets::primary_icon(icon, 16)));
+    menu.set_child(Some(&crate::assets::primary_icon(icon, 14)));
     menu
 }
 
@@ -91,6 +91,7 @@ pub(in crate::ui::discord_editor) fn install_tools(editor: &Rc<Editor>) {
         let menu = menu_button("Format", icons::SLIDERS);
         let popover = gtk::Popover::new();
         popover.add_css_class("column-popover");
+        popover.add_css_class("discord-color-popover");
         let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
         list.add_css_class("column-menu");
         for &(label, action) in &model::MARKDOWN_TOOLS[4..] {
@@ -135,7 +136,8 @@ fn color_menu(editor: &Rc<Editor>, background: bool) -> gtk::MenuButton {
     );
     let popover = gtk::Popover::new();
     popover.add_css_class("column-popover");
-    let options = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    popover.add_css_class("discord-color-popover");
+    let options = gtk::Box::new(gtk::Orientation::Vertical, 5);
     options.add_css_class("column-menu");
     let picker = Picker::new(
         label,
@@ -214,9 +216,10 @@ fn gradient_menu(editor: &Rc<Editor>) -> gtk::MenuButton {
     let menu = menu_button("Gradient", icons::BLEND);
     let popover = gtk::Popover::new();
     popover.add_css_class("column-popover");
-    let column = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    popover.add_css_class("discord-color-popover");
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 5);
     column.add_css_class("column-menu");
-    let preview = gtk::DrawingArea::builder().content_height(30).build();
+    let preview = gtk::DrawingArea::builder().content_height(20).build();
     let endpoints = Rc::new(std::cell::Cell::new([
         Color(245, 251, 255),
         Color(84, 183, 243),
@@ -236,7 +239,7 @@ fn gradient_menu(editor: &Rc<Editor>) -> gtk::MenuButton {
         let _ = cr.paint();
     });
     column.append(&preview);
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let pickers = ["Start color", "End color"].map(|label| {
         let index = if label == "Start color" { 0 } else { 1 };
         let field = gtk::Box::new(gtk::Orientation::Vertical, 4);

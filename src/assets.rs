@@ -88,6 +88,7 @@ pub mod icons {
     pub const PAINT_BUCKET: &str = "strata-paint-bucket";
     pub const BLEND: &str = "strata-blend";
     pub const REMOVE_FORMATTING: &str = "strata-remove-formatting";
+    pub const SAVE: &str = "strata-save";
     pub const PIN: &str = "strata-pin";
     pub const PLAY: &str = "strata-play";
     pub const MAXIMIZE: &str = "strata-maximize";

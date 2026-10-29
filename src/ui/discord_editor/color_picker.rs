@@ -63,12 +63,12 @@ pub(super) struct Picker {
 
 impl Picker {
     pub fn new(label: &str, initial: Color) -> Self {
-        let widget = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 4);
         let value = Rc::new(Cell::new(Hsv::from_color(initial)));
         let callbacks = Rc::new(RefCell::new(Vec::<Change>::new()));
         let sv = gtk::DrawingArea::builder()
-            .content_width(170)
-            .content_height(132)
+            .content_width(144)
+            .content_height(100)
             .hexpand(true)
             .focusable(true)
             .build();
@@ -116,8 +116,8 @@ impl Picker {
         });
         widget.append(&sv);
         let hue = gtk::DrawingArea::builder()
-            .content_width(170)
-            .content_height(16)
+            .content_width(144)
+            .content_height(14)
             .hexpand(true)
             .focusable(true)
             .build();

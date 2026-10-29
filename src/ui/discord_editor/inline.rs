@@ -3,24 +3,32 @@
 use super::*;
 
 pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 3);
     content.add_css_class("discord-editor");
     content.set_vexpand(true);
     let top = gtk::FlowBox::builder()
         .selection_mode(gtk::SelectionMode::None)
-        .column_spacing(6)
-        .row_spacing(4)
+        .column_spacing(3)
+        .row_spacing(2)
         .max_children_per_line(3)
         .build();
+    top.add_css_class("discord-editor-controls");
     let mode_button = gtk::MenuButton::builder().label("ANSI").build();
     mode_button.add_css_class("settings-action-library-button");
+    mode_button.add_css_class("discord-compact-menu");
     super::super::accessibility::set_label(&mode_button, &crate::i18n::tr("Format"));
     let language = super::super::controls::form_entry();
     language.set_placeholder_text(Some(&crate::i18n::tr("Code language")));
     language.set_max_length(32);
     super::super::accessibility::set_label(&language, &crate::i18n::tr("Code language"));
-    let preview = gtk::ToggleButton::with_label(&crate::i18n::tr("Preview"));
+    let preview = gtk::ToggleButton::new();
+    let preview_label = gtk::Box::new(gtk::Orientation::Horizontal, 3);
+    preview_label.append(&crate::assets::primary_icon(crate::assets::icons::EYE, 14));
+    preview_label.append(&gtk::Label::new(Some(&crate::i18n::tr("Preview"))));
+    preview.set_child(Some(&preview_label));
+    super::super::accessibility::set_label(&preview, &crate::i18n::tr("Preview"));
     preview.add_css_class("action-dialog-cancel");
+    preview.add_css_class("discord-compact-action");
     top.insert(&mode_button, -1);
     top.insert(&language, -1);
     top.insert(&preview, -1);
@@ -32,10 +40,10 @@ pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
         .editable(false)
         .monospace(true)
         .wrap_mode(gtk::WrapMode::WordChar)
-        .left_margin(12)
-        .right_margin(12)
-        .top_margin(12)
-        .bottom_margin(12)
+        .left_margin(8)
+        .right_margin(8)
+        .top_margin(8)
+        .bottom_margin(8)
         .vexpand(true)
         .build();
     view.add_css_class("preview-text");
@@ -45,10 +53,10 @@ pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
         .cursor_visible(false)
         .monospace(true)
         .wrap_mode(gtk::WrapMode::WordChar)
-        .left_margin(12)
-        .right_margin(12)
-        .top_margin(12)
-        .bottom_margin(12)
+        .left_margin(8)
+        .right_margin(8)
+        .top_margin(8)
+        .bottom_margin(8)
         .build();
     display.add_css_class("preview-text");
     super::super::accessibility::set_label(&display, &crate::i18n::tr("Preview"));
@@ -77,6 +85,7 @@ pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
         .child(&tools)
         .build();
     format_popup.add_css_class("column-popover");
+    format_popup.add_css_class("discord-format-popover");
     tools.add_css_class("discord-selection-tools");
     format_popup.set_parent(&view);
     let status = super::super::controls::form_error_label();
@@ -84,10 +93,11 @@ pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
     content.append(&status);
     let actions = gtk::FlowBox::builder()
         .selection_mode(gtk::SelectionMode::None)
-        .column_spacing(4)
-        .row_spacing(4)
+        .column_spacing(3)
+        .row_spacing(2)
         .max_children_per_line(6)
         .build();
+    actions.add_css_class("discord-editor-controls");
     let undo = toolbar::icon_button("Undo", crate::assets::icons::UNDO_2);
     let redo = toolbar::icon_button("Redo", crate::assets::icons::REDO_2);
     let copy = button("Copy");
@@ -103,6 +113,7 @@ pub(super) fn create(path: Option<PathBuf>, source: &str) -> Rc<Editor> {
     content.append(&actions);
     let count = gtk::Label::new(None);
     count.add_css_class("preview-note");
+    count.add_css_class("discord-editor-count");
     count.set_xalign(0.0);
     content.append(&count);
     let editor = Rc::new(Editor {
