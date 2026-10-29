@@ -39,7 +39,7 @@ pub(super) fn entry_supports_printing(entry: &FileEntry) -> bool {
     }
 
     let (content_type, uncertain) =
-        gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
+        crate::services::guess_content_type(Path::new(&entry.native_name));
     // An uncertain name guess defers to the loader, which resolves the file's content type.
     matches!(
         content_family_for_file(&entry.native_name, &content_type),

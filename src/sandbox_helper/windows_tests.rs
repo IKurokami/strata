@@ -12,7 +12,10 @@ fn background_probe_capture_preserves_output_and_failure_status() {
 if ([ConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) {{ exit 91 }}
 [Console]::Out.Write('probe-output'); exit {code}"#
             );
-            let mut command = Command::new("powershell.exe");
+            let mut command = Command::new(
+                std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("Windows root"))
+                    .join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+            );
             command.args([
                 "-NoLogo",
                 "-NoProfile",

@@ -10,7 +10,9 @@ pub struct SearchExclusions {
 
 impl SearchExclusions {
     pub fn is_directory_path(raw: &str) -> bool {
-        raw.starts_with('~') || raw.contains('/')
+        raw.starts_with('~')
+            || raw.contains('/')
+            || (cfg!(windows) && (raw.contains('\\') || raw.as_bytes().get(1) == Some(&b':')))
     }
 
     pub fn normalize_entry(raw: &str) -> Result<String, &'static str> {
@@ -21,7 +23,10 @@ impl SearchExclusions {
         if input.contains('\0') {
             return Err("Exclusions cannot contain NUL characters.");
         }
-        let trimmed = input.trim_end_matches('/');
+        if Path::new(input).is_absolute() && Path::new(input).file_name().is_none() {
+            return Err("Cannot exclude root or entire home directory.");
+        }
+        let trimmed = input.trim_end_matches(|c| c == '/' || (cfg!(windows) && c == '\\'));
         if trimmed.is_empty() || trimmed == "~" {
             return Err("Cannot exclude root or entire home directory.");
         }
@@ -31,19 +36,34 @@ impl SearchExclusions {
             }
             return Ok(trimmed.to_owned());
         }
-        let path = if let Some(rest) = trimmed.strip_prefix("~/") {
-            glib::home_dir().join(rest.trim_start_matches('/'))
-        } else if trimmed.starts_with('/') {
+        let home_relative = trimmed.strip_prefix("~/").or_else(|| {
+            if cfg!(windows) {
+                trimmed.strip_prefix("~\\")
+            } else {
+                None
+            }
+        });
+        let path = if let Some(rest) = home_relative {
+            glib::home_dir()
+                .join(rest.trim_start_matches(|c| c == '/' || (cfg!(windows) && c == '\\')))
+        } else if Path::new(trimmed).is_absolute() {
             PathBuf::from(trimmed)
         } else {
-            return Err("Directory paths must start with / or ~/");
+            return Err("Directory paths must be absolute or start with ~/.");
         };
         // Collapsing .. lexically would change the meaning of paths through symlinks.
         if path.components().any(|part| part == Component::ParentDir) {
             return Err("Directory paths cannot contain ..");
         }
         let path: PathBuf = path.components().collect();
-        if path == Path::new("/") || path == glib::home_dir() {
+        let home: PathBuf = glib::home_dir().components().collect();
+        if path.file_name().is_none()
+            || path == home
+            || (cfg!(windows)
+                && path
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&home.to_string_lossy()))
+        {
             return Err("Cannot exclude root or entire home directory.");
         }
         Ok(path.to_string_lossy().into_owned())
@@ -71,7 +91,9 @@ impl SearchExclusions {
     }
 
     pub fn is_excluded(&self, path: &Path, name: &str, is_directory: bool) -> bool {
-        self.directories.iter().any(|dir| path.starts_with(dir))
+        self.directories
+            .iter()
+            .any(|dir| directory_contains(dir, path))
             || (is_directory && self.matches_folder(name))
             || (!self.folder_names.is_empty()
                 && path.ancestors().skip(1).any(|parent| {
@@ -86,6 +108,21 @@ impl SearchExclusions {
             .iter()
             .any(|folder| name.eq_ignore_ascii_case(folder))
     }
+}
+
+fn directory_contains(directory: &Path, path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let mut components = path.components();
+        directory.components().all(|part| {
+            components.next().is_some_and(|candidate| {
+                part.as_os_str().to_string_lossy().to_lowercase()
+                    == candidate.as_os_str().to_string_lossy().to_lowercase()
+            })
+        })
+    }
+    #[cfg(not(windows))]
+    path.starts_with(directory)
 }
 
 #[cfg(test)]

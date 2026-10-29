@@ -1,8 +1,40 @@
 # Releasing
 
-Strata publishes signed, attested Linux binaries through the **Release** GitHub Actions workflow (`.github/workflows/release.yml`). This is the maintainer runbook for cutting a release, plus the tag grammar the self-updater depends on.
+This fork primarily publishes Windows x64 releases to `IKurokami/strata`.
+Windows packages use a separate signing key and manifest from upstream Linux
+packages. The tag grammar below is shared by both updaters.
 
-## Signing setup
+## Windows publication
+
+1. Merge the release PR, including the stable package version in `Cargo.toml`
+   and `Cargo.lock`. Record the exact source commit and tree. For an RC, keep
+   the package version at its core version and inject the full RC tag.
+2. Use the native UCRT64 toolchain described in
+   [Windows development](windows-development.md). Set `STRATA_RELEASE_TAG`,
+   `STRATA_BUILD_KIND` (`stable` or `rc`) and `STRATA_BUILD_COMMIT`, then build
+   both `strata` and `strata-shell` in release mode. Preserve build caches.
+3. Run `scripts/windows/package-release.ps1` with a fresh destination and the
+   verified private runtime. It stages dependencies, runs portable smoke checks
+   and writes the file manifest. Run `scripts/windows/package-installer.ps1`
+   against that complete bundle to create the per-user installer.
+4. Archive the complete bundle as
+   `strata-VERSION-x86_64-pc-windows-gnu.zip`. Sign its updater manifest with
+   `scripts/sign_update_manifest.py` using a key trusted by
+   `data/windows-update-keys.json`. Keep private keys outside the repository.
+   Publish the manifest, signature envelope, ZIP, installer and `SHA256SUMS`.
+5. Create a draft GitHub release targeting the recorded merged commit. Verify
+   asset sizes, checksums, runtime provenance and signature before publishing.
+   A stable release is an ordinary release marked Latest; an RC is a prerelease.
+6. Verify the public release feed, tag commit, signed manifest and downloaded
+   artifacts without authentication. Record installed upgrade, restart and
+   rollback checks separately; package verification alone does not establish
+   that those installed paths were exercised.
+
+The retained **Release** Actions workflow below builds Linux artifacts. It does
+not build or publish this fork's Windows installer. Do not invoke it as a
+substitute for Windows packaging or claim its attestations cover local builds.
+
+## Upstream Linux signing setup
 
 Before publishing, configure the `release-signing` environment, its default-branch
 restriction and required reviewer, and its `UPDATE_SIGNING_KEY` secret as described

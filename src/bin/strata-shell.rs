@@ -21,6 +21,23 @@ fn main() -> std::process::ExitCode {
             println!("strata-shell {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+        [mode, pid, started, executable, rest @ ..] if mode == "--restart" => {
+            match (
+                pid.to_str().and_then(|value| value.parse().ok()),
+                started.to_str().and_then(|value| value.parse().ok()),
+            ) {
+                (Some(pid), Some(started)) => strata_win_shell::restart::after_exit(
+                    pid,
+                    started,
+                    std::path::Path::new(executable),
+                    rest,
+                ),
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid restart process identity",
+                )),
+            }
+        }
         [mode, folder] if mode == "--open" => {
             use std::os::windows::ffi::OsStrExt;
             let request = std::env::current_dir().ok().and_then(|cwd| {

@@ -150,6 +150,7 @@ pub(crate) fn io_error_detail(error: &std::io::Error) -> String {
 pub(crate) fn io_error_reason(error: &std::io::Error) -> Option<&'static str> {
     use std::io::ErrorKind;
     // These errnos have no stable `ErrorKind`.
+    #[cfg(unix)]
     match error.raw_os_error() {
         Some(libc::ELOOP) => return Some("There are too many levels of symbolic links"),
         Some(libc::EIO) => return Some("A device input/output error occurred"),

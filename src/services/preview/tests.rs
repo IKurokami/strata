@@ -40,7 +40,12 @@ fn recognizes_image_paths_for_metadata_probes() {
     assert!(!is_image_path(std::path::Path::new("notes.txt")));
     assert!(is_media_path(std::path::Path::new("movie.mp4")));
     assert!(is_media_path(std::path::Path::new("song.flac")));
-    assert!(!is_media_path(std::path::Path::new("photo.png")));
+    for name in ["stream.h264", "STREAM.H264"] {
+        assert!(is_media_path(std::path::Path::new(name)), "{name}");
+    }
+    for name in ["photo.png", "stream.h264.txt", "stream.h264.backup"] {
+        assert!(!is_media_path(std::path::Path::new(name)), "{name}");
+    }
 }
 
 #[test]

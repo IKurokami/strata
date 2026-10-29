@@ -16,6 +16,7 @@ pub mod ocr;
 mod operation_result;
 pub mod power;
 mod recycle_bin;
+pub mod restart;
 pub mod shell_window;
 #[cfg(test)]
 mod tests;

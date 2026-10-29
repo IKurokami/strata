@@ -3,6 +3,9 @@
 use super::*;
 use crate::ui::theme::ThemeManager;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) fn choice_menu<T: Copy + PartialEq + 'static>(
     manager: &Rc<PreferenceManager>,
     title: &str,
@@ -12,16 +15,9 @@ pub(super) fn choice_menu<T: Copy + PartialEq + 'static>(
 ) -> gtk::MenuButton {
     let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
     menu.add_css_class("column-menu");
-    let popover = gtk::Popover::builder()
-        .child(&menu)
-        .has_arrow(false)
-        .build();
-    popover.add_css_class("column-popover");
-    let button = gtk::MenuButton::builder()
-        .popover(&popover)
-        .always_show_arrow(true)
-        .valign(gtk::Align::Center)
-        .build();
+    let popover = super::super::controls::choice_popover(&menu);
+    let button = super::super::controls::choice_button();
+    button.set_popover(Some(&popover));
     button.add_css_class("form-control");
     button.add_css_class("settings-choice");
     super::super::accessibility::set_label(&button, &crate::i18n::tr(title));

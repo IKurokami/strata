@@ -7546,3 +7546,67 @@ popover.settings-action-library > contents {
   min-height: 6px;
 }
 .drive-capacity.nearly-full progress { background: @strata_danger; }
+
+
+.choice-button > button,
+.settings-dialog menubutton.choice-button > button {
+  min-height: 24px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid alpha(@strata_border, 0.72);
+  background: @strata_surface;
+  color: @strata_text;
+  box-shadow: none;
+  transition: background 110ms ease-out, border-color 110ms ease-out;
+}
+.choice-button > button:hover,
+.settings-dialog menubutton.choice-button > button:hover {
+  background: mix(@strata_surface, @strata_accent, 0.07);
+  border-color: alpha(@strata_accent, 0.65);
+}
+.choice-button > button:checked,
+.settings-dialog menubutton.choice-button > button:checked {
+  background: mix(@strata_surface, @strata_accent, 0.12);
+  border-color: @strata_accent;
+}
+.choice-button > button:focus-visible {
+  outline: 2px solid @strata_accent;
+  outline-offset: 1px;
+}
+.choice-button > button:disabled { color: @strata_dim_text; opacity: 0.55; }
+.choice-button arrow { color: @strata_dim_text; min-width: 12px; min-height: 12px; margin-left: 8px; }
+.choice-button > button:checked arrow { color: @strata_accent; }
+.choice-popover contents,
+.sort-popover contents {
+  background: @strata_surface;
+  color: @strata_text;
+  border: 1px solid alpha(@strata_border, 0.72);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 5px 16px alpha(mix(@strata_bg, @strata_text, 0.25), 0.24);
+}
+.choice-popover .column-menu,
+.sort-popover .column-menu { padding: 2px; font-size: 0.9em; }
+.choice-popover .column-menu-option,
+.sort-popover .column-menu-option {
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  transform: none;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.choice-popover .column-menu-option.selected,
+.sort-popover .column-menu-option.selected {
+  background: alpha(@strata_accent, 0.12);
+  color: @strata_accent;
+  font-weight: 600;
+}
+.choice-popover .column-menu-option:hover,
+.sort-popover .column-menu-option:hover { background: alpha(@strata_accent, 0.18); }
+.choice-popover .column-menu-option:active,
+.sort-popover .column-menu-option:active { background: alpha(@strata_accent, 0.24); transform: none; }
+.choice-popover .column-menu-option:disabled,
+.sort-popover .column-menu-option:disabled { color: @strata_dim_text; }
+.choice-popover .column-menu-option:focus-visible,
+.sort-popover .column-menu-option:focus-visible { outline: 2px solid @strata_accent; outline-offset: -2px; }
+.choice-popover .font-choices { background: @strata_surface; color: @strata_text; }

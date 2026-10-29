@@ -9,6 +9,7 @@ pub(super) fn button(preferences: &Rc<PreferenceManager>) -> gtk::MenuButton {
     button.set_valign(gtk::Align::Center);
     button.add_css_class("form-control");
     button.add_css_class("settings-choice");
+    button.add_css_class("choice-button");
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let value = gtk::Label::new(None);
     value.set_hexpand(true);
@@ -93,6 +94,7 @@ pub(super) fn button(preferences: &Rc<PreferenceManager>) -> gtk::MenuButton {
         view.add_css_class("font-choices");
         let popover = gtk::Popover::builder().has_arrow(false).build();
         popover.add_css_class("font-popover");
+        popover.add_css_class("choice-popover");
         let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
         let search = gtk::SearchEntry::new();
         search.set_placeholder_text(Some(&crate::i18n::tr("Search fonts")));
@@ -100,9 +102,9 @@ pub(super) fn button(preferences: &Rc<PreferenceManager>) -> gtk::MenuButton {
         search.add_css_class("form-control");
         let scroll = gtk::ScrolledWindow::builder()
             .child(&view)
-            .min_content_height(320)
-            .max_content_height(420)
-            .min_content_width(300)
+            .min_content_height(180)
+            .max_content_height(320)
+            .min_content_width(240)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
         content.append(&search);

@@ -82,6 +82,7 @@ impl Header {
         let appearance =
             build_appearance_menu(browser, &browser.browser(), preferences.clone(), preview);
         let settings = header_action(icons::SETTINGS, &crate::i18n::tr("Settings"));
+        settings.set_widget_name("window-settings");
         let minimize_label = crate::i18n::tr("Minimize window");
         let minimize = header_action(icons::MINUS, &minimize_label);
         crate::ui::accessibility::set_label(&minimize, &minimize_label);

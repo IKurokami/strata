@@ -5,10 +5,10 @@ use gtk::prelude::*;
 use std::rc::Rc;
 
 pub(super) fn install_modes(editor: &Rc<Editor>) {
-    let popover = gtk::Popover::new();
-    popover.add_css_class("column-popover");
     let options = gtk::Box::new(gtk::Orientation::Vertical, 0);
     options.add_css_class("column-menu");
+    let popover = crate::ui::controls::choice_popover(&options);
+    editor.mode_button.add_css_class("choice-button");
     let mut checks = Vec::new();
     for mode in Mode::ALL {
         let (button, check) =
@@ -34,7 +34,6 @@ pub(super) fn install_modes(editor: &Rc<Editor>) {
             }
         }
     });
-    popover.set_child(Some(&options));
     editor.mode_button.set_popover(Some(&popover));
 }
 

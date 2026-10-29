@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::{cell::RefCell, collections::HashMap, path::Path};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, path::Path};
 
 use gtk::gio;
 
@@ -55,15 +55,21 @@ pub fn mime_type_for_name(name: &str) -> EntryType {
 pub fn mime_description_for_name(name: &str) -> String {
     TYPE_CACHE.with_borrow_mut(|cache| {
         // MIME globs can match compound suffixes and whole names, not just extensions.
-        let key = name;
-        if let Some(description) = cache.get(key) {
+        #[cfg(not(windows))]
+        let key: Cow<'_, str> = Cow::Borrowed(name);
+        #[cfg(windows)]
+        let key: Cow<'_, str> = Path::new(name).extension().map_or_else(
+            || Cow::Borrowed(name),
+            |extension| Cow::Owned(format!(".{}", extension.to_string_lossy().to_lowercase())),
+        );
+        if let Some(description) = cache.get(key.as_ref()) {
             return description.clone();
         }
         let description = guess_mime_description(name);
         if cache.len() >= TYPE_CACHE_LIMIT {
             cache.clear();
         }
-        cache.insert(key.to_owned(), description.clone());
+        cache.insert(key.into_owned(), description.clone());
         description
     })
 }
@@ -71,6 +77,13 @@ pub fn mime_description_for_name(name: &str) -> String {
 fn guess_mime_description(name: &str) -> String {
     let (content_type, _) = gio::content_type_guess(Some(Path::new(name)), None::<&[u8]>);
     if content_type.is_empty() || content_type == "application/octet-stream" {
+        return OTHER_TYPE_NAME.to_owned();
+    }
+    #[cfg(windows)]
+    if gio::content_type_get_mime_type(&content_type).is_none_or(|mime| {
+        mime.starts_with("application/x-ext-") || mime == "application/octet-stream"
+    }) && !strata_win_shell::launch::has_registered_type(Path::new(name))
+    {
         return OTHER_TYPE_NAME.to_owned();
     }
     let description = gio::content_type_get_description(&content_type);

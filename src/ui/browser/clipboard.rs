@@ -115,11 +115,8 @@ pub(crate) fn drag_preview_icon(
         return Some(hit);
     }
 
-    let icon = crate::assets::drag_icon_texture(
-        icon_name,
-        &icon_color,
-        DRAG_PREVIEW_ICON_PX as i32,
-    )?;
+    let icon =
+        crate::assets::drag_icon_texture(icon_name, &icon_color, DRAG_PREVIEW_ICON_PX as i32)?;
     let icon_w = f64::from(icon.width()).max(1.0);
     let icon_h = f64::from(icon.height()).max(1.0);
     let badge_text = contrasting_badge_text(&accent, &text, &surface);
