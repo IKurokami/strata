@@ -19,6 +19,7 @@ mod computer;
 mod controls;
 mod day_sections;
 mod desktop_integration;
+mod discord_editor;
 mod disk_usage;
 mod document_media;
 mod document_view;

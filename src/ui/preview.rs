@@ -36,6 +36,8 @@ use super::{
 
 mod archive;
 pub(super) mod audio;
+#[cfg(test)]
+mod discord_edit_tests;
 mod ease_in;
 mod find;
 mod keyboard;
@@ -218,6 +220,7 @@ struct PreviewState {
     content_type: gtk::Label,
     content: gtk::Box,
     document_view_button: gtk::Button,
+    discord_edit: gtk::Button,
     document_view_icon: gtk::Image,
     document_view: Cell<DocumentView>,
     document_preview: RefCell<Option<DocumentPreview>>,
@@ -381,8 +384,11 @@ impl PreviewDrawer {
         header_handle.append(&heading);
         header.append(&header_handle);
         let find_button = find::icon_button("Find in preview", crate::assets::icons::SEARCH);
+        let discord_edit = find::icon_button("Edit for Discord", crate::assets::icons::PENCIL);
+        discord_edit.set_visible(false);
         find_button.set_visible(false);
         header.append(&document_view_button);
+        header.append(&discord_edit);
         header.append(&find_button);
         header.append(&open);
         header.append(&develop);
@@ -460,6 +466,7 @@ impl PreviewDrawer {
             content_type,
             content,
             document_view_button: document_view_button.clone(),
+            discord_edit: discord_edit.clone(),
             document_view_icon,
             document_view: Cell::new(DocumentView::Rendered),
             document_preview: RefCell::new(None),
@@ -558,6 +565,18 @@ impl PreviewDrawer {
                 DocumentView::Source => DocumentView::Rendered,
             };
             state.show_document_view(next);
+        });
+        let weak = Rc::downgrade(&state);
+        discord_edit.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade()
+                && let Some(path) = state
+                    .current
+                    .borrow()
+                    .as_ref()
+                    .and_then(|entry| entry.location.native_path().map(ToOwned::to_owned))
+            {
+                super::discord_editor::open(&state.pane, path);
+            }
         });
         let weak = Rc::downgrade(&state);
         state.pane.connect_unrealize(move |_| {
@@ -1695,6 +1714,8 @@ impl PreviewState {
         match preview.content {
             PreviewContent::Text { content, truncated } => {
                 self.print.set_visible(true);
+                self.discord_edit
+                    .set_visible(preview.entry.location.native_path().is_some());
                 self.wrap.set_visible(true);
                 let (view, virtualized) = self.source_preview.show(
                     &preview.entry,
@@ -1722,6 +1743,8 @@ impl PreviewState {
                 truncated,
             } => {
                 self.print.set_visible(true);
+                self.discord_edit
+                    .set_visible(preview.entry.location.native_path().is_some());
                 self.wrap.set_visible(true);
                 self.wrap.set_active(
                     super::preferences::PreferenceManager::shared().preview_text_wrap(),
@@ -3215,6 +3238,7 @@ impl PreviewState {
         let virtual_state = self.source_preview.virtual_state.borrow_mut().take();
         drop((scroll, virtual_state));
         self.document_view_button.set_visible(false);
+        self.discord_edit.set_visible(false);
         self.document_preview.borrow_mut().take();
         let audio = self.audio.borrow_mut().take();
         if let Some(audio) = audio.as_ref() {

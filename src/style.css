@@ -2678,6 +2678,14 @@ paned > separator {
   font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace;
 }
 
+/* ANSI is document content with Discord's terminal canvas, independent of the
+   interface theme, so imported white text remains visible in light themes. */
+.discord-ansi-canvas,
+.discord-ansi-canvas text {
+  background: #2b2d31;
+  color: #dbdee1;
+}
+
 .preview-text border.left {
   background: @strata_surface;
   border-right: 1px solid mix(@strata_bg, @strata_border, 0.6);
