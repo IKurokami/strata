@@ -47,6 +47,19 @@ offers a registered name instead of the predefined format. This is a native
 data-format contract check, not proof of a physical mouse drag into every app;
 test those interactions on the installed artifact before promotion.
 
+The same patch also keeps an outbound drag usable after Alt+Tab. GTK 4.24.1
+drives `DoDragDrop` from mouse events delivered to its captured grab surface;
+once that window is no longer foreground, Windows delivers mouse input to it
+only over its own visible area ([SetCapture](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setcapture)),
+so the drag could not reach another application and the button release was
+lost. While the source's root window is not foreground, `gdkdrag-win32.c`
+polls the cursor, button and modifier state every 16 ms and feeds the same
+`WM_MOUSEMOVE`, drag-surface move and drop/cancel handling GDK would have
+produced. The poll never changes activation or capture, stops when the grab is
+released, and does nothing while Strata is foreground. This is not upstream
+behavior and has not been exercised by an automated physical-input test; verify
+Alt+Tab mid-drag into Explorer and a native target on the rebuilt runtime.
+
 GTK 4.24.1 registers a Win32 display message filter with a borrowed
 `GtkIMContextIME` pointer. Losing the client surface before focus-out, disposing
 the context, or repeated focus-in can leave the filter referencing freed memory.

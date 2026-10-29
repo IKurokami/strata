@@ -24,6 +24,20 @@ const DRAG_PROXY_PADDING: f64 = 3.0;
 const DRAG_PROXY_STACK_OFFSET: f64 = 5.0;
 
 const DRAG_PREVIEW_ICON_PX: f64 = 32.0;
+const DRAG_PREVIEW_CACHE_LIMIT: usize = 64;
+
+#[derive(PartialEq, Eq, Hash)]
+struct DragPreviewKey {
+    icon: String,
+    icon_color: String,
+    count: usize,
+    colors: [String; 3],
+}
+
+thread_local! {
+    static DRAG_PREVIEW_CACHE: RefCell<HashMap<DragPreviewKey, (gtk::gdk::Texture, i32, i32)>> =
+        RefCell::new(HashMap::new());
+}
 
 #[cfg(windows)]
 mod windows;
@@ -80,13 +94,7 @@ pub(crate) fn drag_preview_icon(
         .first()
         .map(super::entry::entry_icon)
         .unwrap_or(crate::assets::icons::DOCUMENTS);
-    let icon = crate::assets::drag_icon_texture(
-        icon_name,
-        &crate::assets::primary_icon_color(),
-        DRAG_PREVIEW_ICON_PX as i32,
-    )?;
-    let icon_w = f64::from(icon.width()).max(1.0);
-    let icon_h = f64::from(icon.height()).max(1.0);
+    let icon_color = crate::assets::primary_icon_color();
 
     let style = base.style_context();
     let accent = style.lookup_color("strata_accent")?;
@@ -94,6 +102,26 @@ pub(crate) fn drag_preview_icon(
         .lookup_color("strata_surface")
         .or_else(|| style.lookup_color("strata_bg"))?;
     let text = style.lookup_color("strata_text")?;
+
+    // The proxy depends only on these inputs, so repeated drags of the same
+    // file type reuse the rendered texture instead of re-running the GPU render.
+    let cache_key = DragPreviewKey {
+        icon: icon_name.to_owned(),
+        icon_color: icon_color.to_string(),
+        count: entries.len(),
+        colors: [accent, surface, text].map(|color| color.to_string()),
+    };
+    if let Some(hit) = DRAG_PREVIEW_CACHE.with(|cache| cache.borrow().get(&cache_key).cloned()) {
+        return Some(hit);
+    }
+
+    let icon = crate::assets::drag_icon_texture(
+        icon_name,
+        &icon_color,
+        DRAG_PREVIEW_ICON_PX as i32,
+    )?;
+    let icon_w = f64::from(icon.width()).max(1.0);
+    let icon_h = f64::from(icon.height()).max(1.0);
     let badge_text = contrasting_badge_text(&accent, &text, &surface);
 
     let multiple = entries.len() > 1;
@@ -169,7 +197,15 @@ pub(crate) fn drag_preview_icon(
     let renderer = base.native().and_then(|native| native.renderer())?;
     let node = snapshot.to_node()?;
     let texture = renderer.render_texture(&node, None);
-    Some((texture, layout.hotspot.0, layout.hotspot.1))
+    let rendered = (texture, layout.hotspot.0, layout.hotspot.1);
+    DRAG_PREVIEW_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= DRAG_PREVIEW_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(cache_key, rendered.clone());
+    });
+    Some(rendered)
 }
 
 fn badge_dimensions(text_width: f64, text_height: f64) -> (f64, f64) {
