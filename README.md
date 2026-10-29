@@ -37,6 +37,24 @@ Stable releases are the default channel; enable prerelease updates to try RCs.
 Windows update archives have an Ed25519-signed manifest and a verified SHA-256
 checksum. Each release also includes `SHA256SUMS` and a standalone installer.
 
+## Replace File Explorer
+
+Strata can become your default file manager for opening **folders and drives**,
+including **Win+E**.
+
+1. Open **Settings → General → Desktop integration**.
+2. Enable **Replace File Explorer**.
+3. Press **Win+E**, open a folder from another application, or use Chrome's
+   **Show in folder**. Strata brings its existing window forward and opens or
+   reuses a tab; supported Shell reveal requests also select the requested file.
+
+The integration is per-user and does not require administrator access. Turning
+the option off stops the integration and restores the previous registrations;
+uninstalling also restores them. Other file managers' later changes are preserved.
+Windows Open/Save file dialogs retain their normal system behavior.
+
+<img src="docs/assets/windows/explorer-integration.png" alt="The optional Replace File Explorer setting in Windows desktop integration" width="1000">
+
 ## Features
 
 - **One window, many tabs.** Columns, Icons, List and Disk Usage views share navigation, selection and file actions.
@@ -53,15 +71,78 @@ checksum. Each release also includes `SHA256SUMS` and a standalone installer.
 
 <img src="docs/assets/windows/language-menu.png" alt="The compact language dropdown, with the current language selected" width="220">
 
-### Windows Shell options
+## Feature gallery
 
-The **Replace File Explorer** option registers Strata for folder/drive opens and
-Win+E. Requests are routed into tabs in the existing Strata window. This is
-optional; disabling the option or uninstalling restores the previous registration.
+Screenshots show the actual Windows application with demo files. Theme, font and
+icon choices can be changed in Settings.
+
+### Browse pictures and projects
+
+Switch between **Columns**, **Icons**, **List** and **Disk Usage** using the
+top-right view menu or **Ctrl+1–4**. Use tabs to keep several folders open in one
+window.
+
+<img src="docs/assets/windows/icons.png" alt="Icons view with image thumbnails and demo pictures" width="1180">
+
+### This PC and Disk Usage
+
+Choose **This PC** in the sidebar to see drives, free space and capacity bars.
+Drive capacity comes from Windows volume information; it does not require a
+recursive folder scan. **Disk Usage** scans the selected folder in the background
+and lets you explore which items take up space.
+
+<img src="docs/assets/windows/this-pc.png" alt="This PC showing Windows drives and their used and available capacity" width="1180">
+
+<img src="docs/assets/windows/disk-usage.png" alt="Disk Usage showing the relative sizes of demo folders and files" width="1180">
+
+### Smart Search
+
+Press **Ctrl+K** to search. Add folders under **Settings → Smart Search → Indexed
+folders** to search inside supported documents as well as filenames. Select a
+result to preview it without leaving search.
+
+The example below uses real indexed demo documents and a content query.
+Keyword search works without downloading AI models. For semantic text/image
+search, explicitly choose **Download models** in Smart Search settings. Indexing
+and inference run locally; file contents and queries are not uploaded.
+
+<img src="docs/assets/windows/smart-search.png" alt="Smart Search finding text inside indexed demo documents with an inline result preview" width="1180">
+
+<img src="docs/assets/windows/smart-settings.png" alt="Smart Search settings with indexed folders and an optional local model download" width="1000">
+
+See [Smart Search setup, privacy and limits](docs/smart-search.md) for supported
+formats, exclusions and indexing budgets.
+
+### Discord ANSI and text previews
+
+Text containing a fenced `ansi` block renders in color directly in preview. Enter
+edit mode to format a selection, pick colors, apply a gradient, and copy or save
+Discord-compatible text. Plain text remains available as an ordinary preview.
+
+<img src="docs/assets/windows/ansi-preview.png" alt="A Discord ANSI text file rendered in color in the preview panel" width="1180">
+
+### Make the interface yours
+
+Choose a theme, colored file icons, any available Windows font, and motion
+preferences in **Settings → Appearance**.
+
+<img src="docs/assets/windows/appearance.png" alt="Appearance settings showing the current macOS Classic Light theme and the theme library" width="1000">
+
+## Everyday Windows file actions
+
+Copy, cut and paste local files between Strata, Explorer and compatible Windows
+applications. Drag files into other apps, open them with their associated
+programs, or choose **Open with** from the context menu. Archive actions are
+grouped together and include extraction into a folder with the archive's name.
 
 **Delete using Windows** requests the Recycle Bin, like ordinary Explorer Delete.
 Permanent deletion is a separate action. Windows Properties can be selected in
 Settings and remains available from the Open in menu.
+
+Enable **Settings → General → Startup → Keep Strata running in the background**
+to keep the initialized application available from the tray. Closing its window
+then hides it; opening Strata again brings it back. Use **Quit Strata** to exit
+fully. Cache clearing is available in Settings and the tray menu.
 
 Native integrations cover local Windows paths. Remote locations and individual
 Shell extensions can have different capabilities.
@@ -71,8 +152,16 @@ Shell extensions can have different capabilities.
 | Action | Shortcut |
 | --- | --- |
 | New tab | Ctrl+T |
+| Close tab | Ctrl+W |
+| Address/location bar | Ctrl+L |
 | Search | Ctrl+K |
 | Preview selected file | Space |
+| Copy / Cut / Paste | Ctrl+C / Ctrl+X / Ctrl+V |
+| Rename | F2 |
+| New folder | Ctrl+Shift+N |
+| Refresh | F5 |
+| Undo | Ctrl+Z |
+| Settings | Ctrl+, |
 | Shortcut reference | F1 |
 
 Use the in-app shortcut reference for the active keyboard map. See
