@@ -2239,10 +2239,7 @@ fn apply_install_progress(
 
 /// Exits for the staged Windows handoff, or restarts the updated Unix executable.
 fn restart_application(button: &gtk::Button) {
-    let application = button
-        .root()
-        .and_then(|root| root.downcast::<gtk::Window>().ok())
-        .and_then(|window| window.application());
+    let application = button_application(button);
     #[cfg(windows)]
     if let Some(application) = application {
         // Installed is reported only after the Windows handoff is launched.
@@ -2252,6 +2249,17 @@ fn restart_application(button: &gtk::Button) {
     }
     #[cfg(not(windows))]
     restart(application.as_ref());
+}
+
+fn button_application(button: &gtk::Button) -> Option<gtk::Application> {
+    button
+        .root()
+        .and_then(|root| root.downcast::<gtk::Window>().ok())
+        .and_then(|window| window.application())
+}
+
+fn restart_preferences(button: &gtk::Button) {
+    restart(button_application(button).as_ref());
 }
 
 #[cfg(target_os = "linux")]
@@ -2305,44 +2313,72 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
     Some(command)
 }
 
-// General preference restarts cannot reuse the Linux shell waiter on Windows.
-// Completed updates already have a handoff; restart_application exits for it.
 #[cfg(windows)]
-fn restart_waiter(_current_exe: &std::path::Path, _parent_pid: u32) -> Option<Command> {
-    None
+fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Command> {
+    strata_win_shell::restart::waiter(current_exe, parent_pid)
+        .map_err(|error| {
+            tracing::warn!(%error, "unable to prepare Windows restart helper");
+        })
+        .ok()
 }
 
 /// A closed window may no longer have an application; never exit the process in that case.
 fn restart(application: Option<&gtk::Application>) {
+    restart_with_waiter(application, restart_waiter);
+}
+
+fn restart_with_waiter(
+    application: Option<&gtk::Application>,
+    make_waiter: impl FnOnce(&std::path::Path, u32) -> Option<Command>,
+) {
     let Some(application) = application else {
-        return;
-    };
-    let Ok(current_exe) = crate::services::installed_executable() else {
-        return;
-    };
-    // Wait for this process to exit completely before relaunching. A fixed
-    // delay could overlap the old and new GTK/Wayland clients and rapidly hand
-    // keyboard focus through an underlying terminal. Besides re-activating the
-    // old GApplication instance, that exposed a Foot/libxkbcommon crash on
-    // affected systems. Detach the waiter from inherited terminal streams and
-    // put it in its own process group so applying an update cannot disturb the
-    // terminal that launched Strata.
-    let Some(mut waiter) = restart_waiter(&current_exe, std::process::id()) else {
         return;
     };
     if restart_blocker_shown(application) {
         return;
     }
+    let Ok(current_exe) = crate::services::installed_executable() else {
+        show_restart_failure(application);
+        return;
+    };
+    // Relaunch after process termination, so single-instance activation cannot
+    // route the new launch back into the instance that is shutting down.
+    let Some(mut waiter) = make_waiter(&current_exe, std::process::id()) else {
+        show_restart_failure(application);
+        return;
+    };
     let Ok(mut waiter) = waiter.spawn() else {
+        show_restart_failure(application);
         return;
     };
     // Do not leave a waiter behind when an unregistered close handler refuses.
-    if !close_windows_for_restart(application) {
+    #[cfg(windows)]
+    let closed = {
+        super::windows_runtime::quit(application);
+        application.windows().is_empty()
+    };
+    #[cfg(not(windows))]
+    let closed = close_windows_for_restart(application);
+    if !closed {
         let _ = waiter.kill();
         let _ = waiter.wait();
-        return;
+    } else {
+        #[cfg(not(windows))]
+        application.quit();
     }
-    application.quit();
+}
+
+fn show_restart_failure(application: &gtk::Application) {
+    if let Some(window) = application
+        .active_window()
+        .or_else(|| application.windows().into_iter().next())
+    {
+        super::modal::show_error_dialog(
+            &window,
+            &crate::i18n::tr("Unable to restart Strata"),
+            &crate::i18n::tr("Save your work, exit Strata from the tray, then open it again."),
+        );
+    }
 }
 
 /// Checks every window before closing any, so a refusal cannot leave some closed.
@@ -2355,6 +2391,7 @@ fn restart_blocker_shown(application: &gtk::Application) -> bool {
     true
 }
 
+#[cfg(not(windows))]
 fn close_windows_for_restart(application: &gtk::Application) -> bool {
     if restart_blocker_shown(application) {
         return false;

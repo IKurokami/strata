@@ -962,6 +962,7 @@ pub(super) fn build_appearance_menu(
         .child(&row)
         .has_frame(false)
         .build();
+    preview_toggle.set_widget_name("window-preview");
     preview_toggle.add_css_class("appearance-option");
     preview_toggle.add_css_class("preview-panel-option");
     super::accessibility::set_label(&preview_toggle, &crate::i18n::tr("Preview panel"));

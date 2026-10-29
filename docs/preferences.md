@@ -52,6 +52,11 @@ every page and fails on a row or section without a target. Register the row, or
 tag status-only content with its section's target (the managed-install row uses
 "Check for updates"), rather than exempting it.
 
+Language changes apply on the next launch. **Restart now** on Windows uses the
+installed `strata-shell.exe` helper to wait for the exact previous process to
+exit before launching again. Active-operation close guards still apply, and
+restart exits the background instance rather than merely hiding its window.
+
 ## One initialization and update path
 
 On Windows, **Settings → General → Desktop integration → Use Windows properties**

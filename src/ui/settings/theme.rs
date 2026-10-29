@@ -135,10 +135,7 @@ pub(super) fn theme_page(
         PreferenceManager::interface_renderer_restart_required,
         |widget, required| widget.set_visible(required),
     );
-    restart.connect_clicked(|_| {
-        let application = gio::Application::default().and_downcast::<gtk::Application>();
-        super::restart(application.as_ref());
-    });
+    restart.connect_clicked(super::restart_preferences);
     renderer_controls.append(&restart);
     let renderer_row = super::control_row(
         "Interface renderer",

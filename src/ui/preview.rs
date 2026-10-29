@@ -127,8 +127,7 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
         return entry.location.native_path().is_some();
     }
 
-    let (content_type, _) =
-        crate::services::guess_content_type(Path::new(&entry.native_name));
+    let (content_type, _) = crate::services::guess_content_type(Path::new(&entry.native_name));
     let content = crate::services::content_family_for_file(&entry.native_name, &content_type);
     // Windows installations often lack a complete shared MIME database.
     // Keep quick preview available for known image/media extensions; the

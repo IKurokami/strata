@@ -261,6 +261,33 @@ pub(super) fn menu_option(label: &str, selected: bool) -> (gtk::Button, gtk::Ima
     checkable_menu_option(label, selected, gtk::AccessibleRole::MenuItemRadio)
 }
 
+pub(super) fn choice_button() -> gtk::MenuButton {
+    let button = gtk::MenuButton::builder()
+        .always_show_arrow(true)
+        .valign(gtk::Align::Center)
+        .build();
+    button.add_css_class("choice-button");
+    button
+}
+
+pub(super) fn choice_popover(content: &impl IsA<gtk::Widget>) -> gtk::Popover {
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(content)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .max_content_height(360)
+        .propagate_natural_height(true)
+        .build();
+    let popover = gtk::Popover::builder()
+        .child(&scroll)
+        .has_arrow(false)
+        .build();
+    popover.add_css_class("column-popover");
+    popover.add_css_class("choice-popover");
+    super::scrolling::popover::dismiss_on_outside_scroll(&popover);
+    popover
+}
+
 pub(super) fn check_menu_option(label: &str, selected: bool) -> (gtk::Button, gtk::Image) {
     checkable_menu_option(label, selected, gtk::AccessibleRole::MenuItemCheckbox)
 }
@@ -283,13 +310,29 @@ fn checkable_menu_option(
     let check = crate::assets::primary_icon(crate::assets::icons::CHECK, 16);
     check.set_visible(selected);
     row.append(&menu_option_label(label));
-    row.append(&check);
+    let check_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    check_slot.set_size_request(16, -1);
+    check_slot.append(&check);
+    row.append(&check_slot);
     let option = gtk::Button::builder()
         .child(&row)
         .accessible_role(role)
         .has_frame(false)
         .build();
     option.add_css_class(MENU_OPTION_CLASS);
+    if selected {
+        option.add_css_class("selected");
+    }
+    let weak_option = option.downgrade();
+    check.connect_visible_notify(move |check| {
+        if let Some(option) = weak_option.upgrade() {
+            if check.is_visible() {
+                option.add_css_class("selected");
+            } else {
+                option.remove_css_class("selected");
+            }
+        }
+    });
     super::accessibility::sync_checked_with_icon(&option, &check);
     (option, check)
 }

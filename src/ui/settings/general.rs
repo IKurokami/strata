@@ -257,10 +257,7 @@ fn append_language_option(content: &gtk::Box, manager: &Rc<PreferenceManager>) {
         PreferenceManager::language_restart_required,
         |widget, required| widget.set_visible(required),
     );
-    restart.connect_clicked(|_| {
-        let application = gio::Application::default().and_downcast::<gtk::Application>();
-        super::restart(application.as_ref());
-    });
+    restart.connect_clicked(super::restart_preferences);
     controls.append(&restart);
     group.append(&super::control_row(
         "Language",
@@ -277,16 +274,9 @@ fn append_date_format_option(content: &gtk::Box, manager: &Rc<PreferenceManager>
     ];
     let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
     menu.add_css_class("column-menu");
-    let popover = gtk::Popover::builder()
-        .child(&menu)
-        .has_arrow(false)
-        .build();
-    popover.add_css_class("column-popover");
-    let button = gtk::MenuButton::builder()
-        .popover(&popover)
-        .always_show_arrow(true)
-        .valign(gtk::Align::Center)
-        .build();
+    let popover = super::super::controls::choice_popover(&menu);
+    let button = super::super::controls::choice_button();
+    button.set_popover(Some(&popover));
     button.add_css_class("form-control");
     button.add_css_class("settings-choice");
     crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Modified date format"));
