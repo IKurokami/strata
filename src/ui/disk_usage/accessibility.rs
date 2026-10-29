@@ -11,6 +11,7 @@ mod canvas {
     #[derive(Default)]
     pub struct Canvas {
         pub nodes: RefCell<Vec<Node>>,
+        pub selected: Cell<Option<usize>>,
     }
     #[glib::object_subclass]
     impl ObjectSubclass for Canvas {
@@ -119,6 +120,8 @@ impl Canvas {
     }
 
     pub fn set_items(&self, labels: &[String]) {
+        self.imp().selected.set(None);
+        self.reset_relation(gtk::AccessibleRelation::ActiveDescendant);
         for node in self.imp().nodes.take() {
             node.imp().parent.set(None);
             node.imp().next.set(None);
@@ -130,6 +133,7 @@ impl Canvas {
                 let node: Node = glib::Object::new();
                 node.imp().parent.set(Some(self));
                 node.update_property(&[gtk::accessible::Property::Label(label)]);
+                node.update_state(&[gtk::accessible::State::Selected(Some(false))]);
                 node
             })
             .collect();
@@ -152,6 +156,9 @@ impl Canvas {
     }
 
     pub fn set_selected(&self, position: Option<usize>) {
+        if self.imp().selected.replace(position) == position {
+            return;
+        }
         for (index, node) in self.imp().nodes.borrow().iter().enumerate() {
             let selected = position == Some(index);
             node.update_state(&[gtk::accessible::State::Selected(Some(selected))]);

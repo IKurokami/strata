@@ -14,6 +14,7 @@ use std::{
 
 mod accessibility;
 mod layout;
+mod updates;
 mod weights;
 type ContextTrigger = Rc<dyn Fn(f64, f64)>;
 #[cfg(test)]
@@ -28,6 +29,9 @@ pub(super) struct DiskUsageView {
     active_edits: super::collection_edit::ActiveEdits,
     browser: Weak<Browser>,
     snapshot: RefCell<Option<Snapshot>>,
+    progress: RefCell<Option<Snapshot>>,
+    layout_size: Cell<(i32, i32)>,
+    layout_rectangles: RefCell<Vec<layout::Rect>>,
     tiles: RefCell<Vec<(PathBuf, layout::Rect)>>,
     hovered: RefCell<Option<PathBuf>>,
     other_rect: Cell<Option<layout::Rect>>,
@@ -67,6 +71,9 @@ impl DiskUsageView {
             context_host: RefCell::new(None),
             browser: Rc::downgrade(browser),
             snapshot: RefCell::new(None),
+            progress: RefCell::new(None),
+            layout_size: Cell::new((-1, -1)),
+            layout_rectangles: RefCell::new(Vec::new()),
             tiles: RefCell::new(Vec::new()),
             other_rect: Cell::new(None),
             hovered: RefCell::new(None),
@@ -239,6 +246,9 @@ impl DiskUsageView {
         self.stop();
         self.root.replace(root.clone());
         self.snapshot.take();
+        self.progress.take();
+        self.layout_size.set((-1, -1));
+        self.layout_rectangles.borrow_mut().clear();
         self.tiles.borrow_mut().clear();
         if let Some(location) = location.as_ref() {
             super::accessibility::describe_pane(
@@ -286,7 +296,10 @@ impl DiskUsageView {
         let epoch = self.epoch.get();
         let weak = Rc::downgrade(self);
         self.task.replace(Some(glib::spawn_future_local(async move {
-            while let Ok(snapshot) = receiver.recv().await {
+            while let Ok(mut snapshot) = receiver.recv().await {
+                while let Ok(newest) = receiver.try_recv() {
+                    snapshot = newest;
+                }
                 let Some(view) = weak.upgrade() else {
                     break;
                 };
@@ -294,23 +307,36 @@ impl DiskUsageView {
                 {
                     break;
                 }
-                let labels: Vec<_> = snapshot
-                    .children
-                    .iter()
-                    .filter(|child| child.bytes > 0)
-                    .map(|child| {
-                        format!(
-                            "{} · {}",
-                            child.path.file_name().unwrap_or_default().to_string_lossy(),
-                            super::browser::format_file_size(child.bytes)
-                        )
-                    })
-                    .collect();
-                view.canvas.set_items(&labels);
-                view.animate_update();
-                view.snapshot.replace(Some(snapshot));
+                let present = updates::present(view.snapshot.borrow().as_ref(), &snapshot);
+                let changed =
+                    present && updates::content_changed(view.snapshot.borrow().as_ref(), &snapshot);
+                if present {
+                    if changed {
+                        let labels: Vec<_> = snapshot
+                            .children
+                            .iter()
+                            .filter(|child| child.bytes > 0)
+                            .map(|child| {
+                                format!(
+                                    "{} · {}",
+                                    child.path.file_name().unwrap_or_default().to_string_lossy(),
+                                    super::browser::format_file_size(child.bytes)
+                                )
+                            })
+                            .collect();
+                        view.canvas.set_items(&labels);
+                        if !snapshot.resumable {
+                            view.animate_update();
+                        }
+                        view.layout_size.set((-1, -1));
+                    }
+                    view.snapshot.replace(Some(snapshot.clone()));
+                }
+                view.progress.replace(Some(snapshot));
                 view.update_status();
-                view.canvas.queue_draw();
+                if changed {
+                    view.canvas.queue_draw();
+                }
             }
         })));
     }
@@ -512,16 +538,19 @@ impl DiskUsageView {
 
     fn update_status(&self) {
         let snapshot = self.snapshot.borrow();
-        let Some(snapshot) = snapshot.as_ref() else {
+        let progress = self.progress.borrow();
+        let Some(latest) = progress.as_ref().or(snapshot.as_ref()) else {
             self.status
                 .set_text(&crate::i18n::tr("Calculating disk usage…"));
             return;
         };
-        let state = crate::i18n::tr(match snapshot.coverage {
-            Coverage::Exact => "Complete",
-            Coverage::Partial => "Partial",
-            Coverage::Stale => "Updating…",
-            Coverage::Unavailable => "Unavailable",
+        let snapshot = snapshot.as_ref().unwrap_or(latest);
+        let state = crate::i18n::tr(match (latest.resumable, latest.coverage) {
+            (true, _) => "Updating…",
+            (_, Coverage::Exact) => "Complete",
+            (_, Coverage::Partial) => "Partial",
+            (_, Coverage::Stale) => "Updating…",
+            (_, Coverage::Unavailable) => "Unavailable",
         });
         let selected = self
             .hovered
@@ -545,7 +574,7 @@ impl DiskUsageView {
                 format!(
                     "{} · {}",
                     state,
-                    super::browser::format_file_size(snapshot.total)
+                    super::browser::format_file_size(latest.total)
                 )
             },
             |child| {
@@ -583,15 +612,19 @@ impl DiskUsageView {
             .iter()
             .filter(|child| child.bytes > 0)
             .collect();
-        let mut weights: Vec<_> = children.iter().map(|child| child.bytes).collect();
-        if snapshot.other_bytes > 0 {
-            weights.push(snapshot.other_bytes);
+        if self.layout_size.get() != (width, height) {
+            let mut weights: Vec<_> = children.iter().map(|child| child.bytes).collect();
+            if snapshot.other_bytes > 0 {
+                weights.push(snapshot.other_bytes);
+            }
+            self.layout_rectangles.replace(layout::squarify(
+                &weights::balanced(&weights),
+                f64::from(width),
+                f64::from(height),
+            ));
+            self.layout_size.set((width, height));
         }
-        let rectangles = layout::squarify(
-            &weights::balanced(&weights),
-            f64::from(width),
-            f64::from(height),
-        );
+        let rectangles = self.layout_rectangles.borrow();
         self.other_rect.set(if snapshot.other_bytes > 0 {
             rectangles.last().copied()
         } else {
@@ -628,7 +661,7 @@ impl DiskUsageView {
             .and_then(|entry| entry.location.native_path().map(Path::to_path_buf));
         let mut tiles = self.tiles.borrow_mut();
         tiles.clear();
-        for (child, mut rect) in children.into_iter().zip(rectangles) {
+        for (child, mut rect) in children.into_iter().zip(rectangles.iter().copied()) {
             if let Some(started) = self.transition.get()
                 && let Some(previous) = self.previous_tiles.borrow().get(&child.path)
             {

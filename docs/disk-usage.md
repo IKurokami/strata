@@ -27,10 +27,16 @@ separate policy and does not offer Disk Usage.
 
 ## Coverage and resource limits
 
-Partial snapshots show measured progress; their percentages use the known total.
+The map keeps its first usable snapshot or last-known map stable while scanning;
+the status total continues to show measured progress. Tiles and their percentages
+describe that retained snapshot until the scan finishes. The completed scan
+replaces it once, including when the final coverage is Partial. Empty initial
+updates do not delay the first usable map. Duplicate and progress-only updates
+do not rebuild tiles or restart their animation.
 Complete means the bounded scan finished without a known omission. Updating marks
 last-known data being reconciled. Unavailable does not mean zero bytes. Layout
-updates interpolate briefly; navigation and reduced motion do not wait for them.
+updates interpolate once when results change; navigation and reduced motion do
+not wait for them. Geometry is cached across hover and animation frames.
 
 Enumeration, identity checks, aggregation and SQLite operations run in a background
 service. Completed subtree measurements are shared, with a memory cache and a
