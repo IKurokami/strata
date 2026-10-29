@@ -88,6 +88,32 @@ pub fn associated_executable(path: &Path) -> io::Result<std::path::PathBuf> {
     Ok(executable)
 }
 
+/// Query registration without falling back to the generic Unknown file class.
+pub fn has_registered_type(path: &Path) -> bool {
+    use windows::Win32::UI::Shell::{
+        ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_PROGID, AssocQueryStringW,
+    };
+    let Some(extension) = path.extension() else {
+        return false;
+    };
+    let mut association = vec![u16::from(b'.')];
+    association.extend(extension.encode_wide());
+    association.push(0);
+    let mut length = 0;
+    // SAFETY: The association is NUL-terminated; only a writable length is requested.
+    let _ = unsafe {
+        AssocQueryStringW(
+            ASSOCF_INIT_IGNOREUNKNOWN,
+            ASSOCSTR_PROGID,
+            PCWSTR(association.as_ptr()),
+            PCWSTR::null(),
+            None,
+            &mut length,
+        )
+    };
+    length > 1
+}
+
 struct Apartment;
 
 impl Drop for Apartment {

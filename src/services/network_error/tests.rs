@@ -6,13 +6,17 @@ use super::NetworkError;
 
 #[test]
 fn network_failures_never_show_the_errno_suffix() {
+    #[cfg(windows)]
+    let (refused, unreachable) = (10061, 10051);
+    #[cfg(not(windows))]
+    let (refused, unreachable) = (libc::ECONNREFUSED, libc::ENETUNREACH);
     for (error, expected) in [
         (
-            ureq::Error::Io(io::Error::from_raw_os_error(libc::ECONNREFUSED)),
+            ureq::Error::Io(io::Error::from_raw_os_error(refused)),
             "The connection was refused",
         ),
         (
-            ureq::Error::Io(io::Error::from_raw_os_error(libc::ENETUNREACH)),
+            ureq::Error::Io(io::Error::from_raw_os_error(unreachable)),
             "The network is unreachable",
         ),
         (

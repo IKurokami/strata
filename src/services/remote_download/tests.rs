@@ -189,11 +189,11 @@ fn prune_removes_only_stale_strata_download_dirs() {
     fs::write(stale_ours.join("body"), b"old").expect("stale body");
     let stale_time = SystemTime::now() - STALE_DOWNLOAD_AGE - Duration::from_secs(60);
     let times = fs::FileTimes::new().set_modified(stale_time);
-    fs::File::open(&stale_ours)
+    directory_attributes(&stale_ours)
         .expect("stale dir")
         .set_times(times)
         .expect("age fixture");
-    fs::File::open(&unrelated_dir)
+    directory_attributes(&unrelated_dir)
         .expect("unrelated dir")
         .set_times(times)
         .expect("age unrelated fixture");
@@ -205,6 +205,21 @@ fn prune_removes_only_stale_strata_download_dirs() {
     assert!(fresh_ours.exists());
     assert!(unrelated_dir.exists());
     assert!(stray_file.exists());
+}
+
+fn directory_attributes(path: &std::path::Path) -> std::io::Result<fs::File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+        fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+    }
+    #[cfg(not(windows))]
+    fs::File::open(path)
 }
 
 #[test]

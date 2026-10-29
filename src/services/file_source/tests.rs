@@ -24,6 +24,7 @@ fn error_details_continue_in_lower_case_only_where_the_language_does() {
 }
 
 #[test]
+#[cfg(unix)]
 fn io_errors_without_a_stable_kind_or_known_reason_get_catalog_text() {
     for (errno, expected) in [
         (libc::ELOOP, "There are too many levels of symbolic links"),
@@ -235,4 +236,20 @@ fn folder_identities_match_only_while_known_birth_times_agree() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_errors_use_native_kinds_instead_of_posix_errno_values() {
+    for (code, expected) in [
+        (5, "Permission denied"),
+        (2, "No such file or folder"),
+        (10057, "The location is no longer connected"),
+        (111, "An unexpected system error occurred"),
+    ] {
+        assert_eq!(
+            io_error_message(&std::io::Error::from_raw_os_error(code)),
+            expected
+        );
+    }
 }

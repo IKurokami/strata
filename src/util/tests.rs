@@ -171,7 +171,7 @@ fn daylight_saving_uses_elapsed_hours_then_calendar_days() {
             "1h ago",
         ),
     ] {
-        let timezone = glib::TimeZone::from_identifier(Some(zone)).expect("timezone");
+        let timezone = fixture_timezone(zone);
         let date = |(year, month, day, hour, minute)| {
             date_in_timezone(&timezone, year, month, day, hour, minute)
         };
@@ -185,8 +185,7 @@ fn daylight_saving_uses_elapsed_hours_then_calendar_days() {
 
 #[test]
 fn calendar_rendering_converts_entries_into_now_timezone() {
-    let new_york =
-        glib::TimeZone::from_identifier(Some("America/New_York")).expect("America/New_York");
+    let new_york = fixture_timezone("America/New_York");
     let modified = utc_date(2026, 9, 7, 3, 30);
     let now = date_in_timezone(&new_york, 2026, 9, 8, 3, 30);
     for (format, expected) in [
@@ -195,4 +194,15 @@ fn calendar_rendering_converts_entries_into_now_timezone() {
     ] {
         assert_eq!(modified_date_at(&modified, &now, format), expected);
     }
+}
+
+fn fixture_timezone(identifier: &str) -> glib::TimeZone {
+    let rules = match identifier {
+        "America/New_York" => "EST5EDT,M3.2.0/2,M11.1.0/2",
+        "Australia/Lord_Howe" => "LHST-10:30LHDT-11,M10.1.0/2,M4.1.0/2",
+        _ => identifier,
+    };
+    glib::TimeZone::from_identifier(Some(identifier))
+        .or_else(|| glib::TimeZone::from_identifier(Some(rules)))
+        .expect("fixture timezone rules")
 }

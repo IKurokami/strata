@@ -12,6 +12,14 @@ use crate::model::{ActionDefinition, ErrorPolicy, ExecutionMode};
 use super::*;
 use crate::services::actions::{ActionAvailability, ActionHandle, ActionProgram};
 
+fn fixture_path(value: &str) -> PathBuf {
+    if cfg!(windows) && value.starts_with('/') {
+        PathBuf::from(format!("C:{value}"))
+    } else {
+        PathBuf::from(value)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Recorded {
     action_id: String,
@@ -135,7 +143,7 @@ fn handle(
     definition.name = name.to_owned();
     Rc::new(ActionHandle {
         definition,
-        directory: PathBuf::from("/tmp/actions").join(id),
+        directory: fixture_path("/tmp/actions").join(id),
         availability: ActionAvailability::Available(ActionProgram::Command {
             program: OsString::from("true"),
             arguments: Vec::new(),
@@ -146,7 +154,7 @@ fn handle(
 fn unavailable_handle() -> Rc<ActionHandle> {
     Rc::new(ActionHandle {
         definition: definition(ExecutionMode::WholeSelection, ErrorPolicy::Continue, "bash"),
-        directory: PathBuf::from("/tmp/actions/a1"),
+        directory: fixture_path("/tmp/actions/a1"),
         availability: ActionAvailability::Unavailable {
             reason: "The interpreter “python3” was not found".to_owned(),
         },
@@ -156,8 +164,8 @@ fn unavailable_handle() -> Rc<ActionHandle> {
 fn request(action: Rc<ActionHandle>, inputs: &[&str]) -> JobRequest {
     JobRequest {
         action,
-        inputs: inputs.iter().map(PathBuf::from).collect(),
-        parent: PathBuf::from("/tmp/parent"),
+        inputs: inputs.iter().map(|path| fixture_path(path)).collect(),
+        parent: fixture_path("/tmp/parent"),
         source: InvocationSource::Selection,
     }
 }
@@ -231,9 +239,9 @@ fn per_item_jobs_iterate_one_input_at_a_time_and_report_positions() {
             .map(|run| (run.inputs.clone(), run.position))
             .collect::<Vec<_>>(),
         vec![
-            (vec![PathBuf::from("/tmp/a.png")], Some((1, 3))),
-            (vec![PathBuf::from("/tmp/b.png")], Some((2, 3))),
-            (vec![PathBuf::from("/tmp/c.png")], Some((3, 3))),
+            (vec![fixture_path("/tmp/a.png")], Some((1, 3))),
+            (vec![fixture_path("/tmp/b.png")], Some((2, 3))),
+            (vec![fixture_path("/tmp/c.png")], Some((3, 3))),
         ]
     );
     let snapshot = service.snapshot_of(id).expect("job exists");
@@ -266,7 +274,7 @@ fn whole_selection_jobs_run_once_with_every_input() {
     assert_eq!(recorded.len(), 1);
     assert_eq!(
         recorded[0].inputs,
-        vec![PathBuf::from("/tmp/a.bin"), PathBuf::from("/tmp/b.bin")]
+        vec![fixture_path("/tmp/a.bin"), fixture_path("/tmp/b.bin")]
     );
     assert_eq!(recorded[0].position, None);
 }
@@ -523,7 +531,7 @@ fn rejects_relative_paths_empty_selections_and_unavailable_actions() {
         service.enqueue(JobRequest {
             action: action.clone(),
             inputs: vec![PathBuf::from("relative.txt")],
-            parent: PathBuf::from("/tmp"),
+            parent: fixture_path("/tmp"),
             source: InvocationSource::Selection,
         }),
         Err(JobEnqueueError::NotAbsolute(PathBuf::from("relative.txt")))
@@ -661,7 +669,7 @@ fn produces_script_reported_output_and_messages() {
                 message: Some("converting".to_owned()),
             }));
             sink(ActionRunEvent::LogTail("halfway\n".to_owned()));
-            sink(ActionRunEvent::Created(PathBuf::from("/tmp/out.png")));
+            sink(ActionRunEvent::Created(fixture_path("/tmp/out.png")));
             sink(ActionRunEvent::Created(PathBuf::from("relative.png")));
             sink(ActionRunEvent::Exited {
                 code: Some(0),
@@ -689,7 +697,7 @@ fn produces_script_reported_output_and_messages() {
     assert_eq!(snapshot.status, JobStatus::Succeeded);
     assert_eq!(
         snapshot.created,
-        vec![PathBuf::from("/tmp/out.png")],
+        vec![fixture_path("/tmp/out.png")],
         "only absolute reported locations are kept"
     );
     assert_eq!(snapshot.log, "finished\n");
@@ -803,18 +811,20 @@ fn command_arguments_only_accept_absolute_paths() {
         arguments: vec![crate::model::ArgumentToken::Paths],
     };
     assert_eq!(
-        expand_command_arguments(&program, &[PathBuf::from("/tmp/a")], Path::new("/tmp")),
-        Ok(vec![OsString::from("/tmp/a")])
+        expand_command_arguments(&program, &[fixture_path("/tmp/a")], &fixture_path("/tmp")),
+        Ok(vec![fixture_path("/tmp/a").into_os_string()])
     );
-    assert!(expand_command_arguments(&program, &[PathBuf::from("a")], Path::new("/tmp")).is_err());
+    assert!(
+        expand_command_arguments(&program, &[PathBuf::from("a")], &fixture_path("/tmp")).is_err()
+    );
     let script = ActionProgram::Script {
         interpreter: OsString::from("bash"),
         interpreter_arguments: Vec::new(),
-        script: PathBuf::from("/tmp/actions/a1/run.sh"),
+        script: fixture_path("/tmp/actions/a1/run.sh"),
         family: crate::model::InterpreterFamily::Shell,
     };
     assert_eq!(
-        expand_command_arguments(&script, &[PathBuf::from("/tmp/a")], Path::new("/tmp")),
+        expand_command_arguments(&script, &[fixture_path("/tmp/a")], &fixture_path("/tmp")),
         Ok(Vec::new())
     );
 }
