@@ -80,7 +80,6 @@ fn retain_extra_commands(nodes: &mut Vec<Node>, print_covered: bool) {
                     | "cut"
                     | "delete"
                     | "rename"
-                    | "properties"
                     | "copyaspath"
                     | "extract"
                     | "extractall"

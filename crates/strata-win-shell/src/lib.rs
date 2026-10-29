@@ -2,9 +2,8 @@
 //!
 //! Every call runs on its own short-lived COM STA thread so the shell never
 //! touches the caller's (GTK) thread. Deletion goes to the Recycle Bin or
-//! fails; a permanent-delete fallback is never silent: only fixed local drives
-//! are accepted, and `FOF_WANTNUKEWARNING` makes the shell ask instead of
-//! destroying an item the bin cannot hold.
+//! fails. Only fixed local drives are accepted, and the progress sink vetoes
+//! deletion when the Shell stops treating it as recycling.
 #![cfg(windows)]
 
 pub mod activation;
@@ -18,6 +17,8 @@ mod operation_result;
 pub mod power;
 mod recycle_bin;
 pub mod shell_window;
+#[cfg(test)]
+mod tests;
 pub mod volume;
 pub mod window;
 pub use recycle_bin::{
@@ -91,7 +92,7 @@ pub fn directory_identity(path: &Path) -> io::Result<(u64, [u8; 16])> {
 
 use windows::{
     Win32::{
-        Foundation::{E_FAIL, HWND},
+        Foundation::{E_ABORT, E_FAIL, HWND},
         System::Com::{
             CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
             CoUninitialize,
@@ -100,7 +101,7 @@ use windows::{
             BHID_EnumItems, FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems,
             IFileOperation, IFileOperationProgressSink, IFileOperationProgressSink_Impl,
             IShellItem, KF_FLAG_DEFAULT, SHCreateItemFromParsingName, SHGetKnownFolderItem,
-            SIGDN_FILESYSPATH,
+            SIGDN_FILESYSPATH, TSF_DELETE_RECYCLE_IF_POSSIBLE,
         },
     },
     core::{HRESULT, HSTRING, PCWSTR, Ref, implement},
@@ -113,6 +114,7 @@ const FOF_NOCONFIRMMKDIR: u32 = 0x0200;
 const FOF_WANTNUKEWARNING: u32 = 0x4000;
 const FOFX_SHOWELEVATIONPROMPT: u32 = 0x0004_0000;
 const FOFX_RECYCLEONDELETE: u32 = 0x0008_0000;
+const FOFX_EARLYFAILURE: u32 = 0x0010_0000;
 /// `HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)`.
 const FILE_EXISTS: HRESULT = HRESULT(0x8007_0050_u32 as i32);
 
@@ -376,7 +378,11 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
     ) -> windows::core::Result<()> {
         Ok(())
     }
-    fn PreDeleteItem(&self, _flags: u32, _item: Ref<'_, IShellItem>) -> windows::core::Result<()> {
+    fn PreDeleteItem(&self, flags: u32, _item: Ref<'_, IShellItem>) -> windows::core::Result<()> {
+        if self.expect_recycled_item && flags & TSF_DELETE_RECYCLE_IF_POSSIBLE.0 as u32 == 0 {
+            self.outcomes.borrow_mut().failure.get_or_insert(E_ABORT);
+            return Err(windows::core::Error::from_hresult(E_ABORT));
+        }
         Ok(())
     }
     fn PostDeleteItem(
@@ -512,6 +518,7 @@ pub fn recycle(paths: &[PathBuf]) -> io::Result<Vec<RecycledItem>> {
             FOFX_RECYCLEONDELETE
                 | FOF_ALLOWUNDO
                 | FOF_WANTNUKEWARNING
+                | FOFX_EARLYFAILURE
                 | FOF_NOERRORUI
                 | FOF_NOCONFIRMATION,
         )?;

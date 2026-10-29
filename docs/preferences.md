@@ -62,12 +62,16 @@ Unsupported virtual locations retain Strata's property panel. Shell extensions
 run in the separate helper process rather than entering GTK. A launch failure
 is reported instead of silently opening a different properties dialog.
 
-Windows item context menus also expose **Delete using Windows** (normal deletion
-to the Recycle Bin) and **Permanently delete using Windows…** (the standard Shell
-permanent-deletion method, after confirmation). The permanent action overrides
-the method for that operation without changing the saved deletion preference.
-Normal deletion never silently falls back to permanent deletion. Non-native or
-read-only selections do not expose these actions.
+Windows item context menus also expose **Delete using Windows**, which only
+requests normal deletion to the Recycle Bin. It does not switch to permanent
+deletion when recycling is unavailable. Permanent deletion remains a separate,
+explicitly confirmed action using the saved permanent-deletion method.
+Non-native or read-only selections do not expose the Windows delete action.
+
+**Open in** retains the Windows **Properties** command even when other built-in
+Shell commands are covered by Strata's own menu. The helper keeps its Shell
+apartment alive for modeless property sheets, including Properties dispatched
+through the saved Windows-properties preference.
 
 On Windows, **Show application console** is off by default. It applies immediately
 from Settings or the tray menu, is saved across launches, and controls only a

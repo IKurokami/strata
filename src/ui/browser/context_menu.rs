@@ -901,14 +901,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             ContextHint::None,
         )
     });
-    #[cfg(windows)]
-    let windows_permanent_delete = std::array::from_fn::<_, 2, _>(|_| {
-        item_context_danger_option(
-            crate::assets::icons::CIRCLE_X,
-            "Permanently delete using Windows…",
-            ContextHint::None,
-        )
-    });
     let permanent_delete = item_context_danger_option(
         crate::assets::icons::CIRCLE_X,
         "Permanently delete",
@@ -1004,7 +996,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     #[cfg(windows)]
     {
         single.append(&windows_delete[0]);
-        single.append(&windows_permanent_delete[0]);
     }
     remaining.append(&single);
 
@@ -1148,7 +1139,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     #[cfg(windows)]
     {
         multiple.append(&windows_delete[1]);
-        multiple.append(&windows_permanent_delete[1]);
     }
     multiple.set_visible(false);
     remaining.append(&multiple);
@@ -1543,14 +1533,9 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         });
     }
     #[cfg(windows)]
-    for (button, permanent) in [
-        (&windows_delete[0], false),
-        (&windows_delete[1], false),
-        (&windows_permanent_delete[0], true),
-        (&windows_permanent_delete[1], true),
-    ] {
+    for button in &windows_delete {
         connect_selection_action(button, &popover, state, &target, move |state, entries| {
-            state.request_windows_delete(entries, permanent);
+            state.request_windows_delete(entries);
         });
     }
     for button in [&compress, &compress_multiple] {
@@ -1784,9 +1769,6 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                     .all(|entry| entry.location.native_path().is_some());
                 for button in &windows_delete {
                     button.set_visible(native && trash_visible && !in_trash);
-                }
-                for button in &windows_permanent_delete {
-                    button.set_visible(native && permanent_delete_visible);
                 }
             }
             pin.set_visible(entry.is_directory() && !is_trash_location(&entry.location));
