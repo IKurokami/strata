@@ -69,8 +69,6 @@ Windows Open/Save file dialogs retain their normal system behavior.
 
 <img src="docs/assets/windows/settings.png" alt="Windows Strata Settings with the shared language selector" width="1000">
 
-<img src="docs/assets/windows/language-menu.png" alt="The compact language dropdown, with the current language selected" width="220">
-
 ## Feature gallery
 
 Screenshots show the actual Windows application with demo files. Theme, font and
