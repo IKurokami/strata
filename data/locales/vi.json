@@ -1436,5 +1436,16 @@
   "whole selection": "toàn bộ lựa chọn",
   "your package manager": "trình quản lý gói của bạn",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} dành cho hành động trên toàn bộ lựa chọn; dùng {path} cho hành động theo từng mục",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} dành cho hành động theo từng mục; dùng {paths} cho toàn bộ lựa chọn"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} dành cho hành động theo từng mục; dùng {paths} cho toàn bộ lựa chọn",
+  "Checking file manager integration…": "Đang kiểm tra tích hợp trình quản lý file…",
+  "Another application controls File Explorer integration.": "Một ứng dụng khác đang quản lý tích hợp File Explorer.",
+  "This Windows version does not support this integration.": "Phiên bản Windows này không hỗ trợ tích hợp này.",
+  "Strata has not replaced File Explorer.": "Strata chưa thay thế được File Explorer.",
+  "Try again": "Thử lại",
+  "Replace the current file manager?": "Thay thế trình quản lý file hiện tại?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata sẽ lưu các thiết lập hiện tại và khôi phục chúng khi bạn tắt tùy chọn này.",
+  "Replace": "Thay thế",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Mở thư mục, ổ đĩa và %{explorer_keys} trong Strata. Không cần trình trợ giúp chạy nền. Tắt tùy chọn này sẽ khôi phục trình quản lý file trước đó.",
+  "Strata has not restored the previous file manager.": "Strata chưa khôi phục được trình quản lý file trước đó.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "Không thể khôi phục thiết lập trình quản lý file. Strata chưa được gỡ cài đặt."
 }

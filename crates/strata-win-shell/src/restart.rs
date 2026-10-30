@@ -60,6 +60,17 @@ fn creation_time(process: &OwnedHandle) -> io::Result<u64> {
     Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
 }
 
+pub(crate) fn live_identity(pid: u32) -> io::Result<Option<u64>> {
+    let Some(process) = process(pid)? else {
+        return Ok(None);
+    };
+    // SAFETY: The owned process handle is valid for this nonblocking query.
+    if unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 0) } != WAIT_TIMEOUT {
+        return Ok(None);
+    }
+    creation_time(&process).map(Some)
+}
+
 /// Construct the installed sibling helper without searching PATH or using a shell.
 pub fn waiter(executable: &Path, parent_pid: u32) -> io::Result<Command> {
     let parent = process(parent_pid)?

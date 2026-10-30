@@ -1436,5 +1436,16 @@
   "whole selection": "всё выделение",
   "your package manager": "менеджер пакетов",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} предназначен для действий над всем выделением; для действия над каждым элементом используйте {path}",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} предназначен для действий над каждым элементом; для всего выделения используйте {paths}"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} предназначен для действий над каждым элементом; для всего выделения используйте {paths}",
+  "Checking file manager integration…": "Проверка интеграции файлового менеджера…",
+  "Another application controls File Explorer integration.": "Другое приложение управляет интеграцией с Проводником.",
+  "This Windows version does not support this integration.": "Эта версия Windows не поддерживает такую интеграцию.",
+  "Strata has not replaced File Explorer.": "Strata не заменила Проводник.",
+  "Try again": "Повторить",
+  "Replace the current file manager?": "Заменить текущий файловый менеджер?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata сохранит текущие настройки и восстановит их, когда вы отключите этот параметр.",
+  "Replace": "Заменить",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Открывайте папки, диски и %{explorer_keys} в Strata. Фоновая вспомогательная программа не требуется. Отключение параметра восстановит прежний файловый менеджер.",
+  "Strata has not restored the previous file manager.": "Strata не восстановила прежний файловый менеджер.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "Не удалось восстановить настройки файлового менеджера. Strata не была удалена."
 }

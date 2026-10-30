@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT
 
+mod legacy;
+
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-struct Fixture {
-    registration: Registration,
-    directory: PathBuf,
-    key: String,
+pub(super) struct Fixture {
+    pub(super) registration: Registration,
+    pub(super) directory: PathBuf,
+    pub(super) key: String,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let token = format!(
             "{}-{}-{}",
             std::process::id(),
@@ -33,15 +35,16 @@ impl Fixture {
                 classes: format!(r"{key}\Classes"),
                 state: format!(r"{key}\State"),
                 run: format!(r"{key}\Run"),
+                legacy_state: None,
             },
             directory,
             key,
         }
     }
-    fn executable(&self) -> PathBuf {
+    pub(super) fn executable(&self) -> PathBuf {
         self.directory.join("Strata 中文.exe")
     }
-    fn proxy(&self) -> PathBuf {
+    pub(super) fn proxy(&self) -> PathBuf {
         self.directory.join("proxy.exe")
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "strata"
-version = "1.0.1"
+version = "1.0.2"
 default-run = "strata"
 edition = "2024"
 description = "A Windows-focused, keyboard-first file manager built with GTK4"

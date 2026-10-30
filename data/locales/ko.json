@@ -1436,5 +1436,16 @@
   "whole selection": "선택 전체",
   "your package manager": "패키지 관리자",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths}는 선택 전체 동작용입니다. 항목별 동작에는 {path}를 사용하세요",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path}는 항목별 동작용입니다. 선택 전체에는 {paths}를 사용하세요"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path}는 항목별 동작용입니다. 선택 전체에는 {paths}를 사용하세요",
+  "Checking file manager integration…": "파일 관리자 통합 확인 중…",
+  "Another application controls File Explorer integration.": "다른 애플리케이션이 파일 탐색기 통합을 관리하고 있습니다.",
+  "This Windows version does not support this integration.": "이 Windows 버전은 이 통합을 지원하지 않습니다.",
+  "Strata has not replaced File Explorer.": "Strata가 파일 탐색기를 대체하지 못했습니다.",
+  "Try again": "다시 시도",
+  "Replace the current file manager?": "현재 파일 관리자를 대체할까요?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata는 현재 설정을 저장하고 이 옵션을 끄면 복원합니다.",
+  "Replace": "대체",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "폴더, 드라이브 및 %{explorer_keys}를 Strata에서 엽니다. 백그라운드 도우미가 필요하지 않습니다. 이 옵션을 끄면 이전 파일 관리자가 복원됩니다.",
+  "Strata has not restored the previous file manager.": "Strata가 이전 파일 관리자를 복원하지 못했습니다.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "파일 관리자 설정을 복원할 수 없습니다. Strata가 제거되지 않았습니다."
 }
