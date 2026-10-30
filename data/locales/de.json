@@ -1436,5 +1436,16 @@
   "whole selection": "gesamte Auswahl",
   "your package manager": "Ihren Paketmanager",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} ist für Aktionen auf die gesamte Auswahl gedacht; verwenden Sie {path} für eine Aktion pro Element",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} ist für Aktionen pro Element gedacht; verwenden Sie {paths} für die gesamte Auswahl"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} ist für Aktionen pro Element gedacht; verwenden Sie {paths} für die gesamte Auswahl",
+  "Checking file manager integration…": "Dateimanager-Integration wird geprüft…",
+  "Another application controls File Explorer integration.": "Eine andere Anwendung steuert die Datei-Explorer-Integration.",
+  "This Windows version does not support this integration.": "Diese Windows-Version unterstützt diese Integration nicht.",
+  "Strata has not replaced File Explorer.": "Strata hat den Datei-Explorer nicht ersetzt.",
+  "Try again": "Erneut versuchen",
+  "Replace the current file manager?": "Den aktuellen Dateimanager ersetzen?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata speichert die aktuellen Einstellungen und stellt sie wieder her, wenn Sie diese Option ausschalten.",
+  "Replace": "Ersetzen",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Öffnen Sie Ordner, Laufwerke und %{explorer_keys} in Strata. Ein Hintergrundprogramm ist nicht erforderlich. Beim Ausschalten wird der vorherige Dateimanager wiederhergestellt.",
+  "Strata has not restored the previous file manager.": "Strata hat den vorherigen Dateimanager nicht wiederhergestellt.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "Die Dateimanager-Einstellungen konnten nicht wiederhergestellt werden. Strata wurde nicht deinstalliert."
 }

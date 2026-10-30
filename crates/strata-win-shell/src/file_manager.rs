@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     io::{self, Write},
     os::windows::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
@@ -14,8 +14,14 @@ use windows::Win32::{
 
 mod registry;
 use registry::Value;
+mod journal;
+mod launch;
+mod routing;
+mod status;
+pub use status::{Actual, IntegrationStatus, RouteStatus};
+mod monitor;
+pub use monitor::{RegistryMonitor, watch_changes};
 
-mod hotkey;
 mod lock;
 mod watcher;
 pub use watcher::watch;
@@ -24,25 +30,43 @@ const VERB: &str = "Strata.Open";
 const RUN_VALUE: &str = "StrataFileManager";
 const CLASSES: [&str; 2] = ["Directory", "Drive"];
 
+#[derive(Clone)]
 struct Registration {
     classes: String,
     state: String,
     run: String,
+    legacy_state: Option<String>,
 }
 
 impl Default for Registration {
     fn default() -> Self {
         Self {
             classes: r"Software\Classes".into(),
-            state: r"Software\Strata\FileManager".into(),
+            state: r"Software\Strata\FileManagerV2".into(),
             run: r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
+            legacy_state: Some(r"Software\Strata\FileManager".into()),
         }
     }
 }
 
 pub(crate) fn same_path(first: &Path, second: &Path) -> bool {
-    let first: Vec<u16> = first.as_os_str().encode_wide().collect();
-    let second: Vec<u16> = second.as_os_str().encode_wide().collect();
+    fn normalized(path: &Path) -> Vec<u16> {
+        let value: Vec<u16> = path.as_os_str().encode_wide().collect();
+        let prefix: Vec<u16> = r"\\?\".encode_utf16().collect();
+        let unc: Vec<u16> = r"\\?\UNC\".encode_utf16().collect();
+        if value.starts_with(&unc) {
+            r"\\"
+                .encode_utf16()
+                .chain(value[unc.len()..].iter().copied())
+                .collect()
+        } else if value.starts_with(&prefix) {
+            value[prefix.len()..].to_vec()
+        } else {
+            value
+        }
+    }
+    let first = normalized(first);
+    let second = normalized(second);
     // SAFETY: Both length-delimited UTF-16 buffers remain valid for the call.
     unsafe { CompareStringOrdinal(&first, &second, true) == CSTR_EQUAL }
 }
@@ -52,7 +76,97 @@ fn notify() {
     unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
 }
 
+/// Match GLib's Windows configuration root without loading GLib or GTK.
+pub fn configuration_directory() -> io::Result<PathBuf> {
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME").filter(|path| !path.is_empty()) {
+        return Ok(PathBuf::from(path).join("strata"));
+    }
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::{
+        System::Com::CoTaskMemFree,
+        UI::Shell::{FOLDERID_LocalAppData, KF_FLAG_DEFAULT, SHGetKnownFolderPath},
+    };
+    // SAFETY: The current-user known-folder call returns one independently allocated string.
+    let raw = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_DEFAULT, None) }
+        .map_err(io::Error::other)?;
+    // SAFETY: A successful known-folder query returned a terminated UTF-16 allocation.
+    let path = PathBuf::from(unsafe { std::ffi::OsString::from_wide(raw.as_wide()) });
+    // SAFETY: Release the string allocated by SHGetKnownFolderPath exactly once.
+    unsafe {
+        CoTaskMemFree(Some(raw.0.cast()));
+    }
+    Ok(path.join("strata"))
+}
+
 impl Registration {
+    fn metadata(&self, name: &str) -> io::Result<Option<Value>> {
+        match registry::get(&self.state, name)? {
+            Some(value) => Ok(Some(value)),
+            None => self
+                .legacy_state
+                .as_ref()
+                .map(|state| registry::get(state, name))
+                .transpose()
+                .map(Option::flatten),
+        }
+    }
+
+    fn import_legacy(&self) -> io::Result<()> {
+        if registry::get(&self.state, journal::NAME)?.is_some() {
+            return Ok(());
+        }
+        let Some(legacy) = &self.legacy_state else {
+            return Ok(());
+        };
+        if registry::get(legacy, "Executable")?.is_none() {
+            return Ok(());
+        }
+        for name in [
+            "Executable",
+            "Proxy",
+            "Command",
+            "WatchCommand",
+            "RunBackup",
+            "Directory",
+            "Drive",
+            "Activation",
+        ] {
+            if let Some(value) = registry::get(legacy, name)? {
+                registry::set(&self.state, name, Some(&value))?;
+                registry::set(
+                    &self.state,
+                    &format!("Legacy.{name}"),
+                    Some(&Value::backup(Some(value))),
+                )?;
+            }
+        }
+        registry::flush(&self.state)
+    }
+
+    fn retire_legacy(&self) -> io::Result<()> {
+        let Some(legacy) = &self.legacy_state else {
+            return Ok(());
+        };
+        for name in [
+            "Executable",
+            "Proxy",
+            "Command",
+            "WatchCommand",
+            "RunBackup",
+            "Directory",
+            "Drive",
+            "Activation",
+        ] {
+            if let Some(snapshot) = registry::get(&self.state, &format!("Legacy.{name}"))? {
+                if registry::get(legacy, name)? == snapshot.original()? {
+                    registry::set(legacy, name, None)?;
+                }
+                registry::set(&self.state, &format!("Legacy.{name}"), None)?;
+            }
+        }
+        registry::flush(legacy)?;
+        registry::delete_empty_key(legacy)
+    }
     fn set_activation(&self, activation: Option<(&str, &[u8])>) -> io::Result<()> {
         use windows::Win32::System::Registry::REG_BINARY;
 
@@ -86,6 +200,7 @@ impl Registration {
         Ok(())
     }
 
+    #[cfg(test)]
     fn activate_running(&self) -> bool {
         self.forward_running(None)
     }
@@ -118,168 +233,120 @@ impl Registration {
     }
 
     fn owner(&self) -> io::Result<Option<PathBuf>> {
-        Ok(registry::get(&self.state, "Executable")?
-            .and_then(|value| value.os_string())
-            .map(PathBuf::from))
+        let validate = |value: Value| {
+            value
+                .os_string()
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid integration owner")
+                })
+        };
+        if let Some(journal) = journal::Journal::read(self)? {
+            return validate(journal.executable).map(Some);
+        }
+        if let Some(legacy) = &self.legacy_state {
+            if let Some(owner) = registry::get(legacy, "Executable")? {
+                return validate(owner).map(Some);
+            }
+        }
+        if let Some(owner) = self.metadata("Executable")? {
+            return validate(owner).map(Some);
+        }
+        if self.metadata("Command")?.is_some() || self.metadata("Proxy")?.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Missing integration owner",
+            ));
+        }
+        Ok(None)
     }
 
     fn command(&self) -> io::Result<Option<Value>> {
-        registry::get(&self.state, "Command")
+        self.metadata("Command")
     }
 
     fn available_target(&self) -> io::Result<Option<PathBuf>> {
+        if let Some(mut journal) = journal::Journal::load_if_present(self)?
+            && matches!(
+                journal.phase,
+                journal::Phase::Prepared | journal::Phase::Restoring
+            )
+        {
+            journal.restore(self)?;
+        }
         let Some(executable) = self.owner()? else {
             return Ok(None);
         };
-        if executable.is_file() {
+        if std::fs::symlink_metadata(&executable)
+            .is_ok_and(|m| m.is_file() && m.file_attributes() & 0x400 == 0)
+        {
             return Ok(Some(executable));
         }
         self.disable(&executable)?;
         Ok(None)
     }
+}
 
-    fn enabled(&self, executable: &Path) -> io::Result<bool> {
-        if !self
-            .owner()?
-            .is_some_and(|owner| same_path(&owner, executable))
-        {
-            return Ok(false);
-        }
-        let expected = self.command()?;
-        let verb = Some(Value::text(OsStr::new(VERB))?);
-        for class in CLASSES {
-            if registry::get(&self.shell(class), "")? != verb
-                || registry::get(&format!(r"{}\command", self.verb(class)), "")? != expected
-            {
-                return Ok(false);
-            }
-        }
-        Ok(expected.is_some()
-            && registry::get(&self.run, RUN_VALUE)? == registry::get(&self.state, "WatchCommand")?)
+/// Return whether both per-user filesystem folder handlers belong to this app.
+pub fn enabled(executable: &Path) -> io::Result<bool> {
+    Ok(probe_status(Some(executable))?.actual == Actual::Active)
+}
+
+/// Installer upgrade only reconciles an existing registration owned by this target.
+pub fn upgrade_owned(executable: &Path, source: &Path) -> io::Result<()> {
+    if !executable.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Expected an absolute integration target",
+        ));
     }
-
-    fn disable(&self, executable: &Path) -> io::Result<()> {
-        if !self
+    let (label, activation) = {
+        let _guard = lock::acquire()?;
+        let registration = Registration::default();
+        if !registration
             .owner()?
             .is_some_and(|owner| same_path(&owner, executable))
         {
             return Ok(());
         }
-        let command = self
-            .command()?
-            .ok_or_else(|| io::Error::other("Missing file-manager command backup"))?;
-        let verb = Some(Value::text(OsStr::new(VERB))?);
-        for class in CLASSES {
-            let own_command = registry::get(&format!(r"{}\command", self.verb(class)), "")?
-                .as_ref()
-                == Some(&command);
-            if own_command {
-                if registry::get(&self.shell(class), "")? == verb {
-                    let backup = registry::get(&self.state, class)?
-                        .ok_or_else(|| io::Error::other("Missing file-manager default backup"))?;
-                    registry::set(&self.shell(class), "", backup.original()?.as_ref())?;
-                }
-                registry::remove_tree(&self.verb(class))?;
-            }
-        }
-        if let Some(expected) = registry::get(&self.state, "WatchCommand")?
-            && registry::get(&self.run, RUN_VALUE)?.as_ref() == Some(&expected)
-        {
-            let backup = registry::get(&self.state, "RunBackup")?
-                .ok_or_else(|| io::Error::other("Missing startup command backup"))?;
-            registry::set(&self.run, RUN_VALUE, backup.original()?.as_ref())?;
-        }
-        registry::remove_tree(&self.state)?;
-        Ok(())
-    }
-
-    fn enable(&self, executable: &Path, proxy: &Path, label: &str) -> io::Result<()> {
-        if !executable.is_absolute()
-            || !proxy.is_absolute()
-            || !executable.is_file()
-            || !proxy.is_file()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "File-manager executables must exist at absolute paths",
-            ));
-        }
-        let mut command = OsString::from("\"");
-        command.push(proxy.as_os_str());
-        command.push("\" --open \"%1\\.\"");
-        let command = Value::text(&command)?;
-        let mut watch = OsString::from("\"");
-        watch.push(proxy.as_os_str());
-        watch.push("\" --watch");
-        let watch = Value::text(&watch)?;
-        if let Some(owner) = self.owner()? {
-            if same_path(&owner, executable) && self.command()?.as_ref() == Some(&command) {
-                // Resume an interrupted registration without replacing its backup.
-            } else {
-                self.disable(&owner)?;
-            }
-        }
-        if self.owner()?.is_none() {
-            for class in CLASSES {
-                if registry::get(&format!(r"{}\command", self.verb(class)), "")?.is_some() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::AlreadyExists,
-                        "Another registration owns the Strata folder verb",
-                    ));
-                }
-            }
-            // Flush the complete rollback journal before overriding a shell default.
-            for class in CLASSES {
-                let original = registry::get(&self.shell(class), "")?;
-                registry::set(&self.state, class, Some(&Value::backup(original)))?;
-            }
-            registry::set(&self.state, "Command", Some(&command))?;
-            registry::set(&self.state, "Proxy", Some(&Value::text(proxy.as_os_str())?))?;
-            registry::set(
-                &self.state,
-                "RunBackup",
-                Some(&Value::backup(registry::get(&self.run, RUN_VALUE)?)),
-            )?;
-            registry::set(&self.state, "WatchCommand", Some(&watch))?;
-            registry::set(
-                &self.state,
-                "Executable",
-                Some(&Value::text(executable.as_os_str())?),
-            )?;
-            registry::flush(&self.state)?;
-        }
-        let result = (|| {
-            registry::set(&self.run, RUN_VALUE, Some(&watch))?;
-            for class in CLASSES {
-                registry::set(
-                    &format!(r"{}\command", self.verb(class)),
-                    "",
-                    Some(&command),
-                )?;
-                registry::set(
-                    &self.verb(class),
-                    "",
-                    Some(&Value::text(OsStr::new(label))?),
-                )?;
-                registry::set(
-                    &self.shell(class),
-                    "",
-                    Some(&Value::text(OsStr::new(VERB))?),
-                )?;
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = self.disable(executable);
-        }
-        result
-    }
+        let label = registration
+            .metadata("Label")?
+            .or(registry::get(&registration.verb("Directory"), "")?)
+            .and_then(|v| v.os_string())
+            .and_then(|v| v.into_string().ok())
+            .ok_or_else(|| io::Error::other("Missing integration label"))?;
+        let activation = registration.activation_data()?;
+        (label, activation)
+    };
+    install_with_policy(
+        executable,
+        source,
+        &label,
+        activation
+            .as_ref()
+            .map(|(scope, request)| (scope.as_str(), request.as_slice())),
+        false,
+    )
 }
 
-/// Return whether both per-user filesystem folder handlers belong to this app.
-pub fn enabled(executable: &Path) -> io::Result<bool> {
-    let _guard = lock::acquire()?;
-    Registration::default().enabled(executable)
+impl Registration {
+    fn activation_data(&self) -> io::Result<Option<(String, Vec<u8>)>> {
+        let Some(value) = self.metadata("Activation")? else {
+            return Ok(None);
+        };
+        if value.kind != windows::Win32::System::Registry::REG_BINARY || value.data.len() < 4 {
+            return Ok(None);
+        }
+        let length =
+            u32::from_le_bytes(value.data[..4].try_into().expect("activation header")) as usize;
+        if length == 0 || length > 32 * 1024 || length >= value.data.len() - 4 {
+            return Ok(None);
+        }
+        Ok(std::str::from_utf8(&value.data[4..4 + length])
+            .ok()
+            .map(|scope| (scope.to_owned(), value.data[4 + length..].to_vec())))
+    }
 }
 
 /// A per-user proxy outside the installation survives deletion of a portable folder.
@@ -296,7 +363,7 @@ pub fn proxy_path() -> io::Result<PathBuf> {
     Ok(root
         .join("Strata")
         .join("ShellIntegration")
-        .join("strata-shell.exe"))
+        .join("strata-shell-v2.exe"))
 }
 
 /// Install the standalone proxy atomically, then register it under one per-user
@@ -307,13 +374,31 @@ pub fn install(
     label: &str,
     activation: Option<(&str, &[u8])>,
 ) -> io::Result<()> {
+    install_with_policy(executable, source, label, activation, false)
+}
+
+/// `replace_foreign` is allowed only after an explicit user confirmation.
+pub fn install_with_policy(
+    executable: &Path,
+    source: &Path,
+    label: &str,
+    activation: Option<(&str, &[u8])>,
+    replace_foreign: bool,
+) -> io::Result<()> {
     let proxy = proxy_path()?;
-    // An executable cannot be atomically replaced while its watcher is running.
-    if std::fs::read(source).ok() != std::fs::read(&proxy).ok() {
-        watcher::stop()?;
+    let guard = lock::acquire()?;
+    let registration = Registration::default();
+    if !replace_foreign
+        && registration
+            .owner()?
+            .is_some_and(|owner| !same_path(&owner, executable))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "Another installation owns the file-manager registration",
+        ));
     }
-    let _guard = lock::acquire()?;
-    let parent = proxy.parent().expect("proxy directory");
+    let parent = proxy.parent().expect("proxy parent");
     for path in [
         proxy.as_path(),
         parent,
@@ -330,24 +415,56 @@ pub fn install(
             _ => {}
         }
     }
-    std::fs::create_dir_all(parent)?;
-    if !source.is_file() || std::fs::metadata(source)?.len() > 64 * 1024 * 1024 {
+    if !source.is_absolute()
+        || !executable.is_absolute()
+        || !source.is_file()
+        || std::fs::metadata(source)?.len() > 64 * 1024 * 1024
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "Standalone shell helper is missing or oversized",
         ));
     }
+    if std::fs::symlink_metadata(source)?.file_attributes() & 0x400 != 0
+        || std::fs::symlink_metadata(executable)?.file_attributes() & 0x400 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Refusing a redirected integration executable",
+        ));
+    }
+    {
+        use std::{os::windows::process::CommandExt, process::Stdio};
+        let protocol = Command::new(source)
+            .arg("--integration-protocol")
+            .creation_flags(0x08000000)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()?;
+        if !protocol.status.success()
+            || protocol.stdout != b"strata-shell-registry-v2\n"
+                && protocol.stdout != b"strata-shell-registry-v2\r\n"
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Standalone helper does not support Registry routing v2",
+            ));
+        }
+    }
+    std::fs::create_dir_all(parent)?;
     let bytes = std::fs::read(source)?;
-    let copied = std::fs::read(&proxy).ok().as_deref() != Some(bytes.as_slice());
-    if copied {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(io::Error::other)?
-            .as_nanos();
-        let temporary = parent.join(format!("proxy-{}-{nonce}.tmp", std::process::id()));
+    if std::fs::read(&proxy).ok().as_deref() != Some(bytes.as_slice()) {
+        let temporary = parent.join(format!(
+            "proxy-{}-{}.tmp",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_nanos()
+        ));
         let mut file = std::fs::OpenOptions::new()
-            .write(true)
             .create_new(true)
+            .write(true)
             .open(&temporary)?;
         let result = (|| {
             file.write_all(&bytes)?;
@@ -360,33 +477,31 @@ pub fn install(
         }
         result?;
     }
-    let registration = Registration::default();
-    let expected_label = Some(Value::text(OsStr::new(label))?);
-    if !copied
-        && registration.enabled(executable)?
-        && CLASSES.into_iter().all(|class| {
-            registry::get(&registration.verb(class), "").ok() == Some(expected_label.clone())
-        })
-    {
-        registration.set_activation(activation)?;
-        drop(_guard);
-        return watcher::ensure(&proxy);
-    }
-    let result = registration
-        .enable(executable, &proxy, label)
-        .and_then(|()| registration.set_activation(activation));
+    registration.enable_policy(executable, &proxy, label, replace_foreign)?;
+    registration.set_activation(activation)?;
     notify();
-    drop(_guard);
-    result?;
-    if let Err(error) = watcher::ensure(&proxy) {
-        let _ = disable(executable);
-        return Err(error);
-    }
+    drop(guard);
+    // A versioned proxy keeps the old watcher usable until new routes are verified.
+    watcher::stop()?;
+    let _guard = lock::acquire()?;
+    registration.retire_legacy()?;
     Ok(())
 }
 
-/// Register only filesystem folders and drives. Desktop, taskbar and virtual
-/// namespaces retain their Windows handlers.
+/// Registry verification is distinct from interactive Win+E compatibility evidence.
+pub fn probe_status(executable: Option<&Path>) -> io::Result<IntegrationStatus> {
+    let guard = lock::acquire()?;
+    let mut status = Registration::default().probe(executable)?;
+    drop(guard);
+    status.legacy_watcher_running = watcher::running();
+    if status.actual == Actual::Active && status.legacy_watcher_running {
+        status.actual = Actual::Partial;
+    }
+    Ok(status)
+}
+
+/// Register the folder, drive and Win+E Shell routes. Virtual namespaces are
+/// outside the native-path dispatch boundary and need interactive acceptance.
 pub fn enable(executable: &Path, proxy: &Path, label: &str) -> io::Result<()> {
     let _guard = lock::acquire()?;
     let result = Registration::default().enable(executable, proxy, label);
@@ -396,6 +511,12 @@ pub fn enable(executable: &Path, proxy: &Path, label: &str) -> io::Result<()> {
 
 /// Restore the exact prior defaults only if this installation still owns them.
 pub fn disable(executable: &Path) -> io::Result<()> {
+    if !executable.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Expected an absolute integration target",
+        ));
+    }
     let _guard = lock::acquire()?;
     let registration = Registration::default();
     let owned = registration
@@ -434,6 +555,34 @@ pub fn open(folder: &OsStr) -> io::Result<()> {
 
 /// Route a native shell invocation straight to the owning installation's pipe.
 pub fn open_with_request(folder: &OsStr, request: Option<&[u8]>) -> io::Result<()> {
+    if !Path::new(folder).is_absolute() || folder.encode_wide().any(|unit| unit == 0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Only absolute native folders are supported",
+        ));
+    }
+    let native_request;
+    let request = if let Some(request) = request {
+        request
+    } else {
+        let cwd = std::env::current_dir()?
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>();
+        let arguments = folder.encode_wide().collect::<Vec<_>>();
+        native_request =
+            format!("{{\"Open\":{{\"cwd\":{cwd:?},\"arguments\":[{arguments:?}]}}}}").into_bytes();
+        native_request.as_slice()
+    };
+    dispatch(Some(folder), Some(request))
+}
+
+/// Win+E activates the primary without inventing a folder argument.
+pub fn activate() -> io::Result<()> {
+    dispatch(None, None)
+}
+
+fn dispatch(folder: Option<&OsStr>, request: Option<&[u8]>) -> io::Result<()> {
     let registration = Registration::default();
     let target = (|| -> io::Result<Option<PathBuf>> {
         let _guard = lock::acquire()?;
@@ -444,36 +593,52 @@ pub fn open_with_request(folder: &OsStr, request: Option<&[u8]>) -> io::Result<(
         }
         available
     })();
-    if let Err(error) = &target {
-        eprintln!("Unable to inspect or repair folder handler: {error}");
-    }
-    if let Ok(Some(executable)) = target {
-        if let Some(request) = request
-            && registration.forward_running(Some(request))
-        {
-            return Ok(());
-        }
-        if let Ok(mut child) = Command::new(&executable).arg("--").arg(folder).spawn() {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(150);
-            loop {
-                match child.try_wait() {
-                    Err(_) => break,
-                    Ok(Some(status)) if !status.success() => break,
-                    Ok(Some(_)) => return Ok(()),
-                    Ok(None) if std::time::Instant::now() >= deadline => return Ok(()),
-                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
-                }
+    let target = target?;
+    if let Some(executable) = target {
+        let result = registration.launch_once(request, || {
+            let mut launch = Command::new(&executable);
+            if let Some(folder) = folder {
+                launch.arg("--").arg(folder);
             }
+            launch
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            Ok(launch.spawn()?.id())
+        });
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut
+                        | io::ErrorKind::WouldBlock
+                        | io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                return Err(error);
+            }
+            Err(_) => {}
         }
-        if let Err(error) = disable(&executable) {
-            eprintln!("Unable to repair folder handler: {error}");
-        }
+        disable(&executable)?;
+    }
+    // Never invoke Explorer while one of our route commands could call us again.
+    if registration.owns_any_route()? {
+        return Err(io::Error::other(
+            "Shell fallback requires successful rollback",
+        ));
+    }
+    if std::env::var_os("STRATA_SHELL_FALLBACK_DEPTH").is_some() {
+        return Err(io::Error::other("Recursive shell fallback refused"));
     }
     let windows = std::env::var_os("SystemRoot")
         .ok_or_else(|| io::Error::other("Missing Windows directory"))?;
-    Command::new(PathBuf::from(windows).join("explorer.exe"))
-        .arg(folder)
-        .spawn()?;
+    let mut fallback = Command::new(PathBuf::from(windows).join("explorer.exe"));
+    fallback.env("STRATA_SHELL_FALLBACK_DEPTH", "1");
+    if let Some(folder) = folder {
+        fallback.arg(folder);
+    }
+    fallback.spawn()?;
     Ok(())
 }
 

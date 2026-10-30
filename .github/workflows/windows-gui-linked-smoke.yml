@@ -163,9 +163,24 @@ jobs:
           CARGO_BUILD_JOBS: '2'
         run: |
           set -euo pipefail
-          cargo test --locked --no-default-features --features rar --bin strata --no-run
+          cargo test --locked --no-default-features --features rar --bin strata --bin strata-shell --no-run --message-format=json-render-diagnostics > target/windows-gui-test-artifacts.jsonl
           cp target/windows-gtk-runtime/libgtk-4-1.dll target/debug/deps/
           cp target/windows-gtk-runtime/libgstplay-1.0-0.dll target/debug/deps/
+
+      - name: Verify live Shell preferences on a private desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = "$env:STRATA_UCRT_ROOT\bin;$env:Path"
+          $artifacts = Get-Content target/windows-gui-test-artifacts.jsonl | ForEach-Object { $_ | ConvertFrom-Json }
+          $tests = @($artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.executable -and $_.target.name -eq 'strata' })
+          if ($tests.Count -ne 1) { throw 'Expected exactly one compiled GUI test harness' }
+          python scripts/windows/private-test-desktop.py --log target/windows-shell-preferences.log -- $tests[0].executable 'ui::windows_integration::tests::' --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $helpers = @($artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.executable -and $_.target.name -eq 'strata-shell' })
+          if ($helpers.Count -ne 1) { throw 'Expected exactly one helper test harness' }
+          python scripts/windows/private-test-desktop.py --log target/windows-helper-preferences.log -- $helpers[0].executable 'preferences::tests::' --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Windows-only safety and filesystem tests
         shell: msys2 {0}

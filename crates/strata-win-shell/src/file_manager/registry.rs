@@ -92,10 +92,18 @@ impl Drop for Key {
 }
 
 fn checked(result: WIN32_ERROR) -> io::Result<()> {
-    result.ok().map_err(io::Error::other)
+    if result.is_ok() {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(result.0 as i32))
+    }
 }
 
 fn open(path: &str, create: bool) -> io::Result<Option<Key>> {
+    open_from(HKEY_CURRENT_USER, path, create)
+}
+
+fn open_from(root: HKEY, path: &str, create: bool) -> io::Result<Option<Key>> {
     let path = wide(OsStr::new(path))?;
     let mut key = HKEY::default();
     // SAFETY: Strings are terminated and the writable output is live. All
@@ -103,7 +111,7 @@ fn open(path: &str, create: bool) -> io::Result<Option<Key>> {
     let result = unsafe {
         if create {
             RegCreateKeyExW(
-                HKEY_CURRENT_USER,
+                root,
                 PCWSTR(path.as_ptr()),
                 None,
                 PCWSTR::null(),
@@ -115,7 +123,7 @@ fn open(path: &str, create: bool) -> io::Result<Option<Key>> {
             )
         } else {
             RegOpenKeyExW(
-                HKEY_CURRENT_USER,
+                root,
                 PCWSTR(path.as_ptr()),
                 None,
                 KEY_READ | KEY_WOW64_64KEY,
@@ -130,8 +138,16 @@ fn open(path: &str, create: bool) -> io::Result<Option<Key>> {
     Ok(Some(Key(key)))
 }
 
+pub(super) fn effective_get(path: &str, name: &str) -> io::Result<Option<Value>> {
+    get_from(HKEY_CLASSES_ROOT, path, name)
+}
+
 pub(super) fn get(path: &str, name: &str) -> io::Result<Option<Value>> {
-    let Some(key) = open(path, false)? else {
+    get_from(HKEY_CURRENT_USER, path, name)
+}
+
+fn get_from(root: HKEY, path: &str, name: &str) -> io::Result<Option<Value>> {
+    let Some(key) = open_from(root, path, false)? else {
         return Ok(None);
     };
     let name = wide(OsStr::new(name))?;
@@ -186,6 +202,9 @@ pub(super) fn get(path: &str, name: &str) -> io::Result<Option<Value>> {
 }
 
 pub(super) fn set(path: &str, name: &str, value: Option<&Value>) -> io::Result<()> {
+    if value.is_none() && !key_exists(path)? {
+        return Ok(());
+    }
     let key = open(path, true)?.ok_or_else(|| io::Error::other("Registry key unavailable"))?;
     let name = wide(OsStr::new(name))?;
     // SAFETY: The key is owned, the name terminated, and data borrowed for the
@@ -209,6 +228,54 @@ pub(super) fn set(path: &str, name: &str, value: Option<&Value>) -> io::Result<(
     checked(result)
 }
 
+pub(super) fn key_exists(path: &str) -> io::Result<bool> {
+    Ok(open(path, false)?.is_some())
+}
+
+/// Remove only an empty key. Foreign values or subkeys always keep it alive.
+pub(super) fn delete_empty_key(path: &str) -> io::Result<()> {
+    let Some(key) = open(path, false)? else {
+        return Ok(());
+    };
+    let mut children = 0;
+    let mut values = 0;
+    // SAFETY: The live key and initialized count outputs outlive the call.
+    checked(unsafe {
+        RegQueryInfoKeyW(
+            key.0,
+            None,
+            None,
+            None,
+            Some(&mut children),
+            None,
+            None,
+            Some(&mut values),
+            None,
+            None,
+            None,
+            None,
+        )
+    })?;
+    drop(key);
+    if children == 0 && values == 0 {
+        let path = wide(OsStr::new(path))?;
+        // SAFETY: This deletes a single checked-empty key, never a subtree.
+        let result = unsafe {
+            RegDeleteKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(path.as_ptr()),
+                KEY_WOW64_64KEY.0,
+                None,
+            )
+        };
+        if result != ERROR_FILE_NOT_FOUND {
+            checked(result)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 pub(super) fn remove_tree(path: &str) -> io::Result<()> {
     let path = wide(OsStr::new(path))?;
     // SAFETY: Callers pass only an owned registration/journal subkey, never

@@ -1436,5 +1436,16 @@
   "whole selection": "全部所选项目",
   "your package manager": "包管理器",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} 仅适用于“全部所选项目”方式的操作；“逐项”方式请使用 {path}",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} 仅适用于“逐项”方式的操作；“全部所选项目”方式请使用 {paths}"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} 仅适用于“逐项”方式的操作；“全部所选项目”方式请使用 {paths}",
+  "Checking file manager integration…": "正在检查文件管理器集成…",
+  "Another application controls File Explorer integration.": "另一个应用程序正在管理文件资源管理器集成。",
+  "This Windows version does not support this integration.": "此 Windows 版本不支持此集成。",
+  "Strata has not replaced File Explorer.": "Strata 尚未替代文件资源管理器。",
+  "Try again": "重试",
+  "Replace the current file manager?": "替换当前文件管理器？",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata 将保存当前设置，并在关闭此选项时恢复。",
+  "Replace": "替换",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "在 Strata 中打开文件夹、驱动器并响应 %{explorer_keys}。无需后台辅助程序。关闭此选项将恢复之前的文件管理器。",
+  "Strata has not restored the previous file manager.": "Strata 尚未恢复之前的文件管理器。",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "无法恢复文件管理器设置。Strata 尚未卸载。"
 }

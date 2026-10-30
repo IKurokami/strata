@@ -141,16 +141,22 @@ pub(super) fn general_page(
                 write: PreferenceManager::set_show_console,
             },
         );
-        append_preference_switch(
-            &desktop,
-            &manager,
-            PreferenceSwitch {
-                title: "Replace File Explorer",
-                description: "Open folders, drives and %{explorer_keys} in Strata. A small helper starts at sign-in. Turning this off restores your previous file manager immediately.",
-                read: PreferenceManager::replace_file_explorer,
-                write: PreferenceManager::set_replace_file_explorer,
-            },
+        let (row, toggle) = settings_option(
+            "Replace File Explorer",
+            "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.",
+            manager.replace_file_explorer(),
         );
+        bind_switch(
+            &manager,
+            &toggle,
+            PreferenceManager::replace_file_explorer,
+            PreferenceManager::set_replace_file_explorer,
+        );
+        let integration = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        super::search::tag(&integration, "Replace File Explorer");
+        integration.append(&row);
+        integration.append(&crate::ui::windows_integration::status_row());
+        desktop.append(&integration);
     }
 
     let startup = super::settings_group(&preferences, "STARTUP");

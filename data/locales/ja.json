@@ -1436,5 +1436,16 @@
   "whole selection": "選択全体",
   "your package manager": "パッケージマネージャー",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} は選択全体のアクション用です。項目ごとのアクションには {path} を使用してください",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} は項目ごとのアクション用です。選択全体には {paths} を使用してください"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} は項目ごとのアクション用です。選択全体には {paths} を使用してください",
+  "Checking file manager integration…": "ファイルマネージャーの統合を確認中…",
+  "Another application controls File Explorer integration.": "別のアプリケーションがエクスプローラーの統合を管理しています。",
+  "This Windows version does not support this integration.": "このバージョンの Windows は、この統合をサポートしていません。",
+  "Strata has not replaced File Explorer.": "Strata はエクスプローラーを置き換えていません。",
+  "Try again": "再試行",
+  "Replace the current file manager?": "現在のファイルマネージャーを置き換えますか？",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata は現在の設定を保存し、このオプションをオフにすると復元します。",
+  "Replace": "置き換える",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "フォルダー、ドライブ、%{explorer_keys} を Strata で開きます。バックグラウンドの補助プログラムは不要です。オフにすると以前のファイルマネージャーに戻ります。",
+  "Strata has not restored the previous file manager.": "Strata は以前のファイルマネージャーを復元できていません。",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "ファイルマネージャーの設定を復元できません。Strata はアンインストールされていません。"
 }

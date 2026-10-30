@@ -1436,5 +1436,16 @@
   "whole selection": "toute la sélection",
   "your package manager": "votre gestionnaire de paquets",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} est réservé aux actions sur toute la sélection ; utilisez {path} pour une action par élément",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} est réservé aux actions par élément ; utilisez {paths} pour toute la sélection"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} est réservé aux actions par élément ; utilisez {paths} pour toute la sélection",
+  "Checking file manager integration…": "Vérification de l’intégration du gestionnaire de fichiers…",
+  "Another application controls File Explorer integration.": "Une autre application contrôle l’intégration de l’Explorateur de fichiers.",
+  "This Windows version does not support this integration.": "Cette version de Windows ne prend pas en charge cette intégration.",
+  "Strata has not replaced File Explorer.": "Strata n’a pas remplacé l’Explorateur de fichiers.",
+  "Try again": "Réessayer",
+  "Replace the current file manager?": "Remplacer le gestionnaire de fichiers actuel ?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata enregistrera les paramètres actuels et les restaurera lorsque vous désactiverez cette option.",
+  "Replace": "Remplacer",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Ouvrez les dossiers, lecteurs et %{explorer_keys} dans Strata. Aucun programme auxiliaire en arrière-plan n’est nécessaire. Désactiver cette option restaure le gestionnaire précédent.",
+  "Strata has not restored the previous file manager.": "Strata n’a pas restauré le gestionnaire de fichiers précédent.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "Impossible de restaurer les paramètres du gestionnaire de fichiers. Strata n’a pas été désinstallé."
 }

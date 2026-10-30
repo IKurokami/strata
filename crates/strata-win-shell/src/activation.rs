@@ -45,6 +45,16 @@ const MAX_MESSAGE: usize = 60 * 1024;
 const POLL: Duration = Duration::from_millis(10);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Read-only readiness; actual requests authenticate the pipe and await queue ACK.
+pub(crate) fn available(scope: &str) -> bool {
+    let Ok((sid, session)) = identity() else {
+        return false;
+    };
+    let name = wide(&endpoint(scope, &sid, session));
+    // SAFETY: Name is terminated and the check does not connect or write a request.
+    unsafe { windows::Win32::System::Pipes::WaitNamedPipeW(PCWSTR(name.as_ptr()), 1) }.as_bool()
+}
+
 fn win_error(error: windows::core::Error) -> io::Error {
     io::Error::other(error.to_string())
 }

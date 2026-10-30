@@ -4,6 +4,9 @@
 #[cfg(windows)]
 #[path = "strata-shell/context_menu.rs"]
 mod context_menu;
+#[cfg(windows)]
+#[path = "strata-shell/preferences.rs"]
+mod preferences;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
@@ -19,6 +22,33 @@ fn main() -> std::process::ExitCode {
     let result = match arguments.as_slice() {
         [mode] if mode == "--version" => {
             println!("strata-shell {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
+        [mode] if mode == "--integration-protocol" => {
+            println!("strata-shell-registry-v2");
+            Ok(())
+        }
+        [mode] if mode == "--activate" => strata_win_shell::file_manager::activate(),
+        [mode] if mode == "--status-json" => {
+            match strata_win_shell::file_manager::probe_status(None) {
+                Ok(status) => println!(
+                    "{}",
+                    serde_json::json!({
+                        "actual": status.actual.as_str(), "registration_version": status.registration_version,
+                        "desired_enabled": desired_shell_preference(),
+                        "transaction_id": status.transaction_id,
+                        "owner_executable_exists": status.owner_executable_exists, "proxy_exists": status.proxy_exists,
+                        "folder_open": status.folder_open.as_str(), "folder_explore": status.folder_explore.as_str(),
+                        "win_e_clsid": status.win_e_clsid.as_str(), "drive_open": status.drive_open.as_str(),
+                        "legacy_watcher_running": status.legacy_watcher_running, "repairable": status.repairable,
+                        "validation": "registry_only", "last_error": null
+                    })
+                ),
+                Err(error) => println!(
+                    "{}",
+                    serde_json::json!({"actual":"broken", "repairable":false, "last_error":format!("{:?}",error.kind()), "win32_error":error.raw_os_error()})
+                ),
+            }
             Ok(())
         }
         [mode, pid, started, executable, rest @ ..] if mode == "--restart" => {
@@ -65,6 +95,17 @@ fn main() -> std::process::ExitCode {
         [mode] if mode == "--watch" => strata_win_shell::file_manager::watch(),
         [mode, flag, target] if mode == "--unregister" && flag == "--target" => {
             strata_win_shell::file_manager::disable(std::path::Path::new(target))
+        }
+        [mode, flag, target] if mode == "--upgrade-integration" && flag == "--target" => {
+            let target = std::path::Path::new(target);
+            if desired_shell_preference() == Some(false) {
+                strata_win_shell::file_manager::disable(target)
+            } else {
+                strata_win_shell::file_manager::upgrade_owned(
+                    target,
+                    &std::env::current_exe().unwrap_or_default(),
+                )
+            }
         }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -113,3 +154,12 @@ fn launch_portable(
 
 #[cfg(not(windows))]
 fn main() {}
+
+#[cfg(windows)]
+fn desired_shell_preference() -> Option<bool> {
+    preferences::read(
+        &strata_win_shell::file_manager::configuration_directory()
+            .ok()?
+            .join("settings.toml"),
+    )
+}

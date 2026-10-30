@@ -1436,5 +1436,16 @@
   "whole selection": "whole selection",
   "your package manager": "your package manager",
   "{paths} is for whole-selection actions; use {path} for a per-item action": "{paths} is for whole-selection actions; use {path} for a per-item action",
-  "{path} is for per-item actions; use {paths} for a whole selection": "{path} is for per-item actions; use {paths} for a whole selection"
+  "{path} is for per-item actions; use {paths} for a whole selection": "{path} is for per-item actions; use {paths} for a whole selection",
+  "Checking file manager integration…": "Checking file manager integration…",
+  "Another application controls File Explorer integration.": "Another application controls File Explorer integration.",
+  "This Windows version does not support this integration.": "This Windows version does not support this integration.",
+  "Strata has not replaced File Explorer.": "Strata has not replaced File Explorer.",
+  "Try again": "Try again",
+  "Replace the current file manager?": "Replace the current file manager?",
+  "Strata will save the current settings and restore them when you turn this option off.": "Strata will save the current settings and restore them when you turn this option off.",
+  "Replace": "Replace",
+  "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.",
+  "Strata has not restored the previous file manager.": "Strata has not restored the previous file manager.",
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "Unable to restore file manager settings. Strata has not been uninstalled."
 }

@@ -1,0 +1,58 @@
+name: Windows Shell Registry migration
+
+on:
+  pull_request:
+    paths:
+      - 'crates/strata-win-shell/**'
+      - 'src/bin/strata-shell.rs'
+      - 'src/bin/strata-shell/**'
+      - 'scripts/windows/private-test-desktop.py'
+      - '.github/workflows/windows-shell-registry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shell-registry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-native-regressions:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install the repository's pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default 1.98.0
+      - name: Compile the native component test harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked --manifest-path crates/strata-win-shell/Cargo.toml --lib --no-run --message-format=json-render-diagnostics > native-artifacts.jsonl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $artifacts = Get-Content native-artifacts.jsonl | ForEach-Object { $_ | ConvertFrom-Json }
+          $test = @($artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.executable -and $_.target.name -eq 'strata_win_shell' })
+          if ($test.Count -ne 1) { throw 'Expected exactly one native test executable' }
+          $test[0].executable | Set-Content native-test-executable.txt
+      - name: Verify migration, rollback, activation and process identity
+        shell: pwsh
+        run: |
+          $test = (Get-Content native-test-executable.txt -Raw).Trim()
+          foreach ($filter in @('file_manager::', 'activation::tests::', 'restart::tests::')) {
+            $name = $filter.Replace(':','-')
+            python scripts/windows/private-test-desktop.py --log "$name.log" -- $test $filter --nocapture --test-threads=1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Preserve isolated regression output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-shell-registry-${{ github.run_id }}
+          path: '*.log'
+          if-no-files-found: ignore
+          retention-days: 14
