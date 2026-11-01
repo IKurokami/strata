@@ -109,21 +109,7 @@ pub(super) fn bind_column_context_owner(
             }
             // Unmapping can focus the window's first control (for example Home).
             // Restore before another key is dispatched, not from a later idle callback.
-            if state.browser.active_depth() == Some(depth) {
-                if context_search_active(&state, depth) {
-                    if let Some(focus) = state
-                        .context_menu_focus
-                        .borrow()
-                        .as_ref()
-                        .and_then(glib::WeakRef::upgrade)
-                        .filter(|focus| focus.is_mapped())
-                    {
-                        focus.grab_focus();
-                    }
-                } else {
-                    state.browser.focus_active();
-                }
-            }
+            restore_context_focus(&state, depth);
             let generation = state.context_menu_generation.get();
             let weak = Rc::downgrade(&state);
             glib::idle_add_local_once(move || {
@@ -143,6 +129,20 @@ pub(super) fn bind_column_context_owner(
 fn restore_context_focus(state: &ViewState, depth: usize) {
     let _preview_guard = crate::ui::preview::suppress_selection_preview();
     if state.browser.active_depth() != Some(depth) {
+        return;
+    }
+    if state.mode_views.borrow().mode() == BrowserMode::Columns {
+        let editable = state
+            .context_menu_focus
+            .borrow()
+            .as_ref()
+            .and_then(glib::WeakRef::upgrade)
+            .filter(|focus| focus.is_mapped() && crate::ui::focus_navigation::editable(focus));
+        if let Some(editable) = editable {
+            editable.grab_focus();
+        } else {
+            state.focus_column_background(depth);
+        }
         return;
     }
     if context_search_active(state, depth) {
@@ -192,9 +192,20 @@ pub(super) fn focus_context_column(state: &Rc<ViewState>, depth: usize) {
         .context_menu_generation
         .set(state.context_menu_generation.get().wrapping_add(1));
     state.context_menu_column.set(Some(depth));
+    state.pointer_navigation();
     state.browser.set_active_column(depth);
     // GTK restores pre-popup focus on dismissal; make that the menu's own column.
-    if !context_search_active(state, depth) {
+    if state.mode_views.borrow().mode() == BrowserMode::Columns {
+        let editing_query = context_search_active(state, depth)
+            && state
+                .overlay
+                .root()
+                .and_then(|root| root.focus())
+                .is_some_and(|focus| crate::ui::focus_navigation::editable(&focus));
+        if !editing_query {
+            state.focus_column_background(depth);
+        }
+    } else if !context_search_active(state, depth) {
         state.browser.focus_active();
     }
     state.context_menu_focus.replace(
@@ -204,7 +215,6 @@ pub(super) fn focus_context_column(state: &Rc<ViewState>, depth: usize) {
             .and_then(|root| root.focus())
             .map(|focus| focus.downgrade()),
     );
-    state.pointer_navigation();
 }
 
 pub(super) fn focus_context_entry(
@@ -581,6 +591,7 @@ pub(in crate::ui) fn install_folder_context_menu(
 
     let menu_click = gtk::GestureClick::new();
     menu_click.set_button(3);
+    menu_click.set_propagation_phase(gtk::PropagationPhase::Capture);
     let open_for_click = open_at.clone();
     menu_click.connect_pressed(move |gesture, _, x, y| {
         let over_item = gesture

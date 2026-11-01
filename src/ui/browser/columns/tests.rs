@@ -5,6 +5,8 @@ use crate::ui::browser::BrowserView;
 use crate::ui::browser_modes::BrowserMode;
 use crate::ui::preferences::PreferenceManager;
 
+mod pointer_focus;
+
 /// Call after creating a `BrowserView`: its exhaustive preference fixture seeds
 /// `reduce_motion = true`.
 fn animations_on() {

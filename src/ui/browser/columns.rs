@@ -492,6 +492,19 @@ impl ColumnView {
         crate::ui::loading_skeleton::focus_surface_or(&self.presentation.stack, &self.list)
     }
 
+    pub(super) fn focus_background(&self) -> bool {
+        // ListView reveals its remembered row when focused. Background/menu
+        // focus belongs to the viewport, including after queued row restores.
+        self.cursor_restore_generation
+            .set(self.cursor_restore_generation.get().wrapping_add(1));
+        super::collection::cancel_collection_reveal(self.list.upcast_ref());
+        if self.listing_scroll.is_mapped() {
+            self.listing_scroll.grab_focus()
+        } else {
+            self.focus_surface()
+        }
+    }
+
     /// The bound row GTK shows at `position`. A reload during an inline rename can leave
     /// a detached row behind that still reports the position it had.
     pub(super) fn shown_row_at(&self, position: u32) -> Option<(gtk::Box, BoundRow)> {
@@ -1033,6 +1046,37 @@ fn animate_column_resize(
 }
 
 impl ViewState {
+    pub(super) fn without_focus_reveal(&self, action: impl FnOnce()) {
+        let _preview_guard = crate::ui::preview::suppress_selection_preview();
+        let scrolling = self.suppress_focus_scroll.replace(true);
+        let cursor_focus = self.cursor_keeps_focus.replace(true);
+        self.pointer_navigation();
+        if let Some(source) = self.pending_mirror.take() {
+            source.remove();
+        }
+        action();
+        self.cursor_keeps_focus.set(cursor_focus);
+        self.suppress_focus_scroll.set(scrolling);
+    }
+
+    pub(super) fn focus_column_background(&self, depth: usize) {
+        self.without_focus_reveal(|| {
+            self.browser.set_active_column(depth);
+            let column = self.columns.borrow().get(depth).cloned();
+            if let Some(column) = column {
+                column.focus_background();
+            }
+            self.refresh_destination_style();
+        });
+    }
+
+    pub(super) fn clear_column_background_selection(self: &Rc<Self>, depth: usize) {
+        self.without_focus_reveal(|| {
+            self.clear_column_selections();
+            self.browser.close_column(depth + 1);
+        });
+    }
+
     fn match_column_widths(&self, resized: &gtk::Box) {
         let width = resized.width_request().max(COLUMN_WIDTH);
         for column in self.columns.borrow().iter() {
@@ -1835,6 +1879,7 @@ impl ViewState {
 
         let scroll = gtk::ScrolledWindow::builder()
             .child(&list)
+            .focusable(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vexpand(true)
             .build();
@@ -1872,9 +1917,6 @@ impl ViewState {
         );
         let rows_for_marquee = bound_rows.clone();
         let weak_for_clear = Rc::downgrade(self);
-        let returning_to_column = Rc::new(Cell::new(false));
-        let returning_for_clear = returning_to_column.clone();
-        let search_active_for_clear = recursive_search_active.clone();
         let marquee_targets: Rc<RefCell<Vec<crate::ui::marquee::MarqueeTarget>>> =
             Rc::new(RefCell::new(vec![crate::ui::marquee::MarqueeTarget {
                 selection: selection.clone(),
@@ -1901,32 +1943,18 @@ impl ViewState {
             ),
             clear_selection: Rc::new(move || {
                 if let Some(state) = weak_for_clear.upgrade() {
-                    state.clear_column_selections();
-                    state.browser.close_column(depth + 1);
-                    if returning_for_clear.replace(false) && !search_active_for_clear.get() {
-                        let first = state.columns.borrow().get(depth).and_then(|column| {
-                            (0..column.selection.n_items())
-                                .find_map(|position| column.map.source_position(position))
-                        });
-                        if let Some(position) = first {
-                            state.browser.select(depth, position);
-                        }
-                    }
+                    state.clear_column_background_selection(depth);
                 }
             }),
             allow_drag: self.multiple_selection.clone(),
         });
         marquee.add_origin_surface(&header);
-        // GTK prepends controllers. Install these last so their capture-phase
-        // press marks returning_to_column before the marquee clears selection.
         let background_clicks: Vec<_> = [
             presentation.stack.upcast_ref::<gtk::Widget>(),
             header.upcast_ref(),
         ]
         .into_iter()
-        .map(|surface| {
-            self.install_column_background_focus(surface, depth, returning_to_column.clone())
-        })
+        .map(|surface| self.install_column_background_focus(surface, depth))
         .collect();
         for click in &background_clicks {
             marquee.group_background_click(click);
@@ -2206,7 +2234,6 @@ impl ViewState {
         self: &Rc<Self>,
         surface: &gtk::Widget,
         depth: usize,
-        returning_to_column: Rc<Cell<bool>>,
     ) -> gtk::GestureClick {
         let click = gtk::GestureClick::new();
         click.set_button(1);
@@ -2215,11 +2242,6 @@ impl ViewState {
         let pressed_origin = origin.clone();
         let weak_for_press = Rc::downgrade(self);
         click.connect_pressed(move |gesture, _, x, y| {
-            returning_to_column.set(
-                weak_for_press
-                    .upgrade()
-                    .is_some_and(|state| state.browser.active_depth() != Some(depth)),
-            );
             pressed_origin.set(None);
             let Some(surface) = gesture.widget() else {
                 return;
@@ -2229,6 +2251,12 @@ impl ViewState {
             };
             if !is_file_row_target(picked.clone()) && is_column_background(&surface, &picked) {
                 pressed_origin.set(Some((x, y)));
+                // The grouped marquee still receives this press; ListView must
+                // not focus its remembered row after we focus the background.
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                if let Some(state) = weak_for_press.upgrade() {
+                    state.focus_column_background(depth);
+                }
             }
         });
         let stopped_origin = origin.clone();
@@ -2248,10 +2276,7 @@ impl ViewState {
             if state.drop_active_depths.get().is_some() {
                 return;
             }
-            state.suppress_focus_scroll.set(true);
-            state.browser.set_active_column(depth);
-            state.browser.focus_active();
-            state.suppress_focus_scroll.set(false);
+            state.focus_column_background(depth);
             let shell = state
                 .columns
                 .borrow()

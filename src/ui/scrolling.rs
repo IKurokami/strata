@@ -288,6 +288,13 @@ pub(super) fn focused_collection(
 ) -> Option<(gtk::Widget, gtk::ScrolledWindow)> {
     let mut current = Some(focused.clone());
     while let Some(widget) = current {
+        if let Some(scroll) = widget.downcast_ref::<gtk::ScrolledWindow>()
+            && let Some(view) = scroll
+                .child()
+                .filter(|view| view.is::<gtk::ListView>() || view.is::<gtk::GridView>())
+        {
+            return Some((view, scroll.clone()));
+        }
         if widget.is::<gtk::ListView>() || widget.is::<gtk::GridView>() {
             let scroll = widget
                 .ancestor(gtk::ScrolledWindow::static_type())

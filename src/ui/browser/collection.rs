@@ -34,13 +34,17 @@ fn take_pending_scroll(view: &gtk::Widget) -> Option<gtk::TickCallbackId> {
     })
 }
 
-pub(crate) fn prepare_collection_inline_edit(view: &gtk::Widget, position: u32) {
+pub(crate) fn cancel_collection_reveal(view: &gtk::Widget) {
     if let Some(pending) = take_pending_reveal(view) {
         pending.remove();
     }
     if let Some(pending) = take_pending_scroll(view) {
         pending.remove();
     }
+}
+
+pub(crate) fn prepare_collection_inline_edit(view: &gtk::Widget, position: u32) {
+    cancel_collection_reveal(view);
     // Replace deferred row focus before moving focus into its editor.
     apply_collection_scroll(view, position, gtk::ListScrollFlags::NONE);
 }

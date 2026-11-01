@@ -2273,6 +2273,7 @@ impl BrowserView {
             || self.state.columns.borrow().iter().any(|column| {
                 focused.as_ref().is_some_and(|focused| {
                     focused == column.presentation.stack.upcast_ref::<gtk::Widget>()
+                        || focused == column.listing_scroll.upcast_ref::<gtk::Widget>()
                         || focused == column.list.upcast_ref::<gtk::Widget>()
                         || focused.is_ancestor(&column.list)
                 })
