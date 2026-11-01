@@ -135,29 +135,45 @@ impl BrowserView {
         self.state.columns_widget.set_margin_end(0);
     }
 
-    pub(in crate::ui) fn bind_preview_scrolling(&self, preview: &gtk::Revealer) {
+    pub(in crate::ui) fn preview_scroll_generation(&self) -> u64 {
+        self.state.horizontal_scroll_generation.get()
+    }
+
+    pub(in crate::ui) fn settle_preview_scrolling(&self, expected: Option<u64>) {
+        if expected.is_some_and(|expected| expected != self.preview_scroll_generation()) {
+            return;
+        }
+        if self.view_mode() != BrowserMode::Columns || !self.state.scroller.is_mapped() {
+            return;
+        }
+        let shell = {
+            let columns = self.state.columns.borrow();
+            self.state
+                .focused_depth()
+                .and_then(|depth| columns.get(depth))
+                .or_else(|| columns.last())
+                .map(|column| column.shell.clone())
+        };
+        if let Some(shell) = shell {
+            self.state.reveal_column(shell);
+        }
+    }
+
+    pub(in crate::ui) fn bind_preview_scrolling(
+        &self,
+        preview: &gtk::Revealer,
+        transitioning: &Rc<Cell<bool>>,
+    ) {
         let epoch = Rc::new(Cell::new(0u64));
         let changed_epoch = epoch.clone();
         let weak = self.downgrade();
+        let reveal_transitioning = transitioning.clone();
         preview.connect_reveal_child_notify(move |preview| {
             changed_epoch.set(changed_epoch.get().saturating_add(1));
             if let Some(view) = weak.upgrade() {
                 view.release_preview_reservation();
-                if preview.reveals_child()
-                    && view.view_mode() == BrowserMode::Columns
-                    && view.state.scroller.is_mapped()
-                {
-                    let depth = view.state.focused_depth();
-                    let shell = {
-                        let columns = view.state.columns.borrow();
-                        depth
-                            .and_then(|depth| columns.get(depth))
-                            .or_else(|| columns.last())
-                            .map(|column| column.shell.clone())
-                    };
-                    if let Some(shell) = shell {
-                        view.state.reveal_column(shell);
-                    }
+                if preview.reveals_child() && !reveal_transitioning.get() {
+                    view.settle_preview_scrolling(None);
                 }
             }
         });
@@ -166,6 +182,7 @@ impl BrowserView {
         let pending = Rc::new(Cell::new(None));
         let last_page_size = Cell::new(self.state.scroller.hadjustment().page_size());
         let preview = preview.downgrade();
+        let transitioning = transitioning.clone();
         self.state
             .scroller
             .hadjustment()
@@ -173,11 +190,12 @@ impl BrowserView {
                 if last_page_size.replace(adjustment.page_size()) == adjustment.page_size() {
                     return;
                 }
-                // The widening viewport already clamps the scroll position during
-                // close. Starting a new scroll tween per allocation fights it.
-                if preview
-                    .upgrade()
-                    .is_some_and(|preview| preview.is_visible() && !preview.reveals_child())
+                // One transition owns the viewport until it settles. A scroll
+                // correction per allocation would restart and fight that motion.
+                if transitioning.get()
+                    || preview
+                        .upgrade()
+                        .is_some_and(|preview| preview.is_visible() && !preview.reveals_child())
                 {
                     return;
                 }
@@ -193,6 +211,7 @@ impl BrowserView {
                 let queued = queued.clone();
                 let pending = pending.clone();
                 let epoch = epoch.clone();
+                let transitioning = transitioning.clone();
                 // Coalesce allocations, then use only the latest viewport. Navigation
                 // or pointer scrolling after allocation owns the position instead.
                 glib::idle_add_local_once(move || {
@@ -201,7 +220,8 @@ impl BrowserView {
                         return;
                     };
                     let Some(view) = weak.upgrade() else { return };
-                    if epoch.get() != expected_epoch
+                    if transitioning.get()
+                        || epoch.get() != expected_epoch
                         || view.state.horizontal_scroll_generation.get() != expected_scroll
                         || view.view_mode() != BrowserMode::Columns
                         || !view.state.scroller.is_mapped()

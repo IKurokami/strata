@@ -268,7 +268,7 @@ struct PreviewState {
     focus_archive_on_ready: Cell<bool>,
     focus_archive_request: Cell<Option<PreviewRequestId>>,
     enabled_action: gio::SimpleAction,
-    animating: Cell<bool>,
+    animating: Rc<Cell<bool>>,
     animation_generation: Rc<Cell<u64>>,
     keyboard_view: RefCell<Option<super::browser::WeakBrowserView>>,
     claim_on_resume: Cell<bool>,
@@ -516,7 +516,7 @@ impl PreviewDrawer {
                 None,
                 &false.to_variant(),
             ),
-            animating: Cell::new(false),
+            animating: Rc::new(Cell::new(false)),
             animation_generation: Rc::new(Cell::new(0)),
             keyboard_view: RefCell::new(None),
             audio: RefCell::new(None),
@@ -1094,7 +1094,7 @@ impl PreviewState {
         if !was_open {
             self.current.replace(Some(entry.clone()));
             if let Some(split) = split.as_ref() {
-                self.animate_reveal(split, true, |_| {});
+                self.sync_split(split);
             } else {
                 self.show_panel();
             }
