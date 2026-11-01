@@ -37,6 +37,8 @@ use super::{
 mod archive;
 pub(super) mod audio;
 #[cfg(test)]
+mod closing_tests;
+#[cfg(test)]
 mod discord_edit_tests;
 mod ease_in;
 mod find;
@@ -266,7 +268,7 @@ struct PreviewState {
     focus_archive_on_ready: Cell<bool>,
     focus_archive_request: Cell<Option<PreviewRequestId>>,
     enabled_action: gio::SimpleAction,
-    animating: Cell<bool>,
+    animating: Rc<Cell<bool>>,
     animation_generation: Rc<Cell<u64>>,
     keyboard_view: RefCell<Option<super::browser::WeakBrowserView>>,
     claim_on_resume: Cell<bool>,
@@ -514,7 +516,7 @@ impl PreviewDrawer {
                 None,
                 &false.to_variant(),
             ),
-            animating: Cell::new(false),
+            animating: Rc::new(Cell::new(false)),
             animation_generation: Rc::new(Cell::new(0)),
             keyboard_view: RefCell::new(None),
             audio: RefCell::new(None),
@@ -1092,7 +1094,7 @@ impl PreviewState {
         if !was_open {
             self.current.replace(Some(entry.clone()));
             if let Some(split) = split.as_ref() {
-                self.animate_reveal(split, true, |_| {});
+                self.sync_split(split);
             } else {
                 self.show_panel();
             }
@@ -1104,7 +1106,9 @@ impl PreviewState {
 
     fn stop(&self) {
         self.set_enabled(false);
-        self.clear_target();
+        self.reset_target();
+        self.hide_panel();
+        self.sync_sidebar_without_preview();
         self.cancel_print();
         // Destroying a focused prompt does not always report a focus leave.
         self.content.set_focusable(false);
@@ -1128,7 +1132,6 @@ impl PreviewState {
         // The preview closes now, so input such as the next Escape already
         // reaches the files; closing never waits for an animation frame.
         let restore_focus = tree_focused || self.hide_intent();
-        // Every explicit close releases the slot as well as its content.
         // An explicit close suppresses selection-following until a later
         // explicit preview request reopens the drawer.
         self.dismissed.set(true);
@@ -1138,7 +1141,8 @@ impl PreviewState {
         if restore_focus && let Some(browser) = self.sizing.browser() {
             browser.focus_file_view();
         }
-        self.stop();
+        self.clear_target();
+        self.cancel_print();
         self.pane.set_size_request(0, -1);
     }
 

@@ -57,10 +57,30 @@ impl PreviewState {
         }
     }
 
-    pub(super) fn clear_target(&self) {
+    pub(super) fn clear_target(self: &Rc<Self>) {
+        self.cancel_pending_show();
+        if self.animating.get() && self.current.borrow().is_none() {
+            if self
+                .split
+                .borrow()
+                .as_ref()
+                .is_none_or(|split| !split.is_mapped())
+            {
+                self.hide_panel();
+            }
+            return;
+        }
+        let restore_focus = self.hide_intent();
+        let frame = self.capture_closing_frame();
+        self.reset_target();
+        self.close_panel(frame, restore_focus);
+        self.sync_sidebar_without_preview();
+    }
+
+    pub(super) fn reset_target(&self) {
+        self.cancel_pending_show();
         self.reset_find();
         self.continue_playback.take();
-        self.cancel_pending_show();
         self.claim_on_resume.set(false);
         self.focus_archive_on_ready.set(false);
         self.animating.set(false);
@@ -75,7 +95,5 @@ impl PreviewState {
         self.cancel_loading();
         self.pdf_loads.borrow_mut().clear();
         self.clear_content();
-        self.hide_panel();
-        self.sync_sidebar_without_preview();
     }
 }

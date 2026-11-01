@@ -20,6 +20,9 @@ pub(super) const RESIZE_GRIP_WIDTH: i32 = 6;
 
 #[derive(Default)]
 pub(super) struct SplitSizing {
+    closing_frame: RefCell<Option<gtk::Picture>>,
+    position_target: Cell<Option<i32>>,
+    available_width: Cell<i32>,
     sync_queued: Cell<bool>,
     layout_frame: RefCell<Option<(gtk::gdk::FrameClock, glib::SignalHandlerId)>>,
     binding: RefCell<Option<BrowserBinding>>,
@@ -191,7 +194,7 @@ impl PreviewDrawer {
             sidebar: sidebar.map(|sidebar| Rc::downgrade(&sidebar.state)),
         }));
         self.state.refresh_panel_action();
-        browser.bind_preview_scrolling(&self.state.revealer);
+        browser.bind_preview_scrolling(&self.state.revealer, &self.state.animating);
         let weak = Rc::downgrade(&self.state);
         browser.connect_view_mode_changed(move |_| {
             if let Some(state) = weak.upgrade() {
@@ -279,6 +282,79 @@ impl PreviewDrawer {
 }
 
 impl PreviewState {
+    pub(super) fn capture_closing_frame(&self) -> Option<gtk::Picture> {
+        if !self.pane.is_mapped()
+            || !super::super::motion::animations_enabled()
+            || !self.revealer.reveals_child()
+            || self
+                .split
+                .borrow()
+                .as_ref()
+                .is_none_or(|split| !split.is_mapped())
+        {
+            return None;
+        }
+        let overlay = self.slot.first_child()?.downcast::<gtk::Overlay>().ok()?;
+        let image = gtk::WidgetPaintable::new(Some(&self.pane)).current_image();
+        let frame = gtk::Picture::for_paintable(&image);
+        frame.set_size_request(self.pane.width(), self.pane.height());
+        frame.set_halign(gtk::Align::Start);
+        frame.set_valign(gtk::Align::Start);
+        frame.set_can_target(false);
+        overlay.add_overlay(&frame);
+        Some(frame)
+    }
+
+    fn remove_closing_frame(&self) {
+        if let Some(frame) = self.sizing.closing_frame.take()
+            && let Some(overlay) = frame.parent().and_downcast::<gtk::Overlay>()
+        {
+            overlay.remove_overlay(&frame);
+        }
+    }
+
+    pub(super) fn close_panel(self: &Rc<Self>, frame: Option<gtk::Picture>, restore_focus: bool) {
+        let split = self.split.borrow().clone();
+        let Some((split, frame)) = split.zip(frame) else {
+            self.finish_hide(restore_focus);
+            return;
+        };
+        self.sizing.closing_frame.replace(Some(frame.clone()));
+        self.animating.set(true);
+        self.pane.set_width_request(0);
+        self.slot.set_width_request(0);
+        self.revealer.set_reveal_child(false);
+        self.refresh_panel_action();
+        split.set_resize_start_child(true);
+        split.set_resize_end_child(false);
+        let start = split.position();
+        let weak = Rc::downgrade(self);
+        let duration = super::super::motion::PANEL;
+        // Keep only the last rendered frame; media, file handles and input are
+        // released immediately while the viewport gives its space back.
+        super::super::motion::animate(
+            &split,
+            Some("preview-reveal"),
+            duration,
+            move |widget, elapsed| {
+                let Some(split) = widget.downcast_ref::<gtk::Paned>() else {
+                    return;
+                };
+                let progress =
+                    super::super::motion::smooth(elapsed.as_secs_f64() / duration.as_secs_f64());
+                let position = f64::from(start) + f64::from(split.width() - start) * progress;
+                split.set_position(position.round() as i32);
+                frame.set_opacity(1.0 - progress);
+                frame.set_margin_start((16.0 * progress).round() as i32);
+            },
+            move || {
+                if let Some(state) = weak.upgrade() {
+                    state.finish_hide(restore_focus);
+                }
+            },
+        );
+    }
+
     fn observe_layout_frames(self: &Rc<Self>, split: &gtk::Paned) {
         if self.sizing.layout_frame.borrow().is_some() {
             return;
@@ -440,12 +516,29 @@ impl PreviewState {
     }
 
     pub(super) fn show_panel(&self) {
+        self.show_panel_with_motion(false);
+    }
+
+    fn show_panel_with_motion(&self, animate: bool) {
+        if let Some(split) = self.split.borrow().as_ref() {
+            super::super::motion::cancel(split, "preview-reveal");
+            if self.sizing.closing_frame.borrow().is_none() {
+                split.set_position(split.width());
+            }
+        }
+        self.remove_closing_frame();
+        self.sizing.position_target.set(None);
+        self.animating.set(animate);
         if let Some(binding) = self.sizing.binding.borrow().as_ref()
             && let Some(browser) = binding.browser.upgrade()
         {
             browser.clear_preview_scroll_space();
         }
-        self.revealer.set_transition_duration(0);
+        self.revealer.set_transition_duration(if animate {
+            super::super::motion::PANEL.as_millis() as u32
+        } else {
+            0
+        });
         self.pane.set_width_request(0);
         self.slot.set_visible(true);
         self.revealer.set_visible(true);
@@ -591,6 +684,12 @@ impl PreviewState {
     }
 
     fn finish_hide(&self, restore_browser_focus: bool) {
+        if let Some(split) = self.split.borrow().as_ref() {
+            super::super::motion::cancel(split, "preview-reveal");
+        }
+        self.remove_closing_frame();
+        self.sizing.position_target.set(None);
+        self.animating.set(false);
         super::super::motion::cancel(&self.pane, "preview-content-arriving");
         self.pane.remove_css_class("preview-content-arriving");
         if self.slot.is_visible()
@@ -659,7 +758,16 @@ impl PreviewState {
     }
 
     pub(super) fn sync_split(self: &Rc<Self>, split: &gtk::Paned) {
+        self.sync_split_with_motion(split, true);
+    }
+
+    fn sync_split_with_motion(self: &Rc<Self>, split: &gtk::Paned, animate: bool) {
+        if self.animating.get() && self.current.borrow().is_none() {
+            return;
+        }
         let mut geometry = self.geometry(split);
+        let previous_width = self.sizing.available_width.replace(geometry.available);
+        let window_resized = previous_width > 0 && previous_width != geometry.available;
         if self.preview_present()
             && let Some(binding) = self.sizing.binding.borrow().as_ref()
             && let Some(content) = binding.content.upgrade()
@@ -723,7 +831,7 @@ impl PreviewState {
             self.suspend_panel();
             return;
         }
-        if self.animating.get() || self.sizing.resizing.get() {
+        if self.sizing.resizing.get() {
             return;
         }
         // GTK allocates after this tick; free-space previews must absorb window
@@ -734,18 +842,19 @@ impl PreviewState {
         split.set_resize_start_child(!preview_fills_free_space);
         split.set_resize_end_child(preview_fills_free_space);
         let restored = self.sizing.suspended.replace(false);
+        let animate = animate && !window_resized && super::super::motion::animations_enabled();
         if restored || !self.revealer.reveals_child() {
-            self.show_panel();
+            self.show_panel_with_motion(animate);
         }
         let minimum = if preview_fills_free_space {
             0
         } else {
             geometry.minimum_width(manual.is_some())
         };
-        if self.pane.width_request() != minimum || split.position() != position {
+        if self.pane.width_request() != minimum {
             self.pane.set_width_request(minimum);
-            split.set_position(position);
         }
+        self.move_divider(split, position, animate);
         if let Some(binding) = self.sizing.binding.borrow().as_ref()
             && let Some(browser) = binding.browser.upgrade()
         {
@@ -777,33 +886,54 @@ impl PreviewState {
             })
     }
 
-    /// Allocate the slot once, then animate its content without resizing Columns.
-    pub(super) fn animate_reveal(
-        self: &Rc<Self>,
-        split: &gtk::Paned,
-        expanded: bool,
-        on_settled: impl FnOnce(&Rc<Self>) + 'static,
-    ) {
-        super::super::motion::cancel(split, "preview-reveal");
-        let animation_id = self.animation_generation.get().saturating_add(1);
-        self.animation_generation.set(animation_id);
-        // Allocate the destination once. Animating the divider relayouts the
-        // file grid and its text on every frame, competing with navigation.
-        self.animating.set(false);
-        self.pane.set_width_request(0);
-        if expanded {
-            self.show_panel();
-            self.sync_split(split);
-            super::super::motion::class_once(
-                &self.pane,
-                "preview-content-arriving",
-                super::super::motion::CONTENT,
-            );
-        } else {
-            let restore_browser_focus = self.hide_intent();
-            self.finish_hide(restore_browser_focus);
+    fn move_divider(self: &Rc<Self>, split: &gtk::Paned, position: i32, animate: bool) {
+        if animate && self.sizing.position_target.get() == Some(position) {
+            return;
         }
-        on_settled(self);
+        super::super::motion::cancel(split, "preview-reveal");
+        let start = split.position();
+        if !animate || start == position {
+            self.sizing.position_target.set(None);
+            self.animating.set(false);
+            self.revealer.set_transition_duration(0);
+            split.set_position(position);
+            return;
+        }
+        self.sizing.position_target.set(Some(position));
+        self.animating.set(true);
+        let scroll_generation = self
+            .sizing
+            .browser()
+            .map(|browser| browser.preview_scroll_generation());
+        let weak = Rc::downgrade(self);
+        let duration = super::super::motion::PANEL;
+        // Retarget from the displayed divider rather than the previous goal.
+        // Layout notifications for the same goal must not restart the motion.
+        super::super::motion::animate(
+            split,
+            Some("preview-reveal"),
+            duration,
+            move |widget, elapsed| {
+                if let Some(split) = widget.downcast_ref::<gtk::Paned>() {
+                    let progress = super::super::motion::smooth(
+                        elapsed.as_secs_f64() / duration.as_secs_f64(),
+                    );
+                    split.set_position(
+                        (f64::from(start) + f64::from(position - start) * progress).round() as i32,
+                    );
+                }
+            },
+            move || {
+                if let Some(state) = weak.upgrade() {
+                    state.sizing.position_target.set(None);
+                    state.animating.set(false);
+                    state.revealer.set_transition_duration(0);
+                    if let Some(browser) = state.sizing.browser() {
+                        browser.settle_preview_scrolling(scroll_generation);
+                    }
+                }
+            },
+        );
     }
 
     pub(super) fn resize_preview(
@@ -823,7 +953,7 @@ impl PreviewState {
         let width = (geometry.available - geometry.separator - position + lent)
             .clamp(geometry.minimum_width(true), geometry.maximum_width());
         self.sizing.manual_width.set(Some(width));
-        self.sync_split(split);
+        self.sync_split_with_motion(split, false);
         Some(width)
     }
 
@@ -876,6 +1006,9 @@ impl PreviewState {
     }
 
     fn begin_divider_drag(&self, split: &gtk::Paned) {
+        super::super::motion::cancel(split, "preview-reveal");
+        self.revealer.set_transition_duration(0);
+        self.sizing.position_target.set(None);
         self.animation_generation
             .set(self.animation_generation.get().saturating_add(1));
         self.animating.set(false);

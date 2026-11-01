@@ -619,13 +619,17 @@ impl ViewState {
                                 .is_some_and(|snapshot| {
                                     snapshot.loading && snapshot.location.is_camera_photo_root()
                                 });
-                        if (*take_focus
-                            || (self.focused_column_depth() == Some(*depth) && !camera_loading))
+                        if !self.suppress_focus_scroll.get()
+                            && (*take_focus
+                                || (self.focused_column_depth() == Some(*depth) && !camera_loading))
                             && let Some(focused) = column.map.view_position(*focused)
                         {
                             scroll_column_to(column, focused);
                         }
-                        if *take_focus && self.mode_views.borrow().mode() == BrowserMode::Columns {
+                        if *take_focus
+                            && !self.cursor_keeps_focus.get()
+                            && self.mode_views.borrow().mode() == BrowserMode::Columns
+                        {
                             // A cursor restore queued for the previous cursor must not pull
                             // focus back from the newly selected entry.
                             let generation = &column.cursor_restore_generation;
@@ -673,6 +677,7 @@ impl ViewState {
                         column.focus_surface();
                     }
                     if !editing
+                        && !self.suppress_focus_scroll.get()
                         && self.mode_views.borrow().mode() == BrowserMode::Columns
                         && !self.suppress_scroll_after_drop.get()
                         && (*triggered_by_removal
