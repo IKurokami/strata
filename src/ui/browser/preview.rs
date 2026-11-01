@@ -139,11 +139,14 @@ impl BrowserView {
         let epoch = Rc::new(Cell::new(0u64));
         let changed_epoch = epoch.clone();
         let weak = self.downgrade();
-        preview.connect_reveal_child_notify(move |_| {
+        preview.connect_reveal_child_notify(move |preview| {
             changed_epoch.set(changed_epoch.get().saturating_add(1));
             if let Some(view) = weak.upgrade() {
                 view.release_preview_reservation();
-                if view.view_mode() == BrowserMode::Columns && view.state.scroller.is_mapped() {
+                if preview.reveals_child()
+                    && view.view_mode() == BrowserMode::Columns
+                    && view.state.scroller.is_mapped()
+                {
                     let depth = view.state.focused_depth();
                     let shell = {
                         let columns = view.state.columns.borrow();
@@ -162,11 +165,20 @@ impl BrowserView {
         let queued = Rc::new(Cell::new(false));
         let pending = Rc::new(Cell::new(None));
         let last_page_size = Cell::new(self.state.scroller.hadjustment().page_size());
+        let preview = preview.downgrade();
         self.state
             .scroller
             .hadjustment()
             .connect_changed(move |adjustment| {
                 if last_page_size.replace(adjustment.page_size()) == adjustment.page_size() {
+                    return;
+                }
+                // The widening viewport already clamps the scroll position during
+                // close. Starting a new scroll tween per allocation fights it.
+                if preview
+                    .upgrade()
+                    .is_some_and(|preview| preview.is_visible() && !preview.reveals_child())
+                {
                     return;
                 }
                 let Some(view) = weak.upgrade() else { return };

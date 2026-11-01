@@ -20,6 +20,7 @@ pub(super) const RESIZE_GRIP_WIDTH: i32 = 6;
 
 #[derive(Default)]
 pub(super) struct SplitSizing {
+    closing_frame: RefCell<Option<gtk::Picture>>,
     sync_queued: Cell<bool>,
     layout_frame: RefCell<Option<(gtk::gdk::FrameClock, glib::SignalHandlerId)>>,
     binding: RefCell<Option<BrowserBinding>>,
@@ -279,6 +280,79 @@ impl PreviewDrawer {
 }
 
 impl PreviewState {
+    pub(super) fn capture_closing_frame(&self) -> Option<gtk::Picture> {
+        if !self.pane.is_mapped()
+            || !super::super::motion::animations_enabled()
+            || !self.revealer.reveals_child()
+            || self
+                .split
+                .borrow()
+                .as_ref()
+                .is_none_or(|split| !split.is_mapped())
+        {
+            return None;
+        }
+        let overlay = self.slot.first_child()?.downcast::<gtk::Overlay>().ok()?;
+        let image = gtk::WidgetPaintable::new(Some(&self.pane)).current_image();
+        let frame = gtk::Picture::for_paintable(&image);
+        frame.set_size_request(self.pane.width(), self.pane.height());
+        frame.set_halign(gtk::Align::Start);
+        frame.set_valign(gtk::Align::Start);
+        frame.set_can_target(false);
+        overlay.add_overlay(&frame);
+        Some(frame)
+    }
+
+    fn remove_closing_frame(&self) {
+        if let Some(frame) = self.sizing.closing_frame.take()
+            && let Some(overlay) = frame.parent().and_downcast::<gtk::Overlay>()
+        {
+            overlay.remove_overlay(&frame);
+        }
+    }
+
+    pub(super) fn close_panel(self: &Rc<Self>, frame: Option<gtk::Picture>, restore_focus: bool) {
+        let split = self.split.borrow().clone();
+        let Some((split, frame)) = split.zip(frame) else {
+            self.finish_hide(restore_focus);
+            return;
+        };
+        self.sizing.closing_frame.replace(Some(frame.clone()));
+        self.animating.set(true);
+        self.pane.set_width_request(0);
+        self.slot.set_width_request(0);
+        self.revealer.set_reveal_child(false);
+        self.refresh_panel_action();
+        split.set_resize_start_child(true);
+        split.set_resize_end_child(false);
+        let start = split.position();
+        let weak = Rc::downgrade(self);
+        let duration = super::super::motion::PANEL;
+        // Keep only the last rendered frame; media, file handles and input are
+        // released immediately while the viewport gives its space back.
+        super::super::motion::animate(
+            &split,
+            Some("preview-reveal"),
+            duration,
+            move |widget, elapsed| {
+                let Some(split) = widget.downcast_ref::<gtk::Paned>() else {
+                    return;
+                };
+                let progress =
+                    super::super::motion::smooth(elapsed.as_secs_f64() / duration.as_secs_f64());
+                let position = f64::from(start) + f64::from(split.width() - start) * progress;
+                split.set_position(position.round() as i32);
+                frame.set_opacity(1.0 - progress);
+                frame.set_margin_start((16.0 * progress).round() as i32);
+            },
+            move || {
+                if let Some(state) = weak.upgrade() {
+                    state.finish_hide(restore_focus);
+                }
+            },
+        );
+    }
+
     fn observe_layout_frames(self: &Rc<Self>, split: &gtk::Paned) {
         if self.sizing.layout_frame.borrow().is_some() {
             return;
@@ -440,6 +514,11 @@ impl PreviewState {
     }
 
     pub(super) fn show_panel(&self) {
+        if let Some(split) = self.split.borrow().as_ref() {
+            super::super::motion::cancel(split, "preview-reveal");
+        }
+        self.remove_closing_frame();
+        self.animating.set(false);
         if let Some(binding) = self.sizing.binding.borrow().as_ref()
             && let Some(browser) = binding.browser.upgrade()
         {
@@ -591,6 +670,11 @@ impl PreviewState {
     }
 
     fn finish_hide(&self, restore_browser_focus: bool) {
+        if let Some(split) = self.split.borrow().as_ref() {
+            super::super::motion::cancel(split, "preview-reveal");
+        }
+        self.remove_closing_frame();
+        self.animating.set(false);
         super::super::motion::cancel(&self.pane, "preview-content-arriving");
         self.pane.remove_css_class("preview-content-arriving");
         if self.slot.is_visible()
@@ -659,6 +743,9 @@ impl PreviewState {
     }
 
     pub(super) fn sync_split(self: &Rc<Self>, split: &gtk::Paned) {
+        if self.animating.get() && self.current.borrow().is_none() {
+            return;
+        }
         let mut geometry = self.geometry(split);
         if self.preview_present()
             && let Some(binding) = self.sizing.binding.borrow().as_ref()
