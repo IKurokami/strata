@@ -21,6 +21,8 @@ pub fn set_enabled(executable: &Path, enabled: bool) -> io::Result<()> {
 fn registered_executable(value: &Value) -> Option<PathBuf> {
     let command = value.os_string()?;
     let wide = command.encode_wide().collect::<Vec<_>>();
+    let suffix = " --startup".encode_utf16().collect::<Vec<_>>();
+    let wide = wide.strip_suffix(suffix.as_slice()).unwrap_or(&wide);
     if wide.first() != Some(&(b'"' as u16)) || wide.last() != Some(&(b'"' as u16)) || wide.len() < 3
     {
         return None;
@@ -61,7 +63,7 @@ fn apply(key: &str, executable: &Path, enabled: bool) -> io::Result<()> {
     }
     let mut command = OsString::from("\"");
     command.push(executable);
-    command.push("\"");
+    command.push("\" --startup");
     let desired = Value::text(&command)?;
     if current.as_ref() != Some(&desired) {
         registry::set(key, NAME, Some(&desired))?;

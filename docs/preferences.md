@@ -87,7 +87,9 @@ through the saved Windows-properties preference.
 
 On Windows, **Settings → General → Startup → Start with Windows** is on by
 default, including when upgrading settings without this field. It opens Strata
-at the current user's next Windows sign-in. The tray menu exposes the same saved
+in the tray without opening a browser window at the current user's next Windows sign-in.
+Opening Strata from the tray or a folder request creates the normal browser window.
+The tray menu exposes the same saved
 toggle; either control updates the other immediately. Registration runs outside
 GTK and uses the current user's `Run` key without administrator access. Turning
 it off or uninstalling removes only an entry owned by this installation. A moved

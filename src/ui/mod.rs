@@ -77,6 +77,8 @@ mod window;
 #[cfg(windows)]
 mod windows_desktop;
 #[cfg(windows)]
+pub(crate) use windows_desktop::start_background as start_windows_background;
+#[cfg(windows)]
 mod windows_integration;
 #[cfg(windows)]
 mod windows_open;
