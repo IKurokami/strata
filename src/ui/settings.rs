@@ -22,6 +22,9 @@ use crate::{
 #[cfg(all(test, windows))]
 #[path = "settings/tests/restart_windows.rs"]
 mod restart_windows_tests;
+#[cfg(all(test, windows))]
+#[path = "settings/tests/startup_windows.rs"]
+mod startup_windows_tests;
 #[cfg(all(test, not(windows)))]
 mod tests;
 

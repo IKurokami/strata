@@ -161,6 +161,17 @@ pub(super) fn general_page(
 
     let startup = super::settings_group(&preferences, "STARTUP");
     #[cfg(windows)]
+    append_preference_switch(
+        &startup,
+        &manager,
+        PreferenceSwitch {
+            title: "Start with Windows",
+            description: "Open Strata automatically when you sign in to Windows.",
+            read: PreferenceManager::start_with_windows,
+            write: PreferenceManager::set_start_with_windows,
+        },
+    );
+    #[cfg(windows)]
     {
         let (row, toggle) = settings_option(
             "Keep Strata running in the background",

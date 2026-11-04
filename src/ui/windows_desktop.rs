@@ -11,6 +11,7 @@ use std::{
     rc::Rc,
 };
 use strata_win_shell::desktop::Tray;
+mod startup;
 #[cfg(not(test))]
 use strata_win_shell::desktop::{Console, Event};
 
@@ -26,6 +27,7 @@ thread_local! {
 pub(super) fn bind(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) {
     #[cfg(not(test))]
     initialize(window, manager);
+    startup::bind(window, manager);
     #[cfg(not(test))]
     let weak = Rc::downgrade(manager);
     manager.bind_preference(
@@ -55,6 +57,10 @@ pub(super) fn bind(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManag
     );
 }
 
+pub(super) fn toggle_startup(manager: &PreferenceManager) {
+    startup::toggle_from_tray(manager);
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -67,11 +73,12 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
         return;
     };
     let Some(icon) = tray_icon() else { return };
-    let tray = match Tray::with_cache_action(
+    let tray = match Tray::with_startup_action(
         &crate::i18n::tr("Open Strata"),
         &crate::i18n::tr("Show application console"),
         &crate::i18n::tr("Quit Strata"),
         &crate::i18n::tr("Clear preview cache"),
+        &crate::i18n::tr("Start with Windows"),
         &icon,
     ) {
         Ok(tray) => tray,
@@ -99,6 +106,11 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
                 Some(Event::Console) => {
                     if let Some(manager) = manager.upgrade() {
                         manager.set_show_console(!manager.show_console());
+                    }
+                }
+                Some(Event::Startup) => {
+                    if let Some(manager) = manager.upgrade() {
+                        toggle_startup(&manager);
                     }
                 }
                 Some(Event::Quit) => super::windows_runtime::quit(&application),

@@ -78,6 +78,18 @@ Shell commands are covered by Strata's own menu. The helper keeps its Shell
 apartment alive for modeless property sheets, including Properties dispatched
 through the saved Windows-properties preference.
 
+On Windows, **Settings → General → Startup → Start with Windows** is on by
+default, including when upgrading settings without this field. It opens Strata
+at the current user's next Windows sign-in. The tray menu exposes the same saved
+toggle; either control updates the other immediately. Registration runs outside
+GTK and uses the current user's `Run` key without administrator access. Turning
+it off or uninstalling removes only an entry owned by this installation. A moved
+Strata installation can update its own startup path; unrelated commands are
+preserved and registration errors restore the last applied setting. This is
+independent of keeping a closed window in the background or replacing Explorer.
+Development launchers set `STRATA_DISABLE_AUTOSTART=1` so testing does not alter
+the host's sign-in entries; the packaged application applies the preference.
+
 On Windows, **Show application console** is off by default. It applies immediately
 from Settings or the tray menu, is saved across launches, and controls only a
 console allocated by Strata. A terminal used to launch Strata remains owned by

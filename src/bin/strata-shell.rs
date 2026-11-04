@@ -94,7 +94,9 @@ fn main() -> std::process::ExitCode {
         [mode] if mode == "--context-menu-model" => context_menu::serve(),
         [mode] if mode == "--watch" => strata_win_shell::file_manager::watch(),
         [mode, flag, target] if mode == "--unregister" && flag == "--target" => {
-            strata_win_shell::file_manager::disable(std::path::Path::new(target))
+            let target = std::path::Path::new(target);
+            strata_win_shell::file_manager::disable(target)
+                .and_then(|_| strata_win_shell::file_manager::startup::set_enabled(target, false))
         }
         [mode, flag, target] if mode == "--upgrade-integration" && flag == "--target" => {
             let target = std::path::Path::new(target);

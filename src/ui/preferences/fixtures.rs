@@ -97,6 +97,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         default_directory: Some("/fixture/default".into()),
         restore_tabs: false,
         keep_running_in_background: true,
+        start_with_windows: false,
         show_console: true,
         replace_file_explorer: true,
         remember_folder_views: false,
@@ -159,6 +160,10 @@ pub(in crate::ui) fn seed_omarchy_colors_for_test(colors: &str) {
 }
 
 impl PreferenceManager {
+    pub(in crate::ui) fn reload_saved_for_test() -> Rc<Self> {
+        Self::load()
+    }
+
     pub(in crate::ui) fn seed_saved_preferences_for_test() {
         seed_saved_preferences_for_test();
     }

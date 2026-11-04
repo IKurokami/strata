@@ -102,6 +102,13 @@ const TARGETS: &[Target] = &[
         title: "Keep Strata running in the background",
         aliases: "startup launch warm resident keep alive quick reopen exit quit memory",
     },
+    #[cfg(windows)]
+    Target {
+        id: "windows-startup",
+        page: "general",
+        title: "Start with Windows",
+        aliases: "windows startup automatic launch login sign in autostart tray",
+    },
     Target {
         id: "language",
         page: "general",

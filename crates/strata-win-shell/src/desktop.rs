@@ -20,6 +20,7 @@ use windows::{
 pub enum Event {
     Open,
     Console,
+    Startup,
     ClearCache,
     Quit,
     Restart,
@@ -157,6 +158,7 @@ unsafe extern "system" fn procedure(
             2 => Some(Event::Console),
             3 => Some(Event::Quit),
             4 => Some(Event::ClearCache),
+            5 => Some(Event::Startup),
             _ => None,
         };
         if let Some(event) = event {
@@ -193,6 +195,7 @@ unsafe extern "system" fn procedure(
                         2 => Some(Event::Console),
                         3 => Some(Event::Quit),
                         4 => Some(Event::ClearCache),
+                        5 => Some(Event::Startup),
                         _ => None,
                     }
                 }
@@ -218,7 +221,7 @@ pub struct Tray {
 
 impl Tray {
     pub fn new(open: &str, console: &str, quit: &str, icon_png: &[u8]) -> io::Result<Self> {
-        Self::create(open, console, quit, None, icon_png)
+        Self::create(open, console, quit, None, None, icon_png)
     }
 
     pub fn with_cache_action(
@@ -228,7 +231,25 @@ impl Tray {
         clear_cache: &str,
         icon_png: &[u8],
     ) -> io::Result<Self> {
-        Self::create(open, console, quit, Some(clear_cache), icon_png)
+        Self::create(open, console, quit, Some(clear_cache), None, icon_png)
+    }
+
+    pub fn with_startup_action(
+        open: &str,
+        console: &str,
+        quit: &str,
+        clear_cache: &str,
+        startup: &str,
+        icon_png: &[u8],
+    ) -> io::Result<Self> {
+        Self::create(
+            open,
+            console,
+            quit,
+            Some(clear_cache),
+            Some(startup),
+            icon_png,
+        )
     }
 
     fn create(
@@ -236,6 +257,7 @@ impl Tray {
         console: &str,
         quit: &str,
         clear_cache: Option<&str>,
+        startup: Option<&str>,
         icon_png: &[u8],
     ) -> io::Result<Self> {
         // SAFETY: Window class, menu and icon lifetimes are retained until Drop on this thread.
@@ -261,6 +283,7 @@ impl Tray {
             for (id, label) in [
                 (1, Some(open)),
                 (2, Some(console)),
+                (5, startup),
                 (4, clear_cache),
                 (3, Some(quit)),
             ] {
@@ -333,11 +356,19 @@ impl Tray {
     }
 
     pub fn set_console_checked(&self, enabled: bool) {
+        self.set_checked(2, enabled);
+    }
+
+    pub fn set_startup_checked(&self, enabled: bool) {
+        self.set_checked(5, enabled);
+    }
+
+    fn set_checked(&self, command: u32, enabled: bool) {
         // SAFETY: This menu is owned by this tray until Drop.
         unsafe {
             CheckMenuItem(
                 self.menu,
-                2,
+                command,
                 if enabled {
                     MF_CHECKED.0
                 } else {

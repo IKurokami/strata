@@ -52,6 +52,7 @@ $variables = @{
     PKG_CONFIG = (Join-Path $bin "pkgconf.exe")
     MSYSTEM = "UCRT64"
     MINGW_PREFIX = $prefix
+    STRATA_DISABLE_AUTOSTART = '1'
 }
 if (-not $env:DBUS_SESSION_BUS_ADDRESS) {
     $variables['DBUS_SESSION_BUS_ADDRESS'] = 'disabled:'

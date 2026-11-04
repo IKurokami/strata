@@ -262,6 +262,8 @@ pub(in crate::ui) struct Preferences {
     restore_tabs: bool,
     #[serde(default)]
     keep_running_in_background: bool,
+    #[serde(default = "default_enabled")]
+    start_with_windows: bool,
     #[serde(default)]
     show_console: bool,
     #[serde(default)]
@@ -387,6 +389,7 @@ impl Default for Preferences {
             default_directory: None,
             restore_tabs: true,
             keep_running_in_background: false,
+            start_with_windows: true,
             show_console: false,
             replace_file_explorer: false,
             remember_folder_views: true,
@@ -1235,6 +1238,17 @@ impl PreferenceManager {
     #[cfg(any(windows, test))]
     pub fn set_keep_running_in_background(&self, enabled: bool) {
         self.preferences.borrow_mut().keep_running_in_background = enabled;
+        self.save_preferences();
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn start_with_windows(&self) -> bool {
+        self.preferences.borrow().start_with_windows
+    }
+
+    #[cfg(any(windows, test))]
+    pub fn set_start_with_windows(&self, enabled: bool) {
+        self.preferences.borrow_mut().start_with_windows = enabled;
         self.save_preferences();
     }
 
