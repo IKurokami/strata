@@ -2683,6 +2683,34 @@ impl Browser {
         let Some(request_id) = self.try_begin_operation() else {
             return;
         };
+        let delete_started = std::time::Instant::now();
+        tracing::info!(
+            ?request_id,
+            permanent,
+            entries = total,
+            "delete request accepted"
+        );
+        // Release directory enumerators and monitors before Windows recycles an open folder.
+        let roots = entries
+            .iter()
+            .map(|entry| entry.location.clone())
+            .collect::<Vec<_>>();
+        let affected_depth = {
+            let state = self.state.borrow();
+            (1..)
+                .map_while(|depth| state.location_at(depth).map(|location| (depth, location)))
+                .find(|(_, location)| crate::services::file_mutations::contains(&roots, location))
+                .map(|(depth, _)| depth)
+        };
+        if let Some(depth) = affected_depth {
+            tracing::info!(?request_id, depth, "releasing open columns before delete");
+            self.close_column(depth);
+            tracing::info!(
+                ?request_id,
+                elapsed_ms = delete_started.elapsed().as_millis() as u64,
+                "open delete columns released"
+            );
+        }
         self.deletion_operation.set(true);
         self.deletion_permanent.set(permanent);
         self.set_operation_destination(if permanent {
@@ -2697,11 +2725,17 @@ impl Browser {
                 .map(|entry| entry.display_name.clone())
                 .unwrap_or_default(),
         );
+        tracing::info!(?request_id, "releasing preview resources before delete");
         crate::services::file_mutations::prepare(
             &entries
                 .iter()
                 .map(|entry| entry.location.clone())
                 .collect::<Vec<_>>(),
+        );
+        tracing::info!(
+            ?request_id,
+            elapsed_ms = delete_started.elapsed().as_millis() as u64,
+            "delete resources released"
         );
         self.emit(BrowserEvent::DeletionStarted { total });
         let load = provider.delete_with_method(
@@ -2714,6 +2748,11 @@ impl Browser {
             self.operation_callback(request_id, false, HashSet::new()),
         );
         self.install_operation_load(request_id, load);
+        tracing::info!(
+            ?request_id,
+            elapsed_ms = delete_started.elapsed().as_millis() as u64,
+            "delete provider dispatched"
+        );
     }
 
     pub fn restore(self: &Rc<Self>, items: Vec<RestoreTrashItem>) {

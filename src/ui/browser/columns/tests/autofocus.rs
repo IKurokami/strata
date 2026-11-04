@@ -369,3 +369,33 @@ fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
         },
     );
 }
+
+#[test]
+fn deleting_an_open_folder_releases_its_child_columns_before_the_operation() {
+    crate::test_support::gtk_test(
+        "ui::browser::columns::tests::autofocus::deleting_an_open_folder_releases_its_child_columns_before_the_operation",
+        || {
+            let fixture = fixture();
+            let root = fixture._root.path().join("delete-open");
+            let child = root.join("a-folder");
+            std::fs::create_dir_all(&child).unwrap();
+            std::fs::write(child.join("data.txt"), b"keep").unwrap();
+            std::fs::write(root.join("z.txt"), b"keep").unwrap();
+            let browser = fixture.view.browser();
+            browser.navigate(Location::local(&root));
+            pump_until(|| column_loaded(&fixture.view, 1), "open child");
+            fixture.view.state.focus_column_background(0);
+            let operations = Rc::new(crate::test_support::operations::HeldOperations::default());
+            fixture.view.set_operation_provider(operations.clone());
+            assert!(fixture.view.confirm_delete(false));
+            assert_eq!(operations.delete_requests.borrow().len(), 1);
+            assert!(browser.location_at(1).is_none());
+            assert_eq!(browser.active_depth(), Some(0));
+            assert_eq!(
+                browser.focused_entry().unwrap().location,
+                Location::local(&child)
+            );
+            assert!(child.join("data.txt").exists());
+        },
+    );
+}
