@@ -144,7 +144,14 @@ pub(super) fn load_storyboard(
                 *session = StoryboardSession::start(source.clone(), CELL_EDGE);
                 return glib::ControlFlow::Continue;
             }
-            while let Some(event) = session.as_ref().and_then(StoryboardSession::receive) {
+            let started = std::time::Instant::now();
+            for _ in 0..4 {
+                if started.elapsed() >= std::time::Duration::from_millis(2) {
+                    break;
+                }
+                let Some(event) = session.as_ref().and_then(StoryboardSession::receive) else {
+                    break;
+                };
                 match event {
                     StoryboardEvent::Sheet(sheet) => {
                         board.replace(Some(adopt(&key, sheet)));

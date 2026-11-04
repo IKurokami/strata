@@ -401,7 +401,14 @@ pub(in crate::ui::preview) fn load_peaks(
                 *session = PeaksSession::start(source.clone());
                 return glib::ControlFlow::Continue;
             }
-            while let Some(event) = session.as_ref().and_then(PeaksSession::receive) {
+            let started = std::time::Instant::now();
+            for _ in 0..4 {
+                if started.elapsed() >= std::time::Duration::from_millis(2) {
+                    break;
+                }
+                let Some(event) = session.as_ref().and_then(PeaksSession::receive) else {
+                    break;
+                };
                 match event {
                     PeaksEvent::Levels { start, levels: run } => {
                         on_levels(start, &run);

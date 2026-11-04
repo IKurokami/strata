@@ -92,6 +92,46 @@ fn windows_video_seek_resumes_at_the_requested_frame() {
 }
 
 #[test]
+fn windows_gigabyte_video_container_streams_without_loading_the_whole_file() {
+    use std::io::{Seek, SeekFrom, Write};
+    let (_dir, path) = generated_media(
+        "mp4",
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=128x72:rate=30",
+            "-t",
+            "1",
+            "-c:v",
+            "mpeg4",
+        ],
+    );
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("padding fixture");
+    let size = file.seek(SeekFrom::End(0)).expect("container end");
+    let padding = 1024_u32 * 1024 * 1024;
+    file.write_all(&padding.to_be_bytes())
+        .expect("free atom size");
+    file.write_all(b"free").expect("skippable free atom");
+    file.set_len(size + u64::from(padding))
+        .expect("gigabyte container");
+    drop(file);
+    let session = Session::start(test_source(path, false), 0).expect("large preview");
+    let (header, frame) = first_frame(&session);
+    assert!(header.width > 0 && header.height > 0);
+    assert!(!frame.pixels.is_empty());
+    session.cancel();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.finished() {
+        assert!(Instant::now() < deadline, "large preview did not cancel");
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
 fn cached_probe_is_invalidated_when_media_is_replaced() {
     let (_first_dir, path) = generated_media(
         "wav",

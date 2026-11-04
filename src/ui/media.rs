@@ -110,6 +110,10 @@ mod imp {
         pub(super) texture: RefCell<Option<gdk::Texture>>,
         pub(super) frames: RefCell<VecDeque<Frame>>,
         pub(super) audio: RefCell<Option<PcmOutput>>,
+        #[cfg(windows)]
+        pub(super) audio_preparation: RefCell<Option<audio::AudioPreparation>>,
+        #[cfg(windows)]
+        pub(super) audio_header: Cell<Option<Header>>,
         pub(super) timer: RefCell<Option<glib::SourceId>>,
         pub(super) closed: Cell<bool>,
         pub(super) restart: Cell<Option<u32>>,
@@ -482,6 +486,7 @@ impl DecodedMedia {
         }
         imp.session.borrow_mut().take();
         imp.audio.borrow_mut().take();
+        self.cancel_audio_preparation();
         imp.frames.borrow_mut().clear();
         imp.texture.borrow_mut().take();
         imp.history.borrow_mut().take();
@@ -514,6 +519,7 @@ impl DecodedMedia {
             session.cancel();
         }
         imp.audio.borrow_mut().take();
+        self.cancel_audio_preparation();
         imp.frames.borrow_mut().clear();
         if let Some(history) = imp.history.borrow_mut().as_mut() {
             history.clear();
@@ -538,6 +544,7 @@ impl DecodedMedia {
         let imp = self.imp();
         imp.session.borrow_mut().take();
         imp.audio.borrow_mut().take();
+        self.cancel_audio_preparation();
         imp.frames.borrow_mut().clear();
         if self.is_seeking() {
             self.seek_failed();
@@ -649,6 +656,7 @@ impl DecodedMedia {
         }
     }
 
+    #[cfg(not(windows))]
     fn pcm_output(&self) -> Result<PcmOutput, String> {
         #[cfg(all(test, not(windows)))]
         let output = if let Some(description) = self.imp().audio_sink.borrow().as_deref() {
@@ -668,6 +676,68 @@ impl DecodedMedia {
             output.set_fade(fade);
         }
         Ok(output)
+    }
+
+    fn cancel_audio_preparation(&self) {
+        #[cfg(windows)]
+        {
+            self.imp().audio_header.set(None);
+            self.imp().audio_preparation.borrow_mut().take();
+        }
+    }
+
+    #[cfg(windows)]
+    fn poll_audio_preparation(&self) -> Result<bool, String> {
+        let imp = self.imp();
+        let Some(header) = imp.audio_header.get() else {
+            return Ok(true);
+        };
+        if imp.audio_preparation.borrow().is_none() {
+            let preparation =
+                audio::AudioPreparation::start(self.is_muted(), self.volume(), AUDIO_LOOKAHEAD)?;
+            imp.audio_preparation.replace(preparation);
+        }
+        let prepared = imp
+            .audio_preparation
+            .borrow()
+            .as_ref()
+            .map(|job| job.poll())
+            .transpose()?
+            .flatten();
+        let Some(prepared) = prepared else {
+            return Ok(false);
+        };
+        imp.audio_preparation.borrow_mut().take();
+        imp.audio_header.set(None);
+        let output = prepared.finish(self.is_muted(), self.volume());
+        if let Some(fade) = imp.fade.get() {
+            output.set_fade(fade);
+        }
+        imp.audio.replace(Some(output));
+        self.publish_media_header(header);
+        Ok(true)
+    }
+
+    fn publish_media_header(&self, header: Header) {
+        let imp = self.imp();
+        imp.header.set(Some(header));
+        self.invalidate_size();
+        if imp.source.borrow().as_ref().map(|source| source.size) != imp.loaded_size.get() {
+            imp.resized.set(Some(Instant::now()));
+        }
+        if !self.is_prepared() {
+            let known_duration = header.duration_us != media::MAX_DURATION_US;
+            self.stream_prepared(
+                header.audio,
+                header.width > 0,
+                known_duration,
+                if known_duration {
+                    header.duration_us as i64
+                } else {
+                    0
+                },
+            );
+        }
     }
 
     fn tick(&self) -> Result<(), String> {
@@ -710,6 +780,7 @@ impl DecodedMedia {
         {
             imp.session.borrow_mut().take();
             imp.audio.borrow_mut().take();
+            self.cancel_audio_preparation();
             imp.frames.borrow_mut().clear();
             imp.restart.set(None);
             imp.dormant.set(true);
@@ -768,6 +839,10 @@ impl DecodedMedia {
                 Err(error) => return Err(error),
             }
         }
+        #[cfg(windows)]
+        if !self.poll_audio_preparation()? {
+            return Ok(());
+        }
         let drain_started = Instant::now();
         let mut drained = 0;
         while imp.end.get().is_none() && self.can_queue_more() {
@@ -789,28 +864,15 @@ impl DecodedMedia {
                         self.restart_at(saved);
                         break;
                     }
-                    let audio = header.audio.then(|| self.pcm_output()).transpose()?;
-                    imp.audio.replace(audio);
-                    imp.header.set(Some(header));
-                    self.invalidate_size();
-                    if imp.source.borrow().as_ref().map(|source| source.size)
-                        != imp.loaded_size.get()
-                    {
-                        imp.resized.set(Some(Instant::now()));
+                    #[cfg(windows)]
+                    if header.audio {
+                        imp.audio_header.set(Some(header));
+                        break;
                     }
-                    if !self.is_prepared() {
-                        let known_duration = header.duration_us != media::MAX_DURATION_US;
-                        self.stream_prepared(
-                            header.audio,
-                            header.width > 0,
-                            known_duration,
-                            if known_duration {
-                                header.duration_us as i64
-                            } else {
-                                0
-                            },
-                        );
-                    }
+                    #[cfg(not(windows))]
+                    imp.audio
+                        .replace(header.audio.then(|| self.pcm_output()).transpose()?);
+                    self.publish_media_header(header);
                 }
                 Some(Event::Packet(Packet::Frame(mut frame))) => {
                     let header = imp.header.get().ok_or("Missing media header")?;
@@ -968,6 +1030,7 @@ impl DecodedMedia {
                 } else {
                     imp.session.borrow_mut().take();
                     imp.audio.borrow_mut().take();
+                    self.cancel_audio_preparation();
                     self.stream_ended();
                 }
             } else if imp

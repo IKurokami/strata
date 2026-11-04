@@ -29,6 +29,7 @@ pub(super) struct PcmOutput {
     frames: Cell<u64>,
     finished: Cell<bool>,
     failure: RefCell<Option<String>>,
+    shutdown_on_drop: bool,
     _thread: PhantomData<Rc<()>>,
 }
 
@@ -122,6 +123,7 @@ impl PcmOutput {
             frames: Cell::new(0),
             finished: Cell::new(false),
             failure: RefCell::new(None),
+            shutdown_on_drop: true,
             _thread: PhantomData,
         };
         output.set_audio(muted, volume);
@@ -260,6 +262,9 @@ impl PcmOutput {
 
 impl Drop for PcmOutput {
     fn drop(&mut self) {
+        if !self.shutdown_on_drop {
+            return;
+        }
         #[cfg(windows)]
         {
             let pipeline = self.pipeline.clone();
@@ -279,3 +284,8 @@ impl Drop for PcmOutput {
         let _ = self.pipeline.set_state(gst::State::Null);
     }
 }
+
+#[cfg(windows)]
+mod preparation;
+#[cfg(windows)]
+pub(super) use preparation::AudioPreparation;
