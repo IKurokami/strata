@@ -722,8 +722,8 @@ These GUI conventions stay available alongside the Yazi verbs:
 Context-menu shortcut hints follow this map (**x** cut, **y** yank, **p** paste,
 **d** / **D** trash / delete, **r** rename, **M** / **C** move / copy to, **R**
 restore, **i** quick preview, next column, or folder peek). The file chooser has no **i** preview, so its Quick preview item
-shows no hint. Default-map hints that are unbound or remapped (**y** for copy path, **Space** for preview,
-**Ctrl+R** for rename) are hidden. Copy path is **c c**; Properties is
+shows no hint. Default-map hints that are unbound or remapped (**Space** for preview,
+**Ctrl+R** for rename) are hidden. Copy path is **c c** or **Ctrl+Shift+C**; Properties is
 **Alt+Enter**.
 
 ## Not bound

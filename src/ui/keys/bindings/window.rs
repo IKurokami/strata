@@ -7,6 +7,7 @@ use crate::ui::keys::{Binding, Digits};
 catalog! {
     listed {
         COPY: Binding = Binding::ctrl(Key::c);
+        COPY_PATH: Binding = Binding::ctrl_shift(Key::c);
         CUT: Binding = Binding::ctrl(Key::x);
         PASTE: Binding = Binding::ctrl(Key::v);
         SELECT_ALL: Binding = Binding::ctrl(Key::a);
@@ -57,7 +58,6 @@ catalog! {
     default_only {
         // The 10xer map gives these keys to other commands or leaves them out.
         DUPLICATE: Binding = Binding::ctrl(Key::d);
-        COPY_PATH: Binding = Binding::plain(Key::y);
         PIN: Binding = Binding::plain(Key::p);
         RENAME_R: Binding = Binding::ctrl(Key::r);
         JUMP_TO_FOLDER: Binding = Binding::ctrl_shift(Key::k);

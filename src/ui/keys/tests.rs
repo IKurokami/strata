@@ -1006,3 +1006,30 @@ fn every_listed_binding_has_its_own_row_in_its_maps() {
         }
     }
 }
+
+#[test]
+fn copy_path_menu_shortcuts_follow_live_maps_without_yielding_to_type_to_search() {
+    crate::test_support::gtk_test(
+        "ui::keys::tests::copy_path_menu_shortcuts_follow_live_maps_without_yielding_to_type_to_search",
+        || {
+            use crate::ui::{
+                preferences::PreferenceManager,
+                shortcut_reference::{ContextHint, context_hint_for, menu_accelerator},
+            };
+            let manager = PreferenceManager::shared();
+            for (tenxer, typing) in [(false, false), (false, true), (true, true)] {
+                manager.set_tenxer_mode(tenxer);
+                manager.set_type_to_search(typing);
+                for hint in [ContextHint::CopyPath, ContextHint::CopyPaths] {
+                    let binding = menu_accelerator(
+                        context_hint_for(hint, &manager).expect("copy path shortcut"),
+                    )
+                    .expect("accelerator");
+                    assert!(KeyPress::from_signal(Key::C, 0, CTRL_SHIFT).is(binding));
+                    assert!(!KeyPress::from_signal(Key::c, 0, CTRL).is(binding));
+                    assert!(!KeyPress::from_signal(Key::y, 0, NONE).is(binding));
+                }
+            }
+        },
+    );
+}

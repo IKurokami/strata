@@ -677,10 +677,8 @@ const DEFAULT_FILES: &[Shortcut] = &[
         Any(&[CONTEXT_MENU, CONTEXT_MENU_F10]),
         "Open the context menu",
     ),
-    row(
-        Any(&[COPY_PATH, PIN]),
-        "Copy path / pin a folder (type-to-search off)",
-    ),
+    row(One(COPY_PATH), "Copy path"),
+    row(One(PIN), "Pin to sidebar"),
 ];
 
 const TRASH_AFTER_CONFIRMING: Shortcut = row(
@@ -713,6 +711,7 @@ const TENXER_FILES: &[Shortcut] = &[
     ),
     row(One(CREATE), "Create a file; end with / for a folder"),
     row(COPY_PATH_OR_NAME, "Copy path / name"),
+    row(One(COPY_PATH), "Copy path"),
     row(Any(&[COPY, CUT]), "Copy / cut selected items"),
     row(One(UNDO), "Undo the last file operation"),
     row(Any(&[REDO, REDO_Y]), "Redo the last file operation"),
@@ -1126,7 +1125,7 @@ fn default_hint(hint: ContextHint, type_to_search: bool) -> Option<Keys> {
         | ContextHint::CopyTo
         | ContextHint::Restore
         | ContextHint::RemoveFromRecent => return None,
-        ContextHint::CopyPath | ContextHint::CopyPaths | ContextHint::Pin if type_to_search => {
+        ContextHint::Pin if type_to_search => {
             return None;
         }
         ContextHint::Preview | ContextHint::ChooserPreview => SPACE,
@@ -1166,8 +1165,6 @@ fn tenxer_hint(hint: ContextHint) -> Option<Keys> {
         ContextHint::Rename => TENXER_RENAME,
         ContextHint::None
         | ContextHint::ChooserPreview
-        | ContextHint::CopyPath
-        | ContextHint::CopyPaths
         | ContextHint::Duplicate
         | ContextHint::Pin
         | ContextHint::Terminal => return None,

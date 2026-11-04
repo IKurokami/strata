@@ -281,3 +281,91 @@ fn navigating_to_a_file_first_folder_does_not_reopen_preview_for_its_load_cursor
         },
     );
 }
+
+#[test]
+fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
+    crate::test_support::gtk_test(
+        "ui::browser::columns::tests::autofocus::file_command_sources_stay_in_the_focused_parent_with_a_filtered_child",
+        || {
+            let fixture = fixture();
+            let root = fixture._root.path().join("command-source");
+            let folder = root.join("a-folder");
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("inside.txt"), b"child").unwrap();
+            std::fs::write(root.join("z.txt"), b"parent").unwrap();
+            let empty = root.join("empty-folder");
+            std::fs::create_dir_all(&empty).unwrap();
+            let app = fixture.view.browser();
+            app.navigate(Location::local(&root));
+            pump_until(
+                || column_loaded(&fixture.view, 1) && app.cursor_entry(1).is_some(),
+                "passive child selection",
+            );
+            let child = fixture.view.state.columns.borrow()[1].clone();
+            for query in ["", "inside"] {
+                child.filter_entry.set_text(query);
+                pump_for(Duration::from_millis(150));
+                fixture.view.state.focus_column_background(0);
+                fixture
+                    .view
+                    .record_pointer_hover((20.0, query.len() as f64), Some(1));
+                assert_eq!(fixture.view.state.focused_column_depth(), Some(0));
+                let expected = Location::local(&folder);
+                assert_eq!(
+                    fixture
+                        .view
+                        .clipboard_targets()
+                        .iter()
+                        .map(|e| e.location.clone())
+                        .collect::<Vec<_>>(),
+                    vec![expected.clone()]
+                );
+                assert_eq!(
+                    fixture
+                        .view
+                        .command_targets()
+                        .iter()
+                        .map(|e| e.location.clone())
+                        .collect::<Vec<_>>(),
+                    vec![expected]
+                );
+                assert!(fixture.view.selected_search_results().is_none());
+                assert_eq!(app.active_depth(), Some(0));
+                assert!(child.focus_surface());
+                pump_for(Duration::from_millis(30));
+                assert_eq!(
+                    fixture
+                        .view
+                        .clipboard_targets()
+                        .iter()
+                        .map(|e| e.location.clone())
+                        .collect::<Vec<_>>(),
+                    vec![Location::local(folder.join("inside.txt"))]
+                );
+                assert_eq!(
+                    fixture.view.selected_search_results().is_some(),
+                    !query.is_empty()
+                );
+            }
+            app.descend(0, Location::local(&empty));
+            pump_until(
+                || {
+                    app.column_snapshot(1).is_some_and(|column| {
+                        !column.loading && column.location == Location::local(&empty)
+                    })
+                },
+                "empty child column",
+            );
+            fixture.view.state.focus_column_background(1);
+            assert_eq!(
+                fixture
+                    .view
+                    .clipboard_targets()
+                    .iter()
+                    .map(|entry| entry.location.clone())
+                    .collect::<Vec<_>>(),
+                vec![Location::local(&empty)]
+            );
+        },
+    );
+}
