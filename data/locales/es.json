@@ -1451,5 +1451,13 @@
   "Replace": "Sustituir",
   "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "Abra carpetas, unidades y %{explorer_keys} en Strata. No se necesita ningún proceso auxiliar en segundo plano. Al desactivar esta opción se restaura el gestor anterior.",
   "Strata has not restored the previous file manager.": "Strata no ha restaurado el gestor de archivos anterior.",
-  "Unable to restore file manager settings. Strata has not been uninstalled.": "No se pudo restaurar la configuración del gestor de archivos. Strata no se ha desinstalado."
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "No se pudo restaurar la configuración del gestor de archivos. Strata no se ha desinstalado.",
+  "Compare text files": "Comparar archivos de texto",
+  "UTF-8 text · up to 1 MiB per file · line endings normalized": "Texto UTF-8 · hasta 1 MiB por archivo · finales de línea normalizados",
+  "Text is identical": "El texto es idéntico",
+  "Select text to copy, or copy the whole comparison.": "Seleccione texto para copiar o copie toda la comparación.",
+  "Files exceed the comparison limits.": "Los archivos superan los límites de comparación.",
+  "Choose two local UTF-8 text files.": "Elija dos archivos de texto UTF-8 locales.",
+  "Unable to read the selected files.": "No se pueden leer los archivos seleccionados.",
+  "Another comparison is running. Try again shortly.": "Hay otra comparación en curso. Inténtelo de nuevo en un momento."
 }
