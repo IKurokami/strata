@@ -283,9 +283,9 @@ fn navigating_to_a_file_first_folder_does_not_reopen_preview_for_its_load_cursor
 }
 
 #[test]
-fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
+fn clipboard_sources_follow_pointer_and_keyboard_with_filtered_columns() {
     crate::test_support::gtk_test(
-        "ui::browser::columns::tests::autofocus::file_command_sources_stay_in_the_focused_parent_with_a_filtered_child",
+        "ui::browser::columns::tests::autofocus::clipboard_sources_follow_pointer_and_keyboard_with_filtered_columns",
         || {
             let fixture = fixture();
             let root = fixture._root.path().join("command-source");
@@ -305,11 +305,30 @@ fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
             for query in ["", "inside"] {
                 child.filter_entry.set_text(query);
                 pump_for(Duration::from_millis(150));
+                if !query.is_empty() {
+                    child.selection.select_item(0, true);
+                }
+
                 fixture.view.state.focus_column_background(0);
                 fixture
                     .view
                     .record_pointer_hover((20.0, query.len() as f64), Some(1));
                 assert_eq!(fixture.view.state.focused_column_depth(), Some(0));
+                assert_eq!(
+                    fixture
+                        .view
+                        .clipboard_targets()
+                        .iter()
+                        .map(|e| e.location.clone())
+                        .collect::<Vec<_>>(),
+                    vec![Location::local(folder.join("inside.txt"))],
+                    "query={query:?}"
+                );
+                assert_eq!(
+                    fixture.view.paste_location(),
+                    Some(Location::local(&folder))
+                );
+                fixture.view.keyboard_navigation();
                 let expected = Location::local(&folder);
                 assert_eq!(
                     fixture
@@ -331,6 +350,7 @@ fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
                 );
                 assert!(fixture.view.selected_search_results().is_none());
                 assert_eq!(app.active_depth(), Some(0));
+                assert_eq!(fixture.view.paste_location(), Some(Location::local(&root)));
                 assert!(child.focus_surface());
                 pump_for(Duration::from_millis(30));
                 assert_eq!(
@@ -347,6 +367,27 @@ fn file_command_sources_stay_in_the_focused_parent_with_a_filtered_child() {
                     !query.is_empty()
                 );
             }
+            fixture.view.record_pointer_hover((50.0, 60.0), Some(0));
+            assert_eq!(
+                fixture
+                    .view
+                    .clipboard_targets()
+                    .iter()
+                    .map(|e| e.location.clone())
+                    .collect::<Vec<_>>(),
+                vec![Location::local(&folder)]
+            );
+            assert_eq!(fixture.view.paste_location(), Some(Location::local(&root)));
+            fixture.view.keyboard_navigation();
+            assert_eq!(
+                fixture
+                    .view
+                    .clipboard_targets()
+                    .iter()
+                    .map(|e| e.location.clone())
+                    .collect::<Vec<_>>(),
+                vec![Location::local(folder.join("inside.txt"))]
+            );
             app.descend(0, Location::local(&empty));
             pump_until(
                 || {
@@ -396,6 +437,44 @@ fn deleting_an_open_folder_releases_its_child_columns_before_the_operation() {
                 Location::local(&child)
             );
             assert!(child.join("data.txt").exists());
+        },
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn copying_back_into_the_source_column_preserves_the_original_and_creates_a_copy() {
+    crate::test_support::gtk_test(
+        "ui::browser::columns::tests::autofocus::copying_back_into_the_source_column_preserves_the_original_and_creates_a_copy",
+        || {
+            let fixture = fixture();
+            let root = fixture._root.path().join("same-folder-copy");
+            std::fs::create_dir_all(&root).unwrap();
+            let original = root.join("original.txt");
+            std::fs::write(&original, b"keep original bytes").unwrap();
+            let app = fixture.view.browser();
+            app.navigate(Location::local(&root));
+            pump_until(|| column_loaded(&fixture.view, 0), "source column");
+            fixture.view.set_operation_provider(Rc::new(
+                crate::adapters::LocalOperationProvider::default(),
+            ));
+            fixture.view.state.start_transfer(
+                Location::local(&root),
+                vec![Location::local(&original)],
+                false,
+            );
+            pump_until(
+                || {
+                    std::fs::read_dir(&root).unwrap().flatten().any(|entry| {
+                        entry.path() != original
+                            && std::fs::read(entry.path()).ok().as_deref()
+                                == Some(b"keep original bytes".as_slice())
+                    }) && !app.has_foreground_operation()
+                        && !app.has_background_operations()
+                },
+                "distinct completed copy",
+            );
+            assert_eq!(std::fs::read(&original).unwrap(), b"keep original bytes");
         },
     );
 }

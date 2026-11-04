@@ -54,6 +54,9 @@ pub(super) fn file_provider(files: &[gio::File], cut: bool) -> gtk::gdk::Content
 }
 
 pub(super) async fn prefers_move(clipboard: &gtk::gdk::Clipboard) -> bool {
+    if !clipboard.formats().contain_mime_type(DROP_EFFECT_MIME) {
+        return false;
+    }
     let Ok((stream, _)) = clipboard
         .read_future(&[DROP_EFFECT_MIME], gtk::glib::Priority::DEFAULT)
         .await
@@ -65,6 +68,14 @@ pub(super) async fn prefers_move(clipboard: &gtk::gdk::Clipboard) -> bool {
 }
 
 pub(super) async fn read_files(clipboard: &gtk::gdk::Clipboard) -> Option<Vec<gio::File>> {
+    // Our typed provider is already available locally; do not round-trip through OLE.
+    if let Some(files) = clipboard
+        .content()
+        .and_then(|provider| provider.value(gtk::gdk::FileList::static_type()).ok())
+        .and_then(|value| value.get::<gtk::gdk::FileList>().ok())
+    {
+        return Some(files.files().to_vec());
+    }
     if let Ok((stream, _)) = clipboard
         .read_future(&[FILE_DROP_MIME], gtk::glib::Priority::DEFAULT)
         .await

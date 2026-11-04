@@ -78,19 +78,31 @@ impl BrowserView {
     }
 
     pub(super) fn clipboard_targets(&self) -> Vec<FileEntry> {
-        let entries = self.command_targets();
-        // Keep the existing entered-empty-folder fallback, never a sibling pane's selection.
+        if self.view_mode() != crate::ui::browser_modes::BrowserMode::Columns {
+            return self.command_targets();
+        }
+        let Some(depth) = self.clipboard_listing_depth() else {
+            return Vec::new();
+        };
+        if let Some(results) = self.selected_search_results_at(depth) {
+            return results;
+        }
+        let entries = self.state.browser.command_entries(depth);
         if entries.is_empty()
-            && self.selected_search_results().is_none()
-            && self.focused_listing_depth() == self.state.browser.active_depth()
-            && self.focused_listing_depth().is_some_and(|depth| {
-                self.state
-                    .browser
-                    .column_snapshot(depth)
-                    .is_some_and(|column| column.count == 0)
-            })
+            && self
+                .state
+                .browser
+                .column_snapshot(depth)
+                .is_some_and(|column| column.count == 0)
+            && let Some(parent) = depth.checked_sub(1)
+            && let Some(folder) = self
+                .state
+                .browser
+                .active_child_position(parent)
+                .and_then(|position| self.state.browser.entry_at(parent, position))
+            && self.state.browser.location_at(depth).as_ref() == Some(&folder.location)
         {
-            return self.state.browser.transfer_entries();
+            return vec![folder];
         }
         entries
     }

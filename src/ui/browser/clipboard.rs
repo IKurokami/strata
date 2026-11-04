@@ -1225,12 +1225,18 @@ fn retain_untransferred(cut: &mut Vec<Location>, transferred: &[Location]) {
 }
 
 impl ViewState {
-    pub(super) fn copy_entries(&self, entries: &[FileEntry]) {
+    pub(super) fn copy_entries(&self, entries: &[FileEntry]) -> bool {
         if set_files_clipboard(entries, false) {
             let locations: Vec<Location> =
                 entries.iter().map(|entry| entry.location.clone()).collect();
             set_shared_marks(&locations, &[]);
+            return true;
         }
+        tracing::warn!(
+            entries = entries.len(),
+            "unable to publish files to clipboard"
+        );
+        false
     }
 
     pub(super) fn cut_entries(&self, entries: &[FileEntry]) -> bool {
@@ -1361,7 +1367,8 @@ impl ViewState {
             if let Some(state) = weak.upgrade() {
                 let move_sources = is_cut_match(&sources);
                 #[cfg(windows)]
-                let move_sources = move_sources || windows::prefers_move(&clipboard).await;
+                let move_sources = move_sources
+                    || (!owns_clipboard(&clipboard) && windows::prefers_move(&clipboard).await);
                 #[cfg(windows)]
                 if clipboard_read.changed() {
                     return nothing();

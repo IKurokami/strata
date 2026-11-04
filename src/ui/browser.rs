@@ -1674,21 +1674,37 @@ impl BrowserView {
         }
     }
 
+    fn clipboard_listing_depth(&self) -> Option<usize> {
+        if self.view_mode() == BrowserMode::Columns {
+            self.state.destination_depth()
+        } else {
+            self.focused_listing_depth()
+        }
+    }
+
     fn paste_location(&self) -> Option<Location> {
         self.state.sync_mode_selection();
-        let selected = if self.state.browser.selected_count() == 1 {
-            self.state.browser.selected_entries()
+        let depth = self.clipboard_listing_depth()?;
+        if self.view_mode() == BrowserMode::Columns {
+            return self
+                .state
+                .browser
+                .location_at(depth)
+                .filter(|location| !is_trash_location(location) && !location.is_recent_location());
+        }
+        let positions = self.state.browser.selected_positions(depth);
+        let selected = if positions.len() == 1 {
+            positions
+                .into_iter()
+                .filter_map(|position| self.state.browser.entry_at(depth, position))
+                .collect()
         } else {
             Vec::new()
         };
-        let column = self
-            .state
-            .destination_depth()
-            .and_then(|depth| self.state.browser.location_at(depth));
         paste_destination(
             &selected,
-            column,
-            self.state.browser.selection_is_load_cursor(),
+            self.state.browser.location_at(depth),
+            self.state.browser.selection_is_load_cursor_at(depth),
         )
     }
 
@@ -1697,8 +1713,7 @@ impl BrowserView {
         if entries.is_empty() {
             return false;
         }
-        self.state.copy_entries(&entries);
-        true
+        self.state.copy_entries(&entries)
     }
 
     pub fn duplicate_selection(&self) -> bool {
@@ -1719,7 +1734,12 @@ impl BrowserView {
     }
 
     pub fn copy_path(&self) -> bool {
-        self.copy_target_text(false)
+        let entries = self.clipboard_targets();
+        if entries.is_empty() {
+            return false;
+        }
+        clipboard::copy_locations(&entries);
+        true
     }
 
     pub fn pin_focused(&self) {
@@ -2221,7 +2241,10 @@ impl BrowserView {
         if self.view_mode() != BrowserMode::Columns {
             return self.state.mode_views.borrow().selected_search_results();
         }
-        let depth = self.focused_listing_depth()?;
+        self.selected_search_results_at(self.focused_listing_depth()?)
+    }
+
+    fn selected_search_results_at(&self, depth: usize) -> Option<Vec<FileEntry>> {
         let columns = self.state.columns.borrow();
         let column = columns.get(depth)?;
         if column.recursive_search_active.get() {

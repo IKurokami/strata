@@ -1060,6 +1060,7 @@ impl ViewState {
     }
 
     pub(super) fn focus_column_background(&self, depth: usize) {
+        self.hovered_column.set(Some(depth));
         self.without_focus_reveal(|| {
             self.browser.set_active_column(depth);
             let column = self.columns.borrow().get(depth).cloned();
