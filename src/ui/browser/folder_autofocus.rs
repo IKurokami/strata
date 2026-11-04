@@ -60,6 +60,23 @@ impl ViewState {
                             owner_cursor: None,
                         },
                     );
+                } else if !autofocus.history
+                    && self.mode.get() == BrowserMode::Columns
+                    && let Some(parent) = depth.checked_sub(1)
+                    && self.browser.active_depth() == Some(parent)
+                    && let Some(entry) = self.browser.focused_entry()
+                    && entry.location == *location
+                {
+                    autofocus.pending.insert(
+                        *depth,
+                        PendingFolder {
+                            location: location.clone(),
+                            remaining: 0,
+                            select: false,
+                            owner_depth: parent,
+                            owner_cursor: Some(entry.location),
+                        },
+                    );
                 }
             }
             BrowserEvent::LoadFailed { depth, .. } => {
@@ -100,8 +117,7 @@ impl ViewState {
     }
 
     fn apply_folder_autofocus(self: &Rc<Self>, depth: usize, pending: PendingFolder) {
-        if !pending.select
-            || self.browser.active_depth() != Some(pending.owner_depth)
+        if self.browser.active_depth() != Some(pending.owner_depth)
             || pending.owner_cursor.as_ref().is_some_and(|location| {
                 self.browser
                     .focused_entry()
@@ -119,6 +135,15 @@ impl ViewState {
             return;
         };
         if snapshot.loading || snapshot.error.is_some() || snapshot.reveal_pending {
+            return;
+        }
+        if !pending.select {
+            let filtered = self.columns.borrow().get(depth).is_none_or(|column| {
+                column.map.has_query() || column.recursive_search_active.get()
+            });
+            if !filtered {
+                self.browser.seed_first_loaded(depth);
+            }
             return;
         }
         // Restored selections and Show in folder must not open an unrelated first child.

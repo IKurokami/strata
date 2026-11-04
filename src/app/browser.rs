@@ -1300,6 +1300,25 @@ impl Browser {
         }
     }
 
+    pub(crate) fn seed_first_loaded(&self, depth: usize) {
+        if self.cursor_entry(depth).is_some() || !self.selected_positions(depth).is_empty() {
+            return;
+        }
+        let focused = self.state.borrow_mut().seed_first_loaded(depth);
+        if let Some(focused) = focused {
+            self.emit(BrowserEvent::SelectionSetChanged {
+                depth,
+                selection: SelectionUpdate::Positions(self.selected_positions(depth)),
+                focused,
+                take_focus: false,
+            });
+        }
+    }
+
+    pub(crate) fn selection_is_load_cursor_at(&self, depth: usize) -> bool {
+        self.state.borrow().selection_is_load_cursor_at(depth)
+    }
+
     pub fn selection_anchor_position(&self, depth: usize) -> Option<usize> {
         self.state.borrow().selection_anchor_position(depth)
     }
@@ -3591,10 +3610,8 @@ impl Browser {
             self.set_active_column(depth + 1);
             if self.cursor_entry(depth + 1).is_none() {
                 self.select_first_on_load(depth + 1);
-                self.focus_first_loaded(depth + 1);
-            } else {
-                self.focus_active();
             }
+            self.focus_first_loaded(depth + 1);
             return;
         }
         self.activate_focused_with_selection(false);
@@ -3739,11 +3756,13 @@ impl Browser {
     fn focus_child(&self) {
         let focus = self.state.borrow_mut().focus_child();
         if let Some((depth, position)) = focus {
+            let background = self.background_load_focus.replace(true);
             self.emit(BrowserEvent::FocusChanged {
                 depth,
                 position,
                 triggered_by_removal: false,
             });
+            self.background_load_focus.set(background);
         }
     }
 

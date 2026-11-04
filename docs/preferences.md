@@ -4,6 +4,13 @@ Normal browser view modes are now exact-folder overrides with Columns as the
 fallback, independently of optional remembered sort/icon size. See [Disk Usage](disk-usage.md)
 for migration, chooser isolation and cache behavior.
 
+New folders select their first visible item. In Columns, a newly displayed child
+also gets an initial selection while keyboard focus stays in the parent column.
+Single-folder chains may advance focus, with at most four automatic child loads.
+Initializing these load cursors does not open Preview: folder navigation closes
+the prior preview once, and choosing a file explicitly opens it again. Explicit
+reveal targets and restored user selections retain their existing behavior.
+
 `fast_raw_preview` and `smart_search_enabled` default to true, including missing
 fields in upgraded settings. Smart Search roots default to an empty list;
 `smart_search_include_code`, `smart_search_index_on_battery` and

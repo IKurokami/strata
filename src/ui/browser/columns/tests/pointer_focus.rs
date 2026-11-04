@@ -5,7 +5,7 @@ use crate::services::{LoadHandle, PreviewEvent, PreviewProvider, PreviewRequest}
 use crate::ui::preview::PreviewDrawer;
 
 #[derive(Default)]
-struct PreviewCalls(Cell<usize>);
+pub(super) struct PreviewCalls(pub(super) Cell<usize>);
 
 impl PreviewProvider for PreviewCalls {
     fn load(&self, _: PreviewRequest, _: Rc<dyn Fn(PreviewEvent)>) -> LoadHandle {

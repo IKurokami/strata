@@ -469,6 +469,10 @@ pub(super) fn column_rows(
             let preserve_group = change.preserved_group;
             let filtered = search_active_for_click.get() || map_for_click.has_query();
             let source_position = map_for_click.source_position(position);
+            let load_cursor_before = selected_before
+                && weak_state_for_click
+                    .upgrade()
+                    .is_some_and(|state| state.browser.selection_is_load_cursor_at(depth));
             let (activate, location_hold) = if let Some(state) = weak_state_for_click.upgrade()
                 && let Some(entry) =
                     source_position.and_then(|position| state.browser.entry_at(depth, position))
@@ -520,6 +524,13 @@ pub(super) fn column_rows(
             );
             if let Some(state) = pointer_owner {
                 state.pointer_owns_selection.set(false);
+                if load_cursor_before
+                    && !control
+                    && !shift
+                    && let Some(position) = source_position
+                {
+                    state.browser.select(depth, position);
+                }
             }
             if (control || shift)
                 && let Some(widget) = gesture.widget()
@@ -598,6 +609,7 @@ pub(super) fn column_rows(
                         && super::super::context_menu::resume_primary_selection(&state, entry);
                     let reopening = state.browser.is_open_child(depth, &entry.location);
                     let slow_click_rename = press_count == 1
+                        && !load_cursor_before
                         && !context_selected
                         && selected_before
                         && selected_count_before == 1

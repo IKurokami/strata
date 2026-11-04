@@ -1637,6 +1637,7 @@ impl ViewState {
         } else {
             self.browser.close_column(depth + 1);
             if self.single_click_previews.get()
+                && !self.browser.selection_is_load_cursor_at(depth)
                 && let Some(entry) = preview_target(Some(entry))
             {
                 self.browser.request_automatic_preview(entry);
