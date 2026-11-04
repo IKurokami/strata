@@ -207,3 +207,27 @@ fn native_clipboard_input_preserves_unicode_and_rejects_partial_selections() {
     malformed[20..22].copy_from_slice(&0u16.to_le_bytes());
     assert!(files_from_drop_data(&malformed).is_none());
 }
+
+#[test]
+fn local_file_provider_serves_typed_files_without_native_clipboard_roundtrip() {
+    crate::test_support::gtk_test(
+        "ui::browser::clipboard::windows::tests::local_file_provider_serves_typed_files_without_native_clipboard_roundtrip",
+        || {
+            let files = [
+                gio::File::for_path(r"C:\Strata fixture\ảnh.txt"),
+                gio::File::for_path(r"\\server\share\file.txt"),
+            ];
+            for cut in [false, true] {
+                let provider = file_provider(&files, cut);
+                let value = provider
+                    .value(gtk::gdk::FileList::static_type())
+                    .expect("typed file content");
+                let restored = value.get::<gtk::gdk::FileList>().unwrap();
+                assert_eq!(restored.files().len(), files.len());
+                for (actual, expected) in restored.files().iter().zip(files.iter()) {
+                    assert!(actual.equal(expected));
+                }
+            }
+        },
+    );
+}

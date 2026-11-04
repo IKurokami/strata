@@ -579,6 +579,17 @@ impl ViewState {
             .native_path()
             .and_then(destination_name_candidates);
         for source in sources {
+            if !move_sources
+                && gio_file_for_location(&source)
+                    .parent()
+                    .is_some_and(|parent| parent.equal(&gio_file_for_location(&destination)))
+            {
+                accepted.push(PasteItem {
+                    source,
+                    conflict: TransferConflict::KeepBoth,
+                });
+                continue;
+            }
             let may_collide = match (&destination_names, source.file_name()) {
                 (Some(existing), Some(name)) => existing.contains(&destination_name_key(&name)),
                 _ => true,

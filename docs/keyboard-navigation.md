@@ -384,8 +384,9 @@ Create `Fonts/` (empty), `Scripts/example.txt`, and `LICENSE` under a temporary 
 
 ### File commands in Columns
 
-Copy and Cut act on the focused column, including its cursor when a child column
-has a passive initial selection. Hovering another column or leaving a filter in
-another column does not change the source. Ctrl+Shift+C copies the selected paths
-in both key maps, including filtered results. In Windows, Delete moves local
-items to the Recycle Bin; Shift+Delete remains a separate permanent-delete action.
+Copy and Cut use the column under the pointer after real pointer movement. Keyboard
+navigation returns ownership to the focused column; a parked pointer does not
+redirect later commands. Paste in Columns uses that same column's directory,
+not a selected folder from another column. Ctrl+Shift+C follows the same source
+ownership. Windows Delete moves local items to the Recycle Bin; Shift+Delete
+remains the separate permanent-delete action.
