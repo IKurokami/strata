@@ -19,6 +19,7 @@ enum Request {
         arguments: Vec<Vec<u16>>,
     },
     Quit,
+    Startup,
     Unlock {
         operand: String,
     },
@@ -49,6 +50,8 @@ pub(super) fn shell_activation() -> std::io::Result<Option<(String, Vec<u8>)>> {
 pub(crate) fn claim(arguments: &[OsString]) -> Result<Option<Server>, glib::ExitCode> {
     let request = if arguments.len() == 2 && arguments[1] == "--quit" {
         Request::Quit
+    } else if arguments.len() == 2 && arguments[1] == "--startup" {
+        Request::Startup
     } else if arguments.len() == 3 && arguments[1] == "--unlock-volume" {
         Request::Unlock {
             operand: arguments[2].to_string_lossy().into_owned(),
@@ -175,6 +178,7 @@ fn dispatch(application: &gtk::Application, message: &[u8]) {
         return;
     };
     match request {
+        Request::Startup => {}
         Request::Quit => quit(application),
         Request::Unlock { operand } => {
             if let Ok(target) = crate::UnlockTarget::parse(&operand) {

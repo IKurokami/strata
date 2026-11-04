@@ -189,6 +189,7 @@ fn audio_command(source: &SandboxedMedia, start_tick: u32) -> Command {
     let mut cmd = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
     cmd.arg("-v")
         .arg("error")
+        .args(["-threads", "2", "-filter_threads", "1"])
         // Input-side seek avoids decoding every preceding second on a scrub.
         .arg("-ss")
         .arg(format!("{:.3}", f64::from(start_tick) / f64::from(FPS)))
@@ -197,6 +198,8 @@ fn audio_command(source: &SandboxedMedia, start_tick: u32) -> Command {
         .args([
             "-map",
             "0:a:0",
+            "-threads",
+            "1",
             "-vn",
             "-c:a",
             "pcm_s16le",
@@ -215,6 +218,7 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
     let mut cmd = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
     cmd.arg("-v")
         .arg("error")
+        .args(["-threads", "2", "-filter_threads", "1"])
         .arg("-ss")
         .arg(format!("{:.3}", f64::from(start_tick) / f64::from(FPS)))
         .arg("-i")
@@ -225,7 +229,7 @@ fn video_command(source: &SandboxedMedia, start_tick: u32, width: u32, height: u
         // aspect ratio. Scale to those exact dimensions so rawvideo emits a
         // fixed-size frame without a black pad or a short final read.
         .arg(format!("scale={width}:{height},format=rgba"))
-        .args(["-f", "rawvideo", "-r", "30", "pipe:1"]);
+        .args(["-threads", "1", "-f", "rawvideo", "-r", "30", "pipe:1"]);
     cmd
 }
 
@@ -728,9 +732,11 @@ fn render_peaks(
     let duration = probe_duration(&source.path, cancelled).unwrap_or(MAX_DURATION_US - 1);
     let mut command = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
     command
-        .args(["-v", "error", "-i"])
+        .args(["-v", "error", "-threads", "1", "-filter_threads", "1", "-i"])
         .arg(&source.path)
-        .args(["-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"]);
+        .args([
+            "-threads", "1", "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
+        ]);
     let child = spawn_decoder(&mut command, cancelled, children)?;
     let mut accumulator = crate::media::peaks::Accumulator::new(duration);
     let mut wire = Vec::new();
@@ -803,11 +809,11 @@ fn render_storyboard(
         let timestamp = sheet.cell_time_us(index);
         let mut command = Command::new(media_tool("STRATA_FFMPEG", "ffmpeg.exe"));
         command
-            .args(["-v", "error", "-ss"])
+            .args(["-v", "error", "-threads", "1", "-filter_threads", "1", "-ss"])
             .arg(format!("{:.3}", timestamp as f64 / 1_000_000.0))
             .args(["-i"])
             .arg(&source.path)
-            .args(["-frames:v", "1", "-vf"])
+            .args(["-threads", "1", "-frames:v", "1", "-vf"])
             .arg(format!(
                 "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgba"
             ))

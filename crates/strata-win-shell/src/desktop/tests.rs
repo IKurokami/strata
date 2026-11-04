@@ -18,6 +18,20 @@ fn tray_clear_cache_command_routes_without_opening_a_window() {
 }
 
 #[test]
+fn tray_startup_command_routes_without_opening_a_window() {
+    EVENTS.with_borrow_mut(VecDeque::clear);
+    // SAFETY: WM_COMMAND routing returns before touching the dummy HWND.
+    unsafe {
+        procedure(HWND::default(), WM_COMMAND, WPARAM(5), LPARAM(0));
+    }
+    assert_eq!(
+        EVENTS.with_borrow_mut(VecDeque::pop_front),
+        Some(Event::Startup)
+    );
+    assert!(EVENTS.with_borrow_mut(VecDeque::pop_front).is_none());
+}
+
+#[test]
 fn allocated_console_replays_startup_logs_and_preserves_redirected_output() {
     const CHILD: &str = "STRATA_CONSOLE_REGRESSION_CHILD";
     if std::env::var_os(CHILD).is_none() {

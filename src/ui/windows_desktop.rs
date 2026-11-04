@@ -11,6 +11,7 @@ use std::{
     rc::Rc,
 };
 use strata_win_shell::desktop::Tray;
+mod startup;
 #[cfg(not(test))]
 use strata_win_shell::desktop::{Console, Event};
 
@@ -21,11 +22,15 @@ thread_local! {
     #[cfg(test)]
     static CALLS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
+    static BACKGROUND: RefCell<Option<(gtk::ApplicationWindow, gtk::gio::ApplicationHoldGuard, Rc<PreferenceManager>)>> = const { RefCell::new(None) };
 }
 
 pub(super) fn bind(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) {
     #[cfg(not(test))]
-    initialize(window, manager);
+    if let Some(application) = window.application() {
+        initialize(&application, manager);
+    }
+    startup::bind(window, manager);
     #[cfg(not(test))]
     let weak = Rc::downgrade(manager);
     manager.bind_preference(
@@ -55,23 +60,25 @@ pub(super) fn bind(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManag
     );
 }
 
+pub(super) fn toggle_startup(manager: &PreferenceManager) {
+    startup::toggle_from_tray(manager);
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(not(test))]
-fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) {
+fn initialize(application: &gtk::Application, manager: &Rc<PreferenceManager>) {
     if TRAY.with(|tray| tray.borrow().is_some()) {
         return;
     }
-    let Some(application) = window.application() else {
-        return;
-    };
     let Some(icon) = tray_icon() else { return };
-    let tray = match Tray::with_cache_action(
+    let tray = match Tray::with_startup_action(
         &crate::i18n::tr("Open Strata"),
         &crate::i18n::tr("Show application console"),
         &crate::i18n::tr("Quit Strata"),
         &crate::i18n::tr("Clear preview cache"),
+        &crate::i18n::tr("Start with Windows"),
         &icon,
     ) {
         Ok(tray) => tray,
@@ -101,6 +108,11 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
                         manager.set_show_console(!manager.show_console());
                     }
                 }
+                Some(Event::Startup) => {
+                    if let Some(manager) = manager.upgrade() {
+                        toggle_startup(&manager);
+                    }
+                }
                 Some(Event::Quit) => super::windows_runtime::quit(&application),
                 Some(Event::ClearCache) => crate::ui::cache_control::clear(|_| {}),
                 None | Some(Event::Restart) => {}
@@ -113,6 +125,38 @@ fn initialize(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManager>) 
             timer.remove();
         }
         drop(TRAY.with(|slot| slot.borrow_mut().take()));
+        BACKGROUND.with(|slot| {
+            if let Some((anchor, hold, _manager)) = slot.take() {
+                anchor.destroy();
+                drop(hold);
+            }
+        });
+    });
+}
+
+pub(crate) fn start_background(application: &gtk::Application) {
+    if !application.windows().is_empty() || BACKGROUND.with(|slot| slot.borrow().is_some()) {
+        return;
+    }
+    let manager = PreferenceManager::shared();
+    #[cfg(not(test))]
+    {
+        initialize(application, &manager);
+        if TRAY.with(|slot| slot.borrow().is_none()) {
+            return;
+        }
+    }
+    // This preference anchor is never attached, realized or presented as an app window.
+    let anchor = gtk::ApplicationWindow::builder().build();
+    bind(&anchor, &manager);
+    BACKGROUND.with(|slot| slot.replace(Some((anchor, application.hold(), manager))));
+    application.connect_window_added(|_, _| {
+        BACKGROUND.with(|slot| {
+            if let Some((anchor, hold, _manager)) = slot.take() {
+                anchor.destroy();
+                drop(hold);
+            }
+        });
     });
 }
 

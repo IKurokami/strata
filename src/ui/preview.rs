@@ -743,6 +743,23 @@ impl PreviewDrawer {
     }
 
     pub fn handle_browser_event(&self, browser: &Browser, event: &BrowserEvent) {
+        // Load cursors initialize navigation. They do not represent a request to
+        // preview a file, including focus echoes from GTK restoring the new row.
+        let automatic_cursor = match event {
+            BrowserEvent::SelectionSetChanged { depth, .. }
+            | BrowserEvent::SelectionSynced { depth, .. } => {
+                browser.selection_is_load_cursor_at(*depth)
+            }
+            BrowserEvent::FocusChanged { depth, .. } => {
+                browser.focus_follows_background_load()
+                    || (browser.child_mirror_suppressed()
+                        && browser.selection_is_load_cursor_at(*depth))
+            }
+            _ => false,
+        };
+        if automatic_cursor {
+            return;
+        }
         if selection_preview_suppressed()
             && matches!(
                 event,

@@ -13,6 +13,7 @@ use windows::Win32::{
 };
 
 mod registry;
+pub mod startup;
 use registry::Value;
 mod journal;
 mod launch;

@@ -32,6 +32,7 @@ const MAX_BULK_REVEAL_SELECTION: usize = 64;
 impl ViewState {
     pub(super) fn handle(self: &Rc<Self>, event: &BrowserEvent) {
         let dispatch_started = Instant::now();
+        self.track_folder_autofocus(event);
         let previous_mode = self.mode.get();
         if matches!(
             event,
@@ -1636,6 +1637,7 @@ impl ViewState {
         } else {
             self.browser.close_column(depth + 1);
             if self.single_click_previews.get()
+                && !self.browser.selection_is_load_cursor_at(depth)
                 && let Some(entry) = preview_target(Some(entry))
             {
                 self.browser.request_automatic_preview(entry);

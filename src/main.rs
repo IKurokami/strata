@@ -331,6 +331,15 @@ fn main() -> gtk::glib::ExitCode {
         "Unlock an encrypted volume and show the password prompt",
         Some("DEVICE"),
     );
+    #[cfg(windows)]
+    application.add_main_option(
+        "startup",
+        glib::Char(0),
+        glib::OptionFlags::NONE,
+        glib::OptionArg::None,
+        &i18n::tr("Start with Windows"),
+        None,
+    );
     application.connect_handle_local_options(|_, _| ControlFlow::Continue(()));
     #[cfg(target_os = "linux")]
     application.connect_startup(|_| install_x11_program_class());
@@ -409,6 +418,17 @@ fn handle_command_line(
     application: &gtk::Application,
     cmdline: &gio::ApplicationCommandLine,
 ) -> glib::ExitCode {
+    #[cfg(windows)]
+    if cmdline
+        .options_dict()
+        .lookup::<bool>("startup")
+        .ok()
+        .flatten()
+        == Some(true)
+    {
+        ui::start_windows_background(application);
+        return glib::ExitCode::SUCCESS;
+    }
     let unlock_volume = cmdline
         .options_dict()
         .lookup::<String>("unlock-volume")

@@ -97,26 +97,26 @@ fn depth_changes_retarget_an_open_preview_without_replaying_or_closing_it() {
             for depth in 0..3 {
                 wait(|| position(depth, "child").is_some());
                 let child = position(depth, "child").expect("child entry");
-                app.set_selection(depth, &[child], Some(child));
+                app.select(depth, child);
                 app.enter_focused_directory();
             }
             wait(|| position(3, "note.txt").is_some());
             let deep = position(3, "note.txt").expect("deep file");
             let shallow = position(0, "note.txt").expect("root file");
-            app.set_selection(3, &[deep], Some(deep));
+            app.select(3, deep);
             preview.show(app.entry_at(3, deep).expect("deep target"), Some(3));
             wait(|| preview.is_open() && preview.state.current_depth.get() == Some(3));
             settle();
-            app.set_selection(0, &[shallow], Some(shallow));
+            app.select(0, shallow);
             wait(|| preview.state.current_depth.get() == Some(0));
             assert!(preview.is_open());
             assert!(
                 preview.state.animating.get(),
                 "depth changes use the live transition"
             );
-            app.set_selection(3, &[deep], Some(deep));
+            app.select(3, deep);
             while glib::MainContext::default().iteration(false) {}
-            app.set_selection(0, &[shallow], Some(shallow));
+            app.select(0, shallow);
             settle();
             assert!(preview.is_open());
             assert_eq!(preview.state.current_depth.get(), Some(0));

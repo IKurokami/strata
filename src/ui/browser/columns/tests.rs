@@ -5,6 +5,7 @@ use crate::ui::browser::BrowserView;
 use crate::ui::browser_modes::BrowserMode;
 use crate::ui::preferences::PreferenceManager;
 
+mod autofocus;
 mod pointer_focus;
 
 /// Call after creating a `BrowserView`: its exhaustive preference fixture seeds

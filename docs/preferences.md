@@ -4,6 +4,13 @@ Normal browser view modes are now exact-folder overrides with Columns as the
 fallback, independently of optional remembered sort/icon size. See [Disk Usage](disk-usage.md)
 for migration, chooser isolation and cache behavior.
 
+New folders select their first visible item. In Columns, a newly displayed child
+also gets an initial selection while keyboard focus stays in the parent column.
+Single-folder chains may advance focus, with at most four automatic child loads.
+Initializing these load cursors does not open Preview: folder navigation closes
+the prior preview once, and choosing a file explicitly opens it again. Explicit
+reveal targets and restored user selections retain their existing behavior.
+
 `fast_raw_preview` and `smart_search_enabled` default to true, including missing
 fields in upgraded settings. Smart Search roots default to an empty list;
 `smart_search_include_code`, `smart_search_index_on_battery` and
@@ -77,6 +84,20 @@ Non-native or read-only selections do not expose the Windows delete action.
 Shell commands are covered by Strata's own menu. The helper keeps its Shell
 apartment alive for modeless property sheets, including Properties dispatched
 through the saved Windows-properties preference.
+
+On Windows, **Settings → General → Startup → Start with Windows** is on by
+default, including when upgrading settings without this field. It opens Strata
+in the tray without opening a browser window at the current user's next Windows sign-in.
+Opening Strata from the tray or a folder request creates the normal browser window.
+The tray menu exposes the same saved
+toggle; either control updates the other immediately. Registration runs outside
+GTK and uses the current user's `Run` key without administrator access. Turning
+it off or uninstalling removes only an entry owned by this installation. A moved
+Strata installation can update its own startup path; unrelated commands are
+preserved and registration errors restore the last applied setting. This is
+independent of keeping a closed window in the background or replacing Explorer.
+Development launchers set `STRATA_DISABLE_AUTOSTART=1` so testing does not alter
+the host's sign-in entries; the packaged application applies the preference.
 
 On Windows, **Show application console** is off by default. It applies immediately
 from Settings or the tray menu, is saved across launches, and controls only a

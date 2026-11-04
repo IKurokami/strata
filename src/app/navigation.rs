@@ -487,6 +487,23 @@ impl NavigationState {
         }
     }
 
+    pub(crate) fn focus_first_loaded(&mut self, depth: usize) -> Option<usize> {
+        let position = self.seed_first_loaded(depth)?;
+        self.active_column = Some(depth);
+        Some(position)
+    }
+
+    pub(crate) fn seed_first_loaded(&mut self, depth: usize) -> Option<usize> {
+        let column = self.columns.get_mut(depth)?;
+        if column.load_state == LoadState::Loading || !column.pending_reveal.is_empty() {
+            return None;
+        }
+        if column.selected.is_none() {
+            column.select_first_visible_entry();
+        }
+        column.selected
+    }
+
     /// Sets the soft load target (`preferred_on_load`) without clearing what the load restores.
     pub fn prefer_location_on_load(&mut self, depth: usize, location: Location) {
         if let Some(column) = self.columns.get_mut(depth) {
@@ -1947,6 +1964,17 @@ impl NavigationState {
             .is_some_and(|column| column.load_cursor.is_some())
     }
 
+    pub(crate) fn selection_is_load_cursor_at(&self, depth: usize) -> bool {
+        self.columns.get(depth).is_some_and(|column| {
+            column.load_cursor.as_ref().is_some_and(|location| {
+                column
+                    .selected
+                    .and_then(|position| column.entries.get(position))
+                    .is_some_and(|entry| &entry.location == location)
+            })
+        })
+    }
+
     pub fn move_selection(&mut self, direction: i32) -> Option<(usize, usize)> {
         let depth = self
             .active_column
@@ -2168,10 +2196,7 @@ impl NavigationState {
         });
         if column.selected.is_none() {
             if let Some(position) = position {
-                let location = column.entries[position].location.clone();
-                adopt_selected_locations(column, HashSet::from([location.clone()]), true);
-                column.selected = Some(position);
-                column.selection_anchor = Some(location);
+                column.select_loaded_entry(position);
             } else if column.load_state == LoadState::Loading {
                 column.select_first_on_load = true;
             }

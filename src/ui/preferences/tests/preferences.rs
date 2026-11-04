@@ -102,6 +102,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
     saved.remove("omarchy_variant");
     saved.remove("file_icon_colors");
     saved.remove("folder_peeking");
+    saved.remove("start_with_windows");
     saved.remove("columns_show_sizes");
     saved.remove("language");
     for key in [
@@ -119,6 +120,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
         restored,
         Preferences {
             fast_raw_preview: true,
+            start_with_windows: true,
             smart_search_enabled: true,
             smart_search_roots: Vec::new(),
             smart_search_include_code: false,
@@ -1266,6 +1268,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_default_directory(None),
                 |m| m.set_restore_tabs(true),
                 |m| m.set_keep_running_in_background(false),
+                |m| m.set_start_with_windows(true),
                 |m| m.set_show_console(false),
                 |m| m.set_replace_file_explorer(false),
                 |m| m.set_remember_folder_views(true),
