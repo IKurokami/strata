@@ -260,7 +260,7 @@ fn context_hints_follow_the_active_map() {
             let menu = open_menu(&view, Some("notes.txt"));
             let hints = label_texts(&menu);
             assert!(hints.iter().any(|hint| hint == "Space"), "{hints:?}");
-            assert!(hints.iter().any(|hint| hint == "y"), "{hints:?}");
+            assert!(hints.iter().any(|hint| hint == "Ctrl+Shift+C"), "{hints:?}");
             let properties = hints
                 .iter()
                 .position(|hint| hint == "Properties")
@@ -273,8 +273,8 @@ fn context_hints_follow_the_active_map() {
             manager.set_type_to_search(true);
             let hints = label_texts(&menu);
             assert!(
-                !hints.iter().any(|hint| hint == "y"),
-                "type-to-search claims y: {hints:?}"
+                hints.iter().any(|hint| hint == "Ctrl+Shift+C"),
+                "copy path remains available with type-to-search: {hints:?}"
             );
             menu.popdown();
             wait_until(|| !menu.is_mapped());
@@ -293,14 +293,23 @@ fn context_hints_follow_the_active_map() {
                 ("Rename", "r"),
                 ("Cut", "x"),
                 ("Copy", "y"),
-                ("Move to Trash", "d"),
+                (
+                    if cfg!(windows) {
+                        "Delete"
+                    } else {
+                        "Move to Trash"
+                    },
+                    "d",
+                ),
                 ("Permanently delete", "D"),
-                ("Copy path", "Copy name"),
+                ("Copy path", "Ctrl+Shift+C"),
             ] {
                 assert_eq!(after(label), Some(hint), "{hints:?}");
             }
             assert!(
-                !hints.iter().any(|hint| hint.starts_with("Ctrl+")),
+                !hints
+                    .iter()
+                    .any(|hint| hint.starts_with("Ctrl+") && hint != "Ctrl+Shift+C"),
                 "{hints:?}"
             );
             assert!(

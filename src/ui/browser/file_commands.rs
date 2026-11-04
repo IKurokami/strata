@@ -77,6 +77,24 @@ impl BrowserView {
             .unwrap_or_default()
     }
 
+    pub(super) fn clipboard_targets(&self) -> Vec<FileEntry> {
+        let entries = self.command_targets();
+        // Keep the existing entered-empty-folder fallback, never a sibling pane's selection.
+        if entries.is_empty()
+            && self.selected_search_results().is_none()
+            && self.focused_listing_depth() == self.state.browser.active_depth()
+            && self.focused_listing_depth().is_some_and(|depth| {
+                self.state
+                    .browser
+                    .column_snapshot(depth)
+                    .is_some_and(|column| column.count == 0)
+            })
+        {
+            return self.state.browser.transfer_entries();
+        }
+        entries
+    }
+
     pub fn create_new_folder_for_selection(&self) -> bool {
         if self.selected_search_results().is_some() {
             return false;

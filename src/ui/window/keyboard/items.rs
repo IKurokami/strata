@@ -307,9 +307,7 @@ impl Dispatcher {
         {
             return Some(Propagation::Stop);
         }
-        if press.is(COPY_PATH) {
-            self.view.copy_path();
-        } else if press.is(PIN) {
+        if press.is(PIN) {
             self.view.pin_focused();
         } else if press.is(SPACE.ignoring(SHIFT.union(SUPER))) {
             self.view.cancel_pending_click_rename();

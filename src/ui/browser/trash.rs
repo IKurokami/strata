@@ -741,6 +741,15 @@ impl ViewState {
         {
             return;
         }
+        #[cfg(windows)]
+        if !permanent
+            && entries
+                .iter()
+                .all(|entry| entry.location.native_path().is_some())
+        {
+            self.request_windows_delete(entries);
+            return;
+        }
         if permanent {
             self.show_delete_confirmation(entries);
         } else if self.trash_unsupported_for(&entries) {

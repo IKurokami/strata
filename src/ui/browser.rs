@@ -6,7 +6,7 @@
 use crate::app::Browser;
 use crate::model::{FileEntry, Location};
 use crate::services::{FileSource, LoadHandle, OperationProvider};
-use crate::ui::browser::clipboard::{copy_locations, register_cut_view};
+use crate::ui::browser::clipboard::register_cut_view;
 use crate::ui::browser::collection::cancel_source;
 pub(super) use crate::ui::browser::columns::COLUMN_WIDTH;
 use crate::ui::browser::columns::ColumnView;
@@ -1693,10 +1693,7 @@ impl BrowserView {
     }
 
     pub fn copy_selection(&self) -> bool {
-        let entries = self.selected_search_results().unwrap_or_else(|| {
-            self.state.sync_mode_selection();
-            self.state.browser.transfer_entries()
-        });
+        let entries = self.clipboard_targets();
         if entries.is_empty() {
             return false;
         }
@@ -1705,8 +1702,7 @@ impl BrowserView {
     }
 
     pub fn duplicate_selection(&self) -> bool {
-        self.state.sync_mode_selection();
-        let entries = self.state.browser.transfer_entries();
+        let entries = self.clipboard_targets();
         let Some((destination, sources)) = duplicate_transfer(&entries) else {
             return false;
         };
@@ -1715,10 +1711,7 @@ impl BrowserView {
     }
 
     pub fn cut_selection(&self) -> bool {
-        let entries = self.selected_search_results().unwrap_or_else(|| {
-            self.state.sync_mode_selection();
-            self.state.browser.transfer_entries()
-        });
+        let entries = self.clipboard_targets();
         if entries.is_empty() {
             return false;
         }
@@ -1726,17 +1719,7 @@ impl BrowserView {
     }
 
     pub fn copy_path(&self) -> bool {
-        self.state.sync_mode_selection();
-        let entries = self.state.browser.selected_entries();
-        if entries.is_empty() {
-            let Some(entry) = self.state.browser.focused_entry() else {
-                return false;
-            };
-            copy_locations(&[entry]);
-        } else {
-            copy_locations(&entries);
-        }
-        true
+        self.copy_target_text(false)
     }
 
     pub fn pin_focused(&self) {
@@ -2238,16 +2221,9 @@ impl BrowserView {
         if self.view_mode() != BrowserMode::Columns {
             return self.state.mode_views.borrow().selected_search_results();
         }
+        let depth = self.focused_listing_depth()?;
         let columns = self.state.columns.borrow();
-        let depth = self.state.destination_depth();
-        let (depth, column) = depth
-            .and_then(|depth| columns.get(depth).map(|column| (depth, column)))
-            .filter(|(_, column)| column.recursive_search_active.get() || column.map.has_query())
-            .or_else(|| {
-                columns.iter().enumerate().find(|(_, column)| {
-                    column.recursive_search_active.get() || column.map.has_query()
-                })
-            })?;
+        let column = columns.get(depth)?;
         if column.recursive_search_active.get() {
             let results = column.search_results.borrow();
             return Some(

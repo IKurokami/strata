@@ -718,7 +718,9 @@ impl Dispatcher {
                     && !event.text_has_focus()
                     && !event.press.is(DELETE.ignoring(SHORTCUT_MODIFIERS))
                 {
-                    if event.press.is_any(&[COPY, CUT, PASTE, SELECT_ALL])
+                    if event
+                        .press
+                        .is_any(&[COPY, COPY_PATH, CUT, PASTE, SELECT_ALL])
                         && let Some(result) = self.clipboard_command(&event)
                     {
                         return Some(result);

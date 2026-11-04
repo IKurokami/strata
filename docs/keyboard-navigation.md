@@ -381,3 +381,11 @@ Create `Fonts/` (empty), `Scripts/example.txt`, and `LICENSE` under a temporary 
 - Focus the parent, select several items, then click blank child and parent content. The open child and parent selection must remain intact. Ctrl+A must affect the parent only.
 - Enter an empty directory and try Delete/Shift+Delete. No confirmation targeting its parent should appear.
 - Repeat with a light theme, with filters, and with enough files to scroll. The cursor must remain distinguishable from selection and path markers.
+
+### File commands in Columns
+
+Copy and Cut act on the focused column, including its cursor when a child column
+has a passive initial selection. Hovering another column or leaving a filter in
+another column does not change the source. Ctrl+Shift+C copies the selected paths
+in both key maps, including filtered results. In Windows, Delete moves local
+items to the Recycle Bin; Shift+Delete remains a separate permanent-delete action.

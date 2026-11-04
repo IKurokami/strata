@@ -75,6 +75,9 @@ impl Dispatcher {
         if !self.view.item_view_has_focus() {
             return None;
         }
+        if press.is(COPY_PATH) {
+            return self.view.copy_path().then_some(Propagation::Stop);
+        }
         // Result navigation also consumes Ctrl+H; toggling must win.
         if press.is_any(&[HIDDEN_FILES, HIDDEN_FILES_PERIOD, TENXER_HIDDEN_FILES]) {
             self.view.toggle_hidden_from_keys();

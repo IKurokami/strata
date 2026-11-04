@@ -906,11 +906,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     };
     #[cfg(windows)]
     let windows_delete = std::array::from_fn::<_, 2, _>(|_| {
-        item_context_option(
-            crate::assets::icons::TRASH,
-            "Delete using Windows",
-            ContextHint::None,
-        )
+        item_context_option(crate::assets::icons::TRASH, "Delete", ContextHint::Trash)
     });
     let permanent_delete = item_context_danger_option(
         crate::assets::icons::CIRCLE_X,
@@ -1778,8 +1774,17 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                 let native = entries
                     .iter()
                     .all(|entry| entry.location.native_path().is_some());
+                if native && !in_trash {
+                    move_to_trash.set_visible(false);
+                    trash_multiple.set_visible(false);
+                }
                 for button in &windows_delete {
-                    button.set_visible(native && trash_visible && !in_trash);
+                    button.set_visible(
+                        native
+                            && removable
+                            && !in_trash
+                            && state.browser.can_delete_at(depth).unwrap_or(true),
+                    );
                 }
             }
             pin.set_visible(entry.is_directory() && !is_trash_location(&entry.location));

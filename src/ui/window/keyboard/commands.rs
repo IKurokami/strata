@@ -231,6 +231,8 @@ impl Dispatcher {
                 view.paste();
                 true
             }
+        } else if press.is(COPY_PATH) {
+            BrowserView::copy_path
         } else if press.is(COPY) {
             BrowserView::copy_selection
         } else if press.is(DUPLICATE) {
