@@ -54,6 +54,7 @@ mod events;
 mod file_commands;
 pub(in crate::ui) mod find;
 pub(super) mod fly_to_trash;
+mod folder_autofocus;
 mod inline_edit;
 mod listing_filter;
 mod listing_search;
@@ -225,6 +226,7 @@ pub(super) struct ViewState {
     cursor_keeps_focus: Cell<bool>,
     tab_crossing: Cell<tab_stops::TabCrossing>,
     pending_mirror: RefCell<Option<glib::SourceId>>,
+    folder_autofocus: RefCell<folder_autofocus::FolderAutofocus>,
     source_generation: Rc<Cell<u64>>,
     peek: RefCell<Option<PeekView>>,
     pending_peek: RefCell<Option<glib::SourceId>>,
@@ -623,6 +625,7 @@ impl BrowserView {
             cursor_keeps_focus: Cell::new(false),
             tab_crossing: Cell::new(tab_stops::TabCrossing::None),
             pending_mirror: RefCell::new(None),
+            folder_autofocus: RefCell::new(folder_autofocus::FolderAutofocus::default()),
             source_generation,
             peek: RefCell::new(None),
             pending_peek: RefCell::new(None),

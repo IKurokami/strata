@@ -1291,6 +1291,15 @@ impl Browser {
         self.state.borrow_mut().select_first_on_load(depth);
     }
 
+    pub(crate) fn focus_first_loaded(&self, depth: usize) {
+        let position = self.state.borrow_mut().focus_first_loaded(depth);
+        if let Some(position) = position {
+            let background = self.background_load_focus.replace(true);
+            self.emit_suppressed_focus(depth, Some(position));
+            self.background_load_focus.set(background);
+        }
+    }
+
     pub fn selection_anchor_position(&self, depth: usize) -> Option<usize> {
         self.state.borrow().selection_anchor_position(depth)
     }
@@ -3579,9 +3588,13 @@ impl Browser {
         });
         self.select(depth, position);
         if open_child {
-            // Reopening lands where opening did, without picking a child entry.
             self.set_active_column(depth + 1);
-            self.focus_active();
+            if self.cursor_entry(depth + 1).is_none() {
+                self.select_first_on_load(depth + 1);
+                self.focus_first_loaded(depth + 1);
+            } else {
+                self.focus_active();
+            }
             return;
         }
         self.activate_focused_with_selection(false);

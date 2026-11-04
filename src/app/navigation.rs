@@ -487,6 +487,19 @@ impl NavigationState {
         }
     }
 
+    pub(crate) fn focus_first_loaded(&mut self, depth: usize) -> Option<usize> {
+        let column = self.columns.get_mut(depth)?;
+        if column.load_state == LoadState::Loading || !column.pending_reveal.is_empty() {
+            return None;
+        }
+        if column.selected.is_none() {
+            column.select_first_visible_entry();
+        }
+        let position = column.selected?;
+        self.active_column = Some(depth);
+        Some(position)
+    }
+
     /// Sets the soft load target (`preferred_on_load`) without clearing what the load restores.
     pub fn prefer_location_on_load(&mut self, depth: usize, location: Location) {
         if let Some(column) = self.columns.get_mut(depth) {

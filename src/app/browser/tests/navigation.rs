@@ -344,10 +344,11 @@ fn activating_an_open_folder_focuses_its_column_without_closing_it() {
         event,
         BrowserEvent::FocusChanged {
             depth: 1,
-            position: None,
+            position: Some(0),
             ..
         }
     )));
+    assert!(browser.selection_is_load_cursor());
 }
 
 #[test]

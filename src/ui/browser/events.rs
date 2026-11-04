@@ -32,6 +32,7 @@ const MAX_BULK_REVEAL_SELECTION: usize = 64;
 impl ViewState {
     pub(super) fn handle(self: &Rc<Self>, event: &BrowserEvent) {
         let dispatch_started = Instant::now();
+        self.track_folder_autofocus(event);
         let previous_mode = self.mode.get();
         if matches!(
             event,
