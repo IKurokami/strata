@@ -1451,5 +1451,13 @@
   "Replace": "置き換える",
   "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "フォルダー、ドライブ、%{explorer_keys} を Strata で開きます。バックグラウンドの補助プログラムは不要です。オフにすると以前のファイルマネージャーに戻ります。",
   "Strata has not restored the previous file manager.": "Strata は以前のファイルマネージャーを復元できていません。",
-  "Unable to restore file manager settings. Strata has not been uninstalled.": "ファイルマネージャーの設定を復元できません。Strata はアンインストールされていません。"
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "ファイルマネージャーの設定を復元できません。Strata はアンインストールされていません。",
+  "Compare text files": "テキストファイルを比較",
+  "UTF-8 text · up to 1 MiB per file · line endings normalized": "UTF-8 テキスト · 1 ファイル最大 1 MiB · 改行コードを統一",
+  "Text is identical": "テキストは同一です",
+  "Select text to copy, or copy the whole comparison.": "コピーするテキストを選択するか、比較結果全体をコピーしてください。",
+  "Files exceed the comparison limits.": "ファイルが比較の上限を超えています。",
+  "Choose two local UTF-8 text files.": "ローカルの UTF-8 テキストファイルを 2 つ選択してください。",
+  "Unable to read the selected files.": "選択したファイルを読み込めません。",
+  "Another comparison is running. Try again shortly.": "別の比較を実行中です。しばらくしてから再試行してください。"
 }

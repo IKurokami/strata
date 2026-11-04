@@ -32,6 +32,7 @@ pub(crate) mod rtf;
 mod search;
 pub(crate) mod smart_search;
 pub(crate) mod table;
+pub(crate) mod text_compare;
 mod transfer_action;
 mod update_check;
 #[cfg(not(windows))]

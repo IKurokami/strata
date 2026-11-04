@@ -1109,6 +1109,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::PermanentDelete,
     );
     permanent_delete_multiple.add_css_class("danger");
+    let compare_multiple = item_context_option(
+        crate::assets::icons::COPY,
+        "Compare text files",
+        ContextHint::None,
+    );
     let compress_multiple = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -1135,6 +1140,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&move_multiple);
     multiple.append(&copy_to_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    multiple.append(&compare_multiple);
     multiple.append(&compress_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&copy_paths);
@@ -1550,6 +1556,13 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             state.show_compress_dialog(entries);
         });
     }
+    connect_selection_action(
+        &compare_multiple,
+        &popover,
+        state,
+        &target,
+        super::compare::show,
+    );
     connect_context_extract(&extract, &popover, state, &target, ExtractTarget::Here);
     connect_context_extract(
         &extract_folder,
@@ -1733,6 +1746,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                 .all(|entry| entry.location.native_path().is_some());
             compress.set_visible(can_compress);
             compress_multiple.set_visible(can_compress);
+            compare_multiple.set_visible(!in_trash && super::compare::supports(&entries));
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
             let directories = entries.iter().any(|entry| entry.is_directory());

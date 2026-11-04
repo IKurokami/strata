@@ -1451,5 +1451,13 @@
   "Replace": "替换",
   "Open folders, drives and %{explorer_keys} in Strata. No background helper is required. Turning this off restores your previous file manager.": "在 Strata 中打开文件夹、驱动器并响应 %{explorer_keys}。无需后台辅助程序。关闭此选项将恢复之前的文件管理器。",
   "Strata has not restored the previous file manager.": "Strata 尚未恢复之前的文件管理器。",
-  "Unable to restore file manager settings. Strata has not been uninstalled.": "无法恢复文件管理器设置。Strata 尚未卸载。"
+  "Unable to restore file manager settings. Strata has not been uninstalled.": "无法恢复文件管理器设置。Strata 尚未卸载。",
+  "Compare text files": "比较文本文件",
+  "UTF-8 text · up to 1 MiB per file · line endings normalized": "UTF-8 文本 · 每个文件最大 1 MiB · 统一换行符",
+  "Text is identical": "文本相同",
+  "Select text to copy, or copy the whole comparison.": "选择要复制的文本，或复制整个比较结果。",
+  "Files exceed the comparison limits.": "文件超出比较限制。",
+  "Choose two local UTF-8 text files.": "请选择两个本地 UTF-8 文本文件。",
+  "Unable to read the selected files.": "无法读取所选文件。",
+  "Another comparison is running. Try again shortly.": "正在进行另一项比较。请稍后重试。"
 }

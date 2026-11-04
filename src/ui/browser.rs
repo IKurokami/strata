@@ -41,6 +41,7 @@ pub(in crate::ui) use clipboard::copy_native_files;
 pub(in crate::ui) use clipboard::{clipboard_has_files, read_clipboard_files};
 mod collection;
 mod columns;
+mod compare;
 pub(super) mod context_menu;
 mod customization;
 pub(super) use customization::show_customize_modal;
