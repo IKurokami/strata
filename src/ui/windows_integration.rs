@@ -237,7 +237,12 @@ pub(super) fn bind(window: &gtk::ApplicationWindow, manager: &Rc<PreferenceManag
         window,
         PreferenceManager::replace_file_explorer,
         move |_, enabled| {
-            let changed = STATE.with(|state| state.desired.replace(Some(enabled)) != Some(enabled));
+            let changed = STATE.with(|state| {
+                state
+                    .desired
+                    .replace(Some(enabled))
+                    .is_some_and(|previous| previous != enabled)
+            });
             request(changed, false);
         },
     );

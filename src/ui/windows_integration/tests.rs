@@ -156,9 +156,9 @@ fn failed_registration_retains_intent_and_retry_recovers_health() {
 }
 
 #[test]
-fn saved_shell_preference_applies_before_settings_and_stays_live_across_windows() {
+fn saved_shell_preference_probes_before_settings_and_stays_live_across_windows() {
     crate::test_support::gtk_test(
-        "ui::windows_integration::tests::saved_shell_preference_applies_before_settings_and_stays_live_across_windows",
+        "ui::windows_integration::tests::saved_shell_preference_probes_before_settings_and_stays_live_across_windows",
         || {
             assert_eq!(
                 strata_win_shell::file_manager::configuration_directory().unwrap(),
@@ -167,6 +167,7 @@ fn saved_shell_preference_applies_before_settings_and_stays_live_across_windows(
             crate::ui::preferences::fixtures::seed_saved_preferences_for_test();
             let manager = PreferenceManager::shared();
             let backend = Recording::new();
+            backend.status.lock().expect("status").actual = Actual::Active;
             BACKEND.with(|current| current.replace(backend.clone()));
             let app = application();
             let first = gtk::ApplicationWindow::new(&app);
@@ -176,10 +177,9 @@ fn saved_shell_preference_applies_before_settings_and_stays_live_across_windows(
             let second = gtk::ApplicationWindow::new(&app);
             bind(&second, &manager);
             settle();
-            assert_eq!(
-                *backend.calls.lock().expect("calls"),
-                vec![true],
-                "opening another window probes without rewriting handlers"
+            assert!(
+                backend.calls.lock().expect("calls").is_empty(),
+                "startup and additional windows probe without rewriting handlers"
             );
             let first_health = status_row();
             let second_health = status_row();
