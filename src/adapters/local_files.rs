@@ -41,6 +41,8 @@ const FULL_ATTRIBUTES: &str = "standard::display-name,standard::name,standard::t
 const RECENT_ATTRIBUTES: &str = "standard::display-name,standard::name,standard::type,standard::is-hidden,standard::target-uri,recent::modified";
 const METADATA_ATTRIBUTES: &str = "standard::type,standard::size,time::modified,unix::mode";
 const MAX_PENDING_MONITOR_CHANGES: usize = 4_096;
+const MONITOR_QUIET_INTERVAL: Duration = Duration::from_millis(100);
+const MONITOR_MAX_BATCH_AGE: Duration = Duration::from_millis(500);
 const MAX_ICON_DETAILS_CACHE_ENTRIES: usize = 10_000;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1637,6 +1639,7 @@ impl FileSource for LocalFileSource {
         let timeout_for_change = timeout.clone();
         let cancelled_for_change = cancelled.clone();
         let watched = location.clone();
+        let last_change = Rc::new(Cell::new(Instant::now()));
         monitor.connect_changed(move |_, file, other_file, event| {
             if pending_for_change.borrow().contains_key(&None) {
                 return;
@@ -1665,15 +1668,23 @@ impl FileSource for LocalFileSource {
             if !queue_monitor_change(&mut pending_for_change.borrow_mut(), key, change) {
                 return;
             }
+            let now = Instant::now();
+            last_change.set(now);
 
             if timeout_for_change.borrow().is_none() {
                 let pending = pending_for_change.clone();
                 let timeout = timeout_for_change.clone();
                 let notify = notify.clone();
                 let cancelled = cancelled_for_change.clone();
-                let source = glib::timeout_add_local_once(Duration::from_millis(100), move || {
+                let last_change = last_change.clone();
+                let source = glib::timeout_add_local(MONITOR_QUIET_INTERVAL, move || {
+                    let checked_at = Instant::now();
+                    if monitor_batch_waits(now, last_change.get(), checked_at) {
+                        return glib::ControlFlow::Continue;
+                    }
                     timeout.take();
                     flush_monitor_changes(&pending, &notify, &cancelled, include_hidden);
+                    glib::ControlFlow::Break
                 });
                 timeout_for_change.replace(Some(source));
             }
@@ -2346,6 +2357,11 @@ fn queue_monitor_change(
         pending.insert(None, PendingMonitorChange::Rescan);
     }
     true
+}
+
+fn monitor_batch_waits(first: Instant, last: Instant, now: Instant) -> bool {
+    now.duration_since(last) < MONITOR_QUIET_INTERVAL
+        && now.duration_since(first) < MONITOR_MAX_BATCH_AGE
 }
 
 fn merge_pending_change(
