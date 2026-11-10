@@ -1463,7 +1463,11 @@
   "Convert image to PNG": "Chuyển ảnh sang PNG",
   "Create PNG contact sheet": "Tạo ảnh lưới PNG",
   "Save a PNG copy beside the original.": "Lưu bản sao PNG cạnh ảnh gốc.",
-  "Arrange the selected images in a PNG grid beside the originals.": "Xếp các ảnh đã chọn thành lưới PNG cạnh các ảnh gốc.",
+  "Save the arranged images as a PNG beside the originals.": "Lưu các ảnh đã sắp xếp thành một tệp PNG cạnh ảnh gốc.",
+  "Grid layout": "Bố cục lưới",
+  "Single row": "Một hàng",
+  "Single column": "Một cột",
+  "Enter a valid filename ending in .png.": "Nhập tên tệp hợp lệ có đuôi .png.",
   "An output file already exists.": "Tệp đầu ra đã tồn tại.",
   "Another image export is running.": "Đang xuất một ảnh khác.",
   "Unable to export the selected images.": "Không thể xuất các ảnh đã chọn."

@@ -1463,7 +1463,11 @@
   "Convert image to PNG": "Convertir l’image en PNG",
   "Create PNG contact sheet": "Créer une planche-contact PNG",
   "Save a PNG copy beside the original.": "Enregistrer une copie PNG à côté de l’original.",
-  "Arrange the selected images in a PNG grid beside the originals.": "Disposer les images sélectionnées en grille PNG à côté des originaux.",
+  "Save the arranged images as a PNG beside the originals.": "Enregistrer les images disposées dans un PNG à côté des originaux.",
+  "Grid layout": "Grille",
+  "Single row": "Une rangée",
+  "Single column": "Une colonne",
+  "Enter a valid filename ending in .png.": "Saisissez un nom de fichier valide se terminant par .png.",
   "An output file already exists.": "Un fichier de sortie existe déjà.",
   "Another image export is running.": "Un autre export d’images est en cours.",
   "Unable to export the selected images.": "Impossible d’exporter les images sélectionnées."

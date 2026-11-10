@@ -13,7 +13,12 @@ fn export_preserves_existing_output_and_cancelled_jobs_leave_no_files() {
     fs::write(&source, b"original").unwrap();
     fs::write(&destination, b"existing output").unwrap();
     assert!(matches!(
-        Export::Png.run(std::slice::from_ref(&source), &Cancellation::default()),
+        Export::Png.run(
+            std::slice::from_ref(&source),
+            DEFAULT_SHEET_NAME,
+            SheetLayout::default(),
+            &Cancellation::default()
+        ),
         Err(ExportError::Exists)
     ));
     assert_eq!(fs::read(&destination).unwrap(), b"existing output");
@@ -23,11 +28,37 @@ fn export_preserves_existing_output_and_cancelled_jobs_leave_no_files() {
     let cancel = Cancellation::default();
     cancel.cancel();
     assert!(matches!(
-        Export::Png.run(std::slice::from_ref(&source), &cancel),
+        Export::Png.run(
+            std::slice::from_ref(&source),
+            DEFAULT_SHEET_NAME,
+            SheetLayout::default(),
+            &cancel
+        ),
         Err(ExportError::Cancelled)
     ));
     assert_eq!(fs::read(&source).unwrap(), b"original");
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn sheet_names_must_be_png_basenames() {
+    let paths = [PathBuf::from("folder/a.png"), PathBuf::from("folder/b.png")];
+    for invalid in ["", ".png", "../escape.png", "nested/file.png", "sheet.jpg"] {
+        assert!(Export::ContactSheet.destination(&paths, invalid).is_none());
+    }
+    #[cfg(windows)]
+    for invalid in [
+        r"..\escape.png",
+        r"C:escape.png",
+        "CON.png",
+        "file.png:stream.png",
+    ] {
+        assert!(Export::ContactSheet.destination(&paths, invalid).is_none());
+    }
+    assert_eq!(
+        Export::ContactSheet.destination(&paths, "Ảnh tổng hợp.PNG"),
+        Some(PathBuf::from("folder").join("Ảnh tổng hợp.PNG"))
+    );
 }
 
 #[cfg(windows)]
@@ -49,7 +80,12 @@ fn windows_exports_publish_valid_pngs_from_the_contained_helper() {
     let cancel = Cancellation::default();
 
     Export::Png
-        .run(std::slice::from_ref(&webp), &cancel)
+        .run(
+            std::slice::from_ref(&webp),
+            DEFAULT_SHEET_NAME,
+            SheetLayout::default(),
+            &cancel,
+        )
         .unwrap();
     let converted = webp.with_extension("png");
     assert_eq!(
@@ -57,14 +93,26 @@ fn windows_exports_publish_valid_pngs_from_the_contained_helper() {
         &foreground
     );
 
-    Export::ContactSheet
-        .run(&[converted, blue], &cancel)
-        .unwrap();
-    let sheet = image::open(directory.path().join("contact-sheet.png"))
-        .unwrap()
-        .into_rgba8();
-    assert!(sheet.pixels().any(|pixel| *pixel == foreground));
-    assert!(sheet.pixels().any(|pixel| *pixel == background));
-    assert!(sheet.pixels().any(|pixel| pixel[3] == 0));
+    let paths = [converted, blue];
+    for (name, layout) in [
+        (DEFAULT_SHEET_NAME, SheetLayout::Grid),
+        ("photos row.png", SheetLayout::Row),
+        ("photos column.png", SheetLayout::Column),
+    ] {
+        Export::ContactSheet
+            .run(&paths, name, layout, &cancel)
+            .unwrap();
+        let output = directory.path().join(name);
+        let bytes = fs::read(&output).unwrap();
+        let sheet = image::load_from_memory(&bytes).unwrap().into_rgba8();
+        assert!(sheet.pixels().any(|pixel| *pixel == foreground));
+        assert!(sheet.pixels().any(|pixel| *pixel == background));
+        assert!(sheet.pixels().any(|pixel| pixel[3] == 0));
+        assert!(matches!(
+            Export::ContactSheet.run(&paths, name, layout, &cancel),
+            Err(ExportError::Exists)
+        ));
+        assert_eq!(fs::read(output).unwrap(), bytes);
+    }
     assert_eq!(fs::read(webp).unwrap(), original);
 }

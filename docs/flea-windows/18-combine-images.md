@@ -1,8 +1,8 @@
 # 18 — Combine images / contact sheet
 
 **Trạng thái Strata: MỘT PHẦN** · **Ưu tiên: P1**. Trình duyệt đã có lệnh
-[ghép ảnh thành lưới PNG](../image-exports.md). Các bố cục khác và tùy chỉnh
-tệp đầu ra vẫn thuộc thiết kế bên dưới.
+[ghép ảnh thành PNG](../image-exports.md) với bố cục lưới, một hàng hoặc
+một cột và tên tệp tùy chọn.
 
 ## Flea thực sự triển khai thế nào?
 Flea dùng composition math chung cho GUI/TUI, ImageMagick nhận images/staged inputs rồi xuất một file layout {vertical,horizontal,grid}, khoảng cách/background, columns; output stage và publish an toàn.

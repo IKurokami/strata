@@ -1463,7 +1463,11 @@
   "Convert image to PNG": "Преобразовать изображение в PNG",
   "Create PNG contact sheet": "Создать контактный лист PNG",
   "Save a PNG copy beside the original.": "Сохранить копию PNG рядом с оригиналом.",
-  "Arrange the selected images in a PNG grid beside the originals.": "Расположить выбранные изображения сеткой PNG и сохранить её рядом с оригиналами.",
+  "Save the arranged images as a PNG beside the originals.": "Сохранить скомпонованные изображения в PNG рядом с оригиналами.",
+  "Grid layout": "Сетка",
+  "Single row": "Одна строка",
+  "Single column": "Один столбец",
+  "Enter a valid filename ending in .png.": "Введите допустимое имя файла с расширением .png.",
   "An output file already exists.": "Выходной файл уже существует.",
   "Another image export is running.": "Уже выполняется другой экспорт изображений.",
   "Unable to export the selected images.": "Не удалось экспортировать выбранные изображения."

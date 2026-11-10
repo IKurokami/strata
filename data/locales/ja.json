@@ -1463,7 +1463,11 @@
   "Convert image to PNG": "画像を PNG に変換",
   "Create PNG contact sheet": "PNG コンタクトシートを作成",
   "Save a PNG copy beside the original.": "元の画像と同じ場所に PNG コピーを保存します。",
-  "Arrange the selected images in a PNG grid beside the originals.": "選択した画像をグリッドに並べ、元の画像と同じ場所に PNG として保存します。",
+  "Save the arranged images as a PNG beside the originals.": "配置した画像を元の画像と同じ場所に PNG として保存します。",
+  "Grid layout": "グリッド",
+  "Single row": "横一列",
+  "Single column": "縦一列",
+  "Enter a valid filename ending in .png.": "末尾が .png の有効なファイル名を入力してください。",
   "An output file already exists.": "出力先のファイルがすでに存在します。",
   "Another image export is running.": "別の画像を書き出しています。",
   "Unable to export the selected images.": "選択した画像を書き出せませんでした。"

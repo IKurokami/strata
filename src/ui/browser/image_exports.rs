@@ -8,7 +8,7 @@ use super::ViewState;
 use crate::{
     model::{EntryKind, FileEntry},
     sandbox::Cancellation,
-    services::image_exports::{Export, ExportError},
+    services::image_exports::{DEFAULT_SHEET_NAME, Export, ExportError, SheetLayout},
     ui::{controls, modal},
 };
 
@@ -33,7 +33,7 @@ fn paths(entries: &[FileEntry], export: Export) -> Option<Vec<PathBuf>> {
             (supported && entry.kind == EntryKind::File).then(|| path.to_owned())
         })
         .collect::<Option<_>>()?;
-    export.destination(&paths)?;
+    export.destination(&paths, DEFAULT_SHEET_NAME)?;
     Some(paths)
 }
 
@@ -54,7 +54,7 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
     };
     let subtitle = match export {
         Export::Png => "Save a PNG copy beside the original.",
-        Export::ContactSheet => "Arrange the selected images in a PNG grid beside the originals.",
+        Export::ContactSheet => "Save the arranged images as a PNG beside the originals.",
     };
     let layout = controls::modal_layout(
         crate::assets::icons::COPY_PLUS,
@@ -62,14 +62,32 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         &crate::i18n::tr(subtitle),
         &crate::i18n::tr("Save"),
     );
-    let destination = export.destination(&paths).expect("validated export paths");
-    let output_name = destination
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let name = gtk::Label::new(Some(&output_name));
-    name.set_wrap(true);
-    layout.body.append(&name);
+    let sheet_options = if matches!(export, Export::ContactSheet) {
+        let options = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let name = controls::form_entry();
+        name.set_text(DEFAULT_SHEET_NAME);
+        let name_label = controls::form_label(&crate::i18n::tr("Name"));
+        name_label.set_mnemonic_widget(Some(&name));
+        options.append(&name_label);
+        options.append(&name);
+        let (arrangement, buttons) =
+            controls::segmented_control(&["Grid layout", "Single row", "Single column"], 0);
+        options.append(&arrangement);
+        layout.body.append(&options);
+        Some((options, name, buttons))
+    } else {
+        let destination = export
+            .destination(&paths, DEFAULT_SHEET_NAME)
+            .expect("validated export paths");
+        let output_name = destination
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let name = gtk::Label::new(Some(&output_name));
+        name.set_wrap(true);
+        layout.body.append(&name);
+        None
+    };
     let status = gtk::Label::new(None);
     status.set_wrap(true);
     layout.body.append(&status);
@@ -115,6 +133,25 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         if !button.is_sensitive() {
             return;
         }
+        let (sheet_name, arrangement) = sheet_options.as_ref().map_or_else(
+            || (DEFAULT_SHEET_NAME.to_owned(), SheetLayout::Grid),
+            |(_, name, buttons)| {
+                let selected = [SheetLayout::Grid, SheetLayout::Row, SheetLayout::Column]
+                    .into_iter()
+                    .zip(buttons)
+                    .find_map(|(layout, button)| button.is_active().then_some(layout))
+                    .unwrap_or_default();
+                (name.text().to_string(), selected)
+            },
+        );
+        if export.destination(&paths, &sheet_name).is_none() {
+            status.set_text(&crate::i18n::tr("Enter a valid filename ending in .png."));
+            return;
+        }
+        let options = sheet_options.as_ref().map(|(options, _, _)| {
+            options.set_sensitive(false);
+            options.downgrade()
+        });
         button.set_sensitive(false);
         status.set_text(&crate::i18n::tr("Working…"));
         let paths = paths.clone();
@@ -123,7 +160,10 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         let worker_cancel = cancel.clone();
         let button = button.downgrade();
         glib::MainContext::default().spawn_local(async move {
-            let result = gio::spawn_blocking(move || export.run(&paths, &worker_cancel)).await;
+            let result = gio::spawn_blocking(move || {
+                export.run(&paths, &sheet_name, arrangement, &worker_cancel)
+            })
+            .await;
             if layer.upgrade().is_none_or(|layer| !layer.is_sensitive()) {
                 return;
             }
@@ -136,10 +176,13 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
                     "Unable to export the selected images."
                 }
             };
-            if !matches!(result, Ok(Ok(())))
-                && let Some(button) = button.upgrade()
-            {
-                button.set_sensitive(true);
+            if !matches!(result, Ok(Ok(()))) {
+                if let Some(button) = button.upgrade() {
+                    button.set_sensitive(true);
+                }
+                if let Some(options) = options.and_then(|options| options.upgrade()) {
+                    options.set_sensitive(true);
+                }
             }
             status.set_text(&crate::i18n::tr(message));
         });

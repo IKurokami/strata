@@ -21,6 +21,26 @@ pub(crate) enum Export {
     ContactSheet,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) enum SheetLayout {
+    #[default]
+    Grid,
+    Row,
+    Column,
+}
+
+impl SheetLayout {
+    fn columns(self, count: usize) -> u32 {
+        match self {
+            Self::Grid => count.min(4) as u32,
+            Self::Row => count as u32,
+            Self::Column => 1,
+        }
+    }
+}
+
+pub(crate) const DEFAULT_SHEET_NAME: &str = "contact-sheet.png";
+
 #[derive(Debug)]
 pub(crate) enum ExportError {
     Unavailable,
@@ -30,24 +50,33 @@ pub(crate) enum ExportError {
 }
 
 impl Export {
-    pub(crate) fn destination(self, paths: &[PathBuf]) -> Option<PathBuf> {
+    pub(crate) fn destination(self, paths: &[PathBuf], sheet_name: &str) -> Option<PathBuf> {
         let first = paths.first()?;
         let parent = first.parent()?;
         match self {
             Self::Png if paths.len() == 1 => Some(first.with_extension("png")),
             Self::ContactSheet
                 if (2..=MAX_SHEET_IMAGES).contains(&paths.len())
-                    && paths.iter().all(|path| path.parent() == Some(parent)) =>
+                    && paths.iter().all(|path| path.parent() == Some(parent))
+                    && valid_sheet_name(sheet_name) =>
             {
-                Some(parent.join("contact-sheet.png"))
+                Some(parent.join(sheet_name))
             }
             _ => None,
         }
     }
 
-    pub(crate) fn run(self, paths: &[PathBuf], cancel: &Cancellation) -> Result<(), ExportError> {
+    pub(crate) fn run(
+        self,
+        paths: &[PathBuf],
+        sheet_name: &str,
+        sheet_layout: SheetLayout,
+        cancel: &Cancellation,
+    ) -> Result<(), ExportError> {
         let _slot = EXPORT.try_lock().map_err(|_| ExportError::Busy)?;
-        let destination = self.destination(paths).ok_or(ExportError::Unavailable)?;
+        let destination = self
+            .destination(paths, sheet_name)
+            .ok_or(ExportError::Unavailable)?;
         for path in paths {
             validate_input(path)?;
         }
@@ -64,7 +93,9 @@ impl Export {
                 .write_all(&render(&paths[0], ParseOperation::ConvertImage, 0, cancel)?)
                 .map_err(|_| ExportError::Unavailable)?,
             Self::ContactSheet => {
-                let sheet = contact_sheet(paths.len(), |index| thumbnail(&paths[index], cancel))?;
+                let sheet = contact_sheet(paths.len(), sheet_layout, |index| {
+                    thumbnail(&paths[index], cancel)
+                })?;
                 image::DynamicImage::ImageRgba8(sheet)
                     .write_to(&mut output, ImageFormat::Png)
                     .map_err(|_| ExportError::Unavailable)?;
@@ -82,6 +113,20 @@ impl Export {
         })?;
         Ok(())
     }
+}
+
+fn valid_sheet_name(name: &str) -> bool {
+    if super::validate_basename(name).is_err() || name.len() > 255 {
+        return false;
+    }
+    #[cfg(windows)]
+    if !strata_native_io::windows_paths::valid_child_name(name.as_ref()) {
+        return false;
+    }
+    Path::new(name)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
 }
 
 fn validate_input(path: &Path) -> Result<(), ExportError> {
@@ -142,9 +187,10 @@ fn thumbnail(path: &Path, cancel: &Cancellation) -> Result<RgbaImage, ExportErro
 
 fn contact_sheet(
     count: usize,
+    layout: SheetLayout,
     mut thumbnail: impl FnMut(usize) -> Result<RgbaImage, ExportError>,
 ) -> Result<RgbaImage, ExportError> {
-    let columns = count.min(4) as u32;
+    let columns = layout.columns(count);
     let rows = (count as u32).div_ceil(columns);
     let mut sheet = RgbaImage::new(columns * (CELL + GAP) + GAP, rows * (CELL + GAP) + GAP);
     for index in 0..count {

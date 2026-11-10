@@ -1463,7 +1463,11 @@
   "Convert image to PNG": "Convert image to PNG",
   "Create PNG contact sheet": "Create PNG contact sheet",
   "Save a PNG copy beside the original.": "Save a PNG copy beside the original.",
-  "Arrange the selected images in a PNG grid beside the originals.": "Arrange the selected images in a PNG grid beside the originals.",
+  "Save the arranged images as a PNG beside the originals.": "Save the arranged images as a PNG beside the originals.",
+  "Grid layout": "Grid layout",
+  "Single row": "Single row",
+  "Single column": "Single column",
+  "Enter a valid filename ending in .png.": "Enter a valid filename ending in .png.",
   "An output file already exists.": "An output file already exists.",
   "Another image export is running.": "Another image export is running.",
   "Unable to export the selected images.": "Unable to export the selected images."

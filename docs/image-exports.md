@@ -5,9 +5,11 @@ Right-click one JPEG, BMP, single-frame GIF, or static WebP and choose
 applies image orientation and preserves supported PNG color profiles.
 
 Select 2–20 PNG, JPEG, or WebP images from the same folder and choose
-**Create PNG contact sheet**. Strata places thumbnails in selection order
-in a transparent grid and saves `contact-sheet.png` alongside the originals.
-The grid uses up to four columns and thumbnails up to 256 pixels per side.
+**Create PNG contact sheet**. Choose a grid, one row, or one column.
+Strata places thumbnails in selection order on a transparent background.
+The grid uses up to four columns, and all layouts use thumbnails up to
+256 pixels per side. Enter a filename ending in `.png`, or keep the default
+`contact-sheet.png`. The result is saved alongside the originals.
 
 Both actions show the destination filename before saving. The worker accepts
 regular local files up to 32 MiB and 16 megapixels, and rejects animated inputs.
