@@ -924,6 +924,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Customize…",
         ContextHint::None,
     );
+    let export_png = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert image to PNG",
+        ContextHint::None,
+    );
     let compress = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -990,6 +995,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single.append(&move_to);
     single.append(&copy_to);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    single.append(&export_png);
     single.append(&compress);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&pin);
@@ -1114,6 +1120,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Compare text files",
         ContextHint::None,
     );
+    let contact_sheet = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Create PNG contact sheet",
+        ContextHint::None,
+    );
     let compress_multiple = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -1141,6 +1152,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&copy_to_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&compare_multiple);
+    multiple.append(&contact_sheet);
     multiple.append(&compress_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&copy_paths);
@@ -1563,6 +1575,17 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         &target,
         super::compare::show,
     );
+    for (button, export) in [
+        (&export_png, crate::services::image_exports::Export::Png),
+        (
+            &contact_sheet,
+            crate::services::image_exports::Export::ContactSheet,
+        ),
+    ] {
+        connect_selection_action(button, &popover, state, &target, move |state, entries| {
+            super::image_exports::show(state, &entries, export);
+        });
+    }
     connect_context_extract(&extract, &popover, state, &target, ExtractTarget::Here);
     connect_context_extract(
         &extract_folder,
@@ -1747,6 +1770,20 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             compress.set_visible(can_compress);
             compress_multiple.set_visible(can_compress);
             compare_multiple.set_visible(!in_trash && super::compare::supports(&entries));
+            export_png.set_visible(
+                !in_trash
+                    && super::image_exports::supports(
+                        &entries,
+                        crate::services::image_exports::Export::Png,
+                    ),
+            );
+            contact_sheet.set_visible(
+                !in_trash
+                    && super::image_exports::supports(
+                        &entries,
+                        crate::services::image_exports::Export::ContactSheet,
+                    ),
+            );
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
             let directories = entries.iter().any(|entry| entry.is_directory());

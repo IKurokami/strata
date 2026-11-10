@@ -1459,5 +1459,12 @@
   "Files exceed the comparison limits.": "File vượt quá giới hạn so sánh.",
   "Choose two local UTF-8 text files.": "Chọn hai file văn bản UTF-8 trên máy.",
   "Unable to read the selected files.": "Không thể đọc các file đã chọn.",
-  "Another comparison is running. Try again shortly.": "Đang có một tác vụ so sánh khác. Hãy thử lại sau giây lát."
+  "Another comparison is running. Try again shortly.": "Đang có một tác vụ so sánh khác. Hãy thử lại sau giây lát.",
+  "Convert image to PNG": "Chuyển ảnh sang PNG",
+  "Create PNG contact sheet": "Tạo ảnh lưới PNG",
+  "Save a PNG copy beside the original.": "Lưu bản sao PNG cạnh ảnh gốc.",
+  "Arrange the selected images in a PNG grid beside the originals.": "Xếp các ảnh đã chọn thành lưới PNG cạnh các ảnh gốc.",
+  "An output file already exists.": "Tệp đầu ra đã tồn tại.",
+  "Another image export is running.": "Đang xuất một ảnh khác.",
+  "Unable to export the selected images.": "Không thể xuất các ảnh đã chọn."
 }

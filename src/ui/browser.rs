@@ -44,6 +44,7 @@ mod columns;
 mod compare;
 pub(super) mod context_menu;
 mod customization;
+mod image_exports;
 pub(super) use customization::show_customize_modal;
 mod desktop;
 mod destination;

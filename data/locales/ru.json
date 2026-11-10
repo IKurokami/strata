@@ -1459,5 +1459,12 @@
   "Files exceed the comparison limits.": "Файлы превышают ограничения сравнения.",
   "Choose two local UTF-8 text files.": "Выберите два локальных текстовых файла UTF-8.",
   "Unable to read the selected files.": "Не удалось прочитать выбранные файлы.",
-  "Another comparison is running. Try again shortly.": "Выполняется другое сравнение. Повторите попытку чуть позже."
+  "Another comparison is running. Try again shortly.": "Выполняется другое сравнение. Повторите попытку чуть позже.",
+  "Convert image to PNG": "Преобразовать изображение в PNG",
+  "Create PNG contact sheet": "Создать контактный лист PNG",
+  "Save a PNG copy beside the original.": "Сохранить копию PNG рядом с оригиналом.",
+  "Arrange the selected images in a PNG grid beside the originals.": "Расположить выбранные изображения сеткой PNG и сохранить её рядом с оригиналами.",
+  "An output file already exists.": "Выходной файл уже существует.",
+  "Another image export is running.": "Уже выполняется другой экспорт изображений.",
+  "Unable to export the selected images.": "Не удалось экспортировать выбранные изображения."
 }

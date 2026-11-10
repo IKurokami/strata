@@ -14,6 +14,7 @@ pub(crate) mod file_providers;
 pub(crate) mod file_providers;
 mod file_source;
 pub(crate) mod image_conversion;
+pub(crate) mod image_exports;
 mod install_source;
 pub(crate) mod jobs;
 mod listeners;

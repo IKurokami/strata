@@ -1459,5 +1459,12 @@
   "Files exceed the comparison limits.": "文件超出比较限制。",
   "Choose two local UTF-8 text files.": "请选择两个本地 UTF-8 文本文件。",
   "Unable to read the selected files.": "无法读取所选文件。",
-  "Another comparison is running. Try again shortly.": "正在进行另一项比较。请稍后重试。"
+  "Another comparison is running. Try again shortly.": "正在进行另一项比较。请稍后重试。",
+  "Convert image to PNG": "将图像转换为 PNG",
+  "Create PNG contact sheet": "创建 PNG 缩略图拼版",
+  "Save a PNG copy beside the original.": "在原图旁边保存一份 PNG 副本。",
+  "Arrange the selected images in a PNG grid beside the originals.": "将所选图像排列成 PNG 网格并保存在原图旁边。",
+  "An output file already exists.": "输出文件已存在。",
+  "Another image export is running.": "正在执行另一项图像导出。",
+  "Unable to export the selected images.": "无法导出所选图像。"
 }

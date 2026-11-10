@@ -11,8 +11,8 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-pub(super) fn run(input: &Path, output: &Path, convert: bool) -> Result<(), String> {
-    let result = process(input, convert);
+pub(super) fn run(input: &Path, output: &Path, convert: bool, tile: bool) -> Result<(), String> {
+    let result = process(input, convert, tile);
     match result {
         Ok(bytes) => fs::write(output, bytes).map_err(|error| error.to_string()),
         Err(error) => {
@@ -40,7 +40,7 @@ fn check_dimensions(decoder: &impl ImageDecoder) -> Result<(), String> {
     Ok(())
 }
 
-fn process(input: &Path, convert: bool) -> Result<Vec<u8>, String> {
+fn process(input: &Path, convert: bool, tile: bool) -> Result<Vec<u8>, String> {
     if fs::metadata(input)
         .map_err(|error| error.to_string())?
         .len()
@@ -124,12 +124,18 @@ fn process(input: &Path, convert: bool) -> Result<Vec<u8>, String> {
     if !convert {
         return serde_json::to_vec(&kind).map_err(|error| error.to_string());
     }
-    if kind == ImageKind::Png {
+    if kind == ImageKind::Png && !tile {
         return fs::read(input).map_err(|error| error.to_string());
     }
+    let image = if tile {
+        let edge = crate::services::image_exports::CELL;
+        DynamicImage::ImageRgba8(image.thumbnail(edge, edge).into_rgba8())
+    } else {
+        image
+    };
     let mut bytes = Cursor::new(Vec::new());
     let mut encoder = image::codecs::png::PngEncoder::new(&mut bytes);
-    if let Some(profile) = profile {
+    if !tile && let Some(profile) = profile {
         encoder
             .set_icc_profile(profile)
             .map_err(|error| error.to_string())?;

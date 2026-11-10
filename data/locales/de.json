@@ -1459,5 +1459,12 @@
   "Files exceed the comparison limits.": "Die Dateien überschreiten die Vergleichsgrenzen.",
   "Choose two local UTF-8 text files.": "Wählen Sie zwei lokale UTF-8-Textdateien.",
   "Unable to read the selected files.": "Die ausgewählten Dateien konnten nicht gelesen werden.",
-  "Another comparison is running. Try again shortly.": "Ein anderer Vergleich läuft. Versuchen Sie es gleich erneut."
+  "Another comparison is running. Try again shortly.": "Ein anderer Vergleich läuft. Versuchen Sie es gleich erneut.",
+  "Convert image to PNG": "Bild in PNG umwandeln",
+  "Create PNG contact sheet": "PNG-Kontaktbogen erstellen",
+  "Save a PNG copy beside the original.": "Eine PNG-Kopie neben dem Original speichern.",
+  "Arrange the selected images in a PNG grid beside the originals.": "Die ausgewählten Bilder als PNG-Raster neben den Originalen speichern.",
+  "An output file already exists.": "Eine Ausgabedatei ist bereits vorhanden.",
+  "Another image export is running.": "Ein anderer Bildexport läuft bereits.",
+  "Unable to export the selected images.": "Die ausgewählten Bilder konnten nicht exportiert werden."
 }

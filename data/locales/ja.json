@@ -1459,5 +1459,12 @@
   "Files exceed the comparison limits.": "ファイルが比較の上限を超えています。",
   "Choose two local UTF-8 text files.": "ローカルの UTF-8 テキストファイルを 2 つ選択してください。",
   "Unable to read the selected files.": "選択したファイルを読み込めません。",
-  "Another comparison is running. Try again shortly.": "別の比較を実行中です。しばらくしてから再試行してください。"
+  "Another comparison is running. Try again shortly.": "別の比較を実行中です。しばらくしてから再試行してください。",
+  "Convert image to PNG": "画像を PNG に変換",
+  "Create PNG contact sheet": "PNG コンタクトシートを作成",
+  "Save a PNG copy beside the original.": "元の画像と同じ場所に PNG コピーを保存します。",
+  "Arrange the selected images in a PNG grid beside the originals.": "選択した画像をグリッドに並べ、元の画像と同じ場所に PNG として保存します。",
+  "An output file already exists.": "出力先のファイルがすでに存在します。",
+  "Another image export is running.": "別の画像を書き出しています。",
+  "Unable to export the selected images.": "選択した画像を書き出せませんでした。"
 }
