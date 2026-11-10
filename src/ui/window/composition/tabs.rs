@@ -121,6 +121,7 @@ impl TabWindow {
         window.connect_close_request(move |_| {
             if let Some(state) = saving.upgrade() {
                 state.persist_session();
+                #[cfg(not(windows))]
                 tabs_session::flush();
             }
             glib::Propagation::Proceed
@@ -202,7 +203,6 @@ impl TabWindow {
                 let Some(state) = weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                state.persist_session();
                 if !state.preferences.keep_running_in_background()
                     || crate::ui::window::visible_modal_layer(window).is_some()
                 {
@@ -774,6 +774,7 @@ impl TabWindow {
         tabs_session::save_deferred(&locations, active);
     }
 
+    #[cfg(any(not(windows), test))]
     pub(in crate::ui::window) fn try_restore(self: &Rc<Self>) -> bool {
         if !self.preferences.restore_tabs() {
             return false;

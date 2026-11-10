@@ -40,13 +40,13 @@ fn repeated_activation_reuses_one_window_and_preserves_existing_tabs() {
             manager.set_keep_running_in_background(false);
             let directory = tempfile::tempdir().expect("fixture directory");
             let location = Location::local(directory.path());
-            let browser = present_target(
-                &application,
-                Some(location.clone()),
-                Vec::new(),
-                false,
-                true,
-                false,
+            manager.set_default_directory(Some(directory.path().to_path_buf()));
+            let browser = present_target(&application, None, Vec::new(), false, true, true);
+            assert!(
+                application
+                    .windows()
+                    .iter()
+                    .any(|window| window.is_visible())
             );
             wait_for_navigation(&browser, &location);
             let original = application.windows().pop().expect("browser window");
