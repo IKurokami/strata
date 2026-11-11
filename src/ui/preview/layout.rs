@@ -821,7 +821,9 @@ impl PreviewState {
                 geometry = self.geometry(split);
             }
         }
-        self.slot.set_width_request(0);
+        if self.slot.width_request() != 0 {
+            self.slot.set_width_request(0);
+        }
         if self.current.borrow().is_none() {
             self.hide_panel();
             self.sizing.suspended.set(false);
@@ -896,7 +898,9 @@ impl PreviewState {
             self.sizing.position_target.set(None);
             self.animating.set(false);
             self.revealer.set_transition_duration(0);
-            split.set_position(position);
+            if start != position {
+                split.set_position(position);
+            }
             return;
         }
         self.sizing.position_target.set(Some(position));

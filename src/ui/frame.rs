@@ -8,6 +8,40 @@ use std::{
 
 use gtk::{glib, prelude::*};
 
+/// Observes paints for a mapped widget without keeping its frame clock running.
+pub(super) fn observe_paint<W: IsA<gtk::Widget> + Clone + 'static>(
+    widget: &W,
+    callback: impl Fn(&W) + 'static,
+) {
+    let connection = Rc::new(RefCell::new(
+        None::<(gtk::gdk::FrameClock, glib::SignalHandlerId)>,
+    ));
+    let mapped = connection.clone();
+    let callback = Rc::new(callback);
+    let attach = move |widget: &W| {
+        let Some(clock) = widget.frame_clock() else {
+            return;
+        };
+        let weak = widget.downgrade();
+        let callback = callback.clone();
+        let handler = clock.connect_after_paint(move |_| {
+            if let Some(widget) = weak.upgrade() {
+                callback(&widget);
+            }
+        });
+        mapped.replace(Some((clock, handler)));
+    };
+    if widget.is_mapped() {
+        attach(widget);
+    }
+    widget.connect_map(attach);
+    widget.connect_unmap(move |_| {
+        if let Some((clock, handler)) = connection.take() {
+            clock.disconnect(handler);
+        }
+    });
+}
+
 /// Dispatches outside GTK layout, even when scheduled by a frame callback.
 pub(super) struct FrameTask {
     cancelled: Rc<Cell<bool>>,

@@ -48,6 +48,58 @@ fn standalone_table_keeps_copy_model_alive_without_document_state() {
 }
 
 #[test]
+fn rendered_markdown_table_allows_the_frame_clock_to_idle() {
+    gtk_test(
+        "ui::virtual_preview::tests::rendered_markdown_table_allows_the_frame_clock_to_idle",
+        || {
+            use gtk::glib;
+
+            gtk::Settings::default()
+                .expect("GTK settings")
+                .set_gtk_enable_animations(false);
+            use std::time::Duration;
+
+            let cancellation = crate::sandbox::Cancellation::default();
+            let kind = crate::services::document_kind(
+                "text/markdown",
+                std::ffi::OsStr::new("table.md"),
+                true,
+            )
+            .expect("Markdown kind");
+            let parsed = crate::services::parse_document(
+                kind,
+                "# Fixture\n\n| Name | Value |\n| --- | --- |\n| Row | 42 |\n",
+                &cancellation,
+            )
+            .expect("Markdown");
+            let layout =
+                crate::services::layout_document(parsed.document, &cancellation).expect("layout");
+            let (preview, state) = rendered_document(layout, Vec::new(), true, None);
+            let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let focus = gtk::Button::with_label("fixture");
+            root.append(&focus);
+            root.append(&preview);
+            let window = gtk::Window::builder().child(&root).build();
+            window.present();
+            focus.grab_focus();
+            let context = glib::MainContext::default();
+            let settle = |duration| context.block_on(glib::timeout_future(duration));
+            settle(Duration::from_millis(750));
+            assert!(!state.tables.borrow().is_empty());
+            let clock = window.frame_clock().expect("mapped window");
+            let frame = clock.frame_counter();
+            settle(Duration::from_millis(250));
+            let idle_frames = clock.frame_counter() - frame;
+            assert!(
+                idle_frames <= 2,
+                "idle Markdown preview drove {idle_frames} frames"
+            );
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn source_units_bound_normal_rows_and_isolate_pathological_lines() {
     let content = format!(
         "{}{}\ntail\n",

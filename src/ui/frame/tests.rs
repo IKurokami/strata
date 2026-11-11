@@ -5,6 +5,45 @@ use std::time::{Duration, Instant};
 use super::*;
 
 #[test]
+fn paint_observer_stops_on_unmap_and_resumes_on_remap() {
+    crate::test_support::gtk_test(
+        "ui::frame::tests::paint_observer_stops_on_unmap_and_resumes_on_remap",
+        || {
+            let window = gtk::Window::new();
+            let label = gtk::Label::new(Some("fixture"));
+            window.set_child(Some(&label));
+            window.present();
+            let observed = Rc::new(Cell::new(0));
+            let count = observed.clone();
+            observe_paint(&label, move |_| count.set(count.get() + 1));
+            let paint = || {
+                let clock = window.frame_clock().expect("mapped window");
+                let done = Rc::new(Cell::new(false));
+                let painted = done.clone();
+                let handler = clock.connect_after_paint(move |_| painted.set(true));
+                clock.request_phase(gtk::gdk::FrameClockPhase::AFTER_PAINT);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !done.get() {
+                    assert!(Instant::now() < deadline, "frame clock did not paint");
+                    glib::MainContext::default().iteration(false);
+                }
+                clock.disconnect(handler);
+            };
+            paint();
+            assert!(observed.get() > 0);
+            label.set_visible(false);
+            let before = observed.get();
+            paint();
+            assert_eq!(observed.get(), before);
+            label.set_visible(true);
+            paint();
+            assert!(observed.get() > before);
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn frame_work_runs_outside_dispatch_and_cancelled_work_never_runs() {
     crate::test_support::gtk_test(
         "ui::frame::tests::frame_work_runs_outside_dispatch_and_cancelled_work_never_runs",

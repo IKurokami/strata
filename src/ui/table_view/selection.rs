@@ -56,6 +56,7 @@ pub(super) struct Selection {
     bound: RefCell<Vec<BoundCell>>,
     range: Cell<Option<Range>>,
     dragging: Cell<bool>,
+    drag_tick: RefCell<Option<gtk::TickCallbackId>>,
     pointer: Cell<(f64, f64)>,
     pressed_link: RefCell<Option<(glib::WeakRef<gtk::Label>, String)>>,
 }
@@ -67,6 +68,7 @@ impl Selection {
             bound: RefCell::new(Vec::new()),
             range: Cell::new(None),
             dragging: Cell::new(false),
+            drag_tick: RefCell::new(None),
             pointer: Cell::new((0.0, 0.0)),
             pressed_link: RefCell::new(None),
         })
@@ -90,7 +92,7 @@ impl Selection {
 
     pub(super) fn clear(&self) {
         self.range.set(None);
-        self.dragging.set(false);
+        self.stop_drag();
         self.pressed_link.borrow_mut().take();
         self.highlight();
     }
@@ -312,7 +314,11 @@ impl Selection {
             root.add_controller(click.clone());
             controller_for_map.replace(Some((root.downgrade(), click)));
         });
+        let weak_state = Rc::downgrade(self);
         view.connect_unmap(move |_| {
+            if let Some(state) = weak_state.upgrade() {
+                state.stop_drag();
+            }
             if let Some((root, click)) = outside_click.borrow_mut().take()
                 && let Some(root) = root.upgrade()
             {
@@ -324,6 +330,7 @@ impl Selection {
         drag.set_propagation_phase(gtk::PropagationPhase::Capture);
         let state = self.clone();
         let weak_view = view.downgrade();
+        let weak_scroll = scroll.downgrade();
         drag.connect_drag_begin(move |gesture, x, y| {
             let Some(view) = weak_view.upgrade() else {
                 return;
@@ -368,6 +375,9 @@ impl Selection {
             state.pointer.set((x, y));
             state.dragging.set(true);
             gesture.set_state(gtk::EventSequenceState::Claimed);
+            if state.dragging.get() {
+                state.start_drag_scroll(&view, weak_scroll.clone());
+            }
         });
         let state = self.clone();
         let weak_view = view.downgrade();
@@ -383,7 +393,7 @@ impl Selection {
         });
         let state = self.clone();
         drag.connect_drag_end(move |_, dx, dy| {
-            state.dragging.set(false);
+            state.stop_drag();
             if let Some((label, uri)) = state.pressed_link.borrow_mut().take()
                 && dx.abs() < 4.0
                 && dy.abs() < 4.0
@@ -396,7 +406,7 @@ impl Selection {
         });
         let state = self.clone();
         drag.connect_cancel(move |_, _| {
-            state.dragging.set(false);
+            state.stop_drag();
             state.pressed_link.borrow_mut().take();
         });
         view.add_controller(drag);
@@ -419,11 +429,31 @@ impl Selection {
         });
         view.add_controller(key);
         let state = self.clone();
-        let weak_scroll = scroll.downgrade();
-        view.add_tick_callback(move |view, _| {
-            if state.dragging.get()
-                && let Some(scroll) = weak_scroll.upgrade()
-            {
+        crate::ui::frame::observe_paint(view, move |_| {
+            if state.range.get().is_some() {
+                state.highlight();
+            }
+        });
+    }
+
+    fn stop_drag(&self) {
+        self.dragging.set(false);
+        if let Some(tick) = self.drag_tick.take() {
+            tick.remove();
+        }
+    }
+
+    fn start_drag_scroll(
+        self: &Rc<Self>,
+        view: &gtk::ColumnView,
+        scroll: glib::WeakRef<gtk::ScrolledWindow>,
+    ) {
+        let state = Rc::downgrade(self);
+        let tick = view.add_tick_callback(move |view, _| {
+            let Some(state) = state.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if let Some(scroll) = scroll.upgrade() {
                 let (x, y) = state.pointer.get();
                 for (coordinate, extent, adjustment) in [
                     (x, view.width(), scroll.hadjustment()),
@@ -445,11 +475,9 @@ impl Selection {
                 }
                 state.extend(view);
             }
-            if state.range.get().is_some() {
-                state.highlight();
-            }
             glib::ControlFlow::Continue
         });
+        self.drag_tick.replace(Some(tick));
     }
 
     fn extend(&self, view: &gtk::ColumnView) {

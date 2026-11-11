@@ -132,7 +132,9 @@ impl BrowserView {
     }
 
     pub(in crate::ui) fn clear_preview_scroll_space(&self) {
-        self.state.columns_widget.set_margin_end(0);
+        if self.state.columns_widget.margin_end() != 0 {
+            self.state.columns_widget.set_margin_end(0);
+        }
     }
 
     pub(in crate::ui) fn preview_scroll_generation(&self) -> u64 {
