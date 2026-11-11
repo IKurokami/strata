@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
+    collections::HashSet,
     fs,
     io::{self, Cursor, Write},
     path::{Path, PathBuf},
@@ -12,7 +13,7 @@ use image::{ImageFormat, ImageReader, Limits, RgbaImage, imageops};
 
 pub(crate) const CELL: u32 = 256;
 const GAP: u32 = 8;
-pub(crate) const MAX_SHEET_IMAGES: usize = 20;
+pub(crate) const MAX_EXPORT_IMAGES: usize = 20;
 static EXPORT: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy)]
@@ -58,7 +59,7 @@ impl Export {
             Self::Png if paths.len() == 1 => Some(first.with_extension("png")),
             Self::WebP if paths.len() == 1 => Some(first.with_extension("webp")),
             Self::ContactSheet
-                if (2..=MAX_SHEET_IMAGES).contains(&paths.len())
+                if (2..=MAX_EXPORT_IMAGES).contains(&paths.len())
                     && paths.iter().all(|path| path.parent() == Some(parent))
                     && valid_sheet_name(sheet_name) =>
             {
@@ -76,17 +77,55 @@ impl Export {
         cancel: &Cancellation,
     ) -> Result<(), ExportError> {
         let _slot = EXPORT.try_lock().map_err(|_| ExportError::Busy)?;
+        self.run_one(paths, sheet_name, sheet_layout, cancel)
+    }
+
+    pub(crate) fn run_batch(
+        self,
+        paths: &[PathBuf],
+        cancel: &Cancellation,
+    ) -> Result<(), (usize, ExportError)> {
+        if matches!(self, Self::ContactSheet) || !(2..=MAX_EXPORT_IMAGES).contains(&paths.len()) {
+            return Err((0, ExportError::Unavailable));
+        }
+        let _slot = EXPORT.try_lock().map_err(|_| (0, ExportError::Busy))?;
+        let mut destinations = HashSet::new();
+        for path in paths {
+            validate_input(path).map_err(|error| (0, error))?;
+            let destination = self
+                .destination(std::slice::from_ref(path), DEFAULT_SHEET_NAME)
+                .ok_or((0, ExportError::Unavailable))?;
+            if !destinations.insert(destination.clone()) {
+                return Err((0, ExportError::Exists));
+            }
+            require_unused_destination(&destination).map_err(|error| (0, error))?;
+        }
+        for (completed, path) in paths.iter().enumerate() {
+            self.run_one(
+                std::slice::from_ref(path),
+                DEFAULT_SHEET_NAME,
+                SheetLayout::default(),
+                cancel,
+            )
+            .map_err(|error| (completed, error))?;
+        }
+        Ok(())
+    }
+
+    fn run_one(
+        self,
+        paths: &[PathBuf],
+        sheet_name: &str,
+        sheet_layout: SheetLayout,
+        cancel: &Cancellation,
+    ) -> Result<(), ExportError> {
         let destination = self
             .destination(paths, sheet_name)
             .ok_or(ExportError::Unavailable)?;
         for path in paths {
             validate_input(path)?;
         }
-        match fs::symlink_metadata(&destination) {
-            Ok(_) => return Err(ExportError::Exists),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return Err(ExportError::Unavailable),
-        }
+        require_unused_destination(&destination)?;
         let parent = destination.parent().ok_or(ExportError::Unavailable)?;
         let mut output =
             tempfile::NamedTempFile::new_in(parent).map_err(|_| ExportError::Unavailable)?;
@@ -121,6 +160,14 @@ impl Export {
             }
         })?;
         Ok(())
+    }
+}
+
+fn require_unused_destination(path: &Path) -> Result<(), ExportError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Err(ExportError::Exists),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(ExportError::Unavailable),
     }
 }
 

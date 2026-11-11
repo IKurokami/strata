@@ -1126,6 +1126,16 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Compare text files",
         ContextHint::None,
     );
+    let export_png_batch = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert images to PNG",
+        ContextHint::None,
+    );
+    let export_webp_batch = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert images to WebP",
+        ContextHint::None,
+    );
     let contact_sheet = item_context_option(
         crate::assets::icons::COPY_PLUS,
         "Create PNG contact sheet",
@@ -1158,6 +1168,8 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&copy_to_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&compare_multiple);
+    multiple.append(&export_png_batch);
+    multiple.append(&export_webp_batch);
     multiple.append(&contact_sheet);
     multiple.append(&compress_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -1585,6 +1597,14 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         (&export_png, crate::services::image_exports::Export::Png),
         (&export_webp, crate::services::image_exports::Export::WebP),
         (
+            &export_png_batch,
+            crate::services::image_exports::Export::Png,
+        ),
+        (
+            &export_webp_batch,
+            crate::services::image_exports::Export::WebP,
+        ),
+        (
             &contact_sheet,
             crate::services::image_exports::Export::ContactSheet,
         ),
@@ -1798,6 +1818,22 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                         crate::services::image_exports::Export::ContactSheet,
                     ),
             );
+            for (button, export) in [
+                (
+                    &export_png_batch,
+                    crate::services::image_exports::Export::Png,
+                ),
+                (
+                    &export_webp_batch,
+                    crate::services::image_exports::Export::WebP,
+                ),
+            ] {
+                button.set_visible(
+                    !in_trash
+                        && entries.len() > 1
+                        && super::image_exports::supports(&entries, export),
+                );
+            }
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
             let directories = entries.iter().any(|entry| entry.is_directory());

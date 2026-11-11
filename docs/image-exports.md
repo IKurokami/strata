@@ -8,6 +8,11 @@ Right-click one 8-bit PNG, JPEG, BMP, or single-frame GIF and choose
 **Convert image to WebP** to save a lossless WebP copy with transparency.
 The WebP export accepts RGB color profiles.
 
+Select 2–20 images eligible for the same format and choose **Convert images to
+PNG** or **Convert images to WebP**. Strata checks the output names before
+starting and processes the images in sequence. If an image fails or the dialog
+is closed during conversion, copies that were already saved remain in place.
+
 Select 2–20 PNG, JPEG, or WebP images from the same folder and choose
 **Create PNG contact sheet**. Choose a grid, one row, or one column.
 Strata places thumbnails in selection order on a transparent background.

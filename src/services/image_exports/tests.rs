@@ -139,4 +139,26 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
         assert_eq!(fs::read(output).unwrap(), bytes);
     }
     assert_eq!(fs::read(webp).unwrap(), original);
+
+    let first = directory.path().join("batch-first.png");
+    let second = directory.path().join("batch-second.png");
+    fs::copy(&paths[1], &first).unwrap();
+    fs::write(&second, b"invalid image").unwrap();
+    let batch = [first, second];
+    let first_output = batch[0].with_extension("webp");
+    let second_output = batch[1].with_extension("webp");
+    fs::write(&second_output, b"existing output").unwrap();
+    assert!(matches!(
+        Export::WebP.run_batch(&batch, &cancel),
+        Err((0, ExportError::Exists))
+    ));
+    assert!(!first_output.exists());
+    assert_eq!(fs::read(&second_output).unwrap(), b"existing output");
+    fs::remove_file(second_output).unwrap();
+    assert!(matches!(
+        Export::WebP.run_batch(&batch, &cancel),
+        Err((1, ExportError::Unavailable))
+    ));
+    assert!(image::open(first_output).is_ok());
+    assert_eq!(fs::read(&batch[1]).unwrap(), b"invalid image");
 }

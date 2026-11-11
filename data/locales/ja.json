@@ -1472,5 +1472,8 @@
   "Another image export is running.": "別の画像を書き出しています。",
   "Unable to export the selected images.": "選択した画像を書き出せませんでした。",
   "Convert image to WebP": "画像を WebP に変換",
-  "Save a lossless WebP copy beside the original.": "元の画像と同じ場所に可逆圧縮の WebP コピーを保存します。"
+  "Save a lossless WebP copy beside the original.": "元の画像と同じ場所に可逆圧縮の WebP コピーを保存します。",
+  "Convert images to PNG": "画像を一括で PNG に変換",
+  "Save converted copies beside their originals.": "変換したコピーを元の画像と同じ場所に保存します。",
+  "Images saved: %{saved}/%{total}.": "保存した画像は %{total} 枚中 %{saved} 枚です。"
 }

@@ -1472,5 +1472,8 @@
   "Another image export is running.": "Đang xuất một ảnh khác.",
   "Unable to export the selected images.": "Không thể xuất các ảnh đã chọn.",
   "Convert image to WebP": "Chuyển ảnh sang WebP",
-  "Save a lossless WebP copy beside the original.": "Lưu bản sao WebP không mất dữ liệu cạnh ảnh gốc."
+  "Save a lossless WebP copy beside the original.": "Lưu bản sao WebP không mất dữ liệu cạnh ảnh gốc.",
+  "Convert images to PNG": "Chuyển nhiều ảnh sang PNG",
+  "Save converted copies beside their originals.": "Lưu các bản đã chuyển đổi cạnh ảnh gốc.",
+  "Images saved: %{saved}/%{total}.": "Đã lưu %{saved}/%{total} ảnh."
 }

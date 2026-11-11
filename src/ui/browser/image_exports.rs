@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn paths(entries: &[FileEntry], export: Export) -> Option<Vec<PathBuf>> {
-    if entries.len() > crate::services::image_exports::MAX_SHEET_IMAGES {
+    if entries.is_empty() || entries.len() > crate::services::image_exports::MAX_EXPORT_IMAGES {
         return None;
     }
     let paths: Vec<_> = entries
@@ -37,7 +37,9 @@ fn paths(entries: &[FileEntry], export: Export) -> Option<Vec<PathBuf>> {
             (supported && entry.kind == EntryKind::File).then(|| path.to_owned())
         })
         .collect::<Option<_>>()?;
-    export.destination(&paths, DEFAULT_SHEET_NAME)?;
+    if matches!(export, Export::ContactSheet) {
+        export.destination(&paths, DEFAULT_SHEET_NAME)?;
+    }
     Some(paths)
 }
 
@@ -52,15 +54,19 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
     let Some(host) = modal::ModalHost::blurred_for(&state.overlay) else {
         return;
     };
-    let title = match export {
-        Export::Png => "Convert image to PNG",
-        Export::WebP => "Convert image to WebP",
-        Export::ContactSheet => "Create PNG contact sheet",
+    let batch = paths.len() > 1 && !matches!(export, Export::ContactSheet);
+    let title = match (export, batch) {
+        (Export::Png, false) => "Convert image to PNG",
+        (Export::WebP, false) => "Convert image to WebP",
+        (Export::Png, true) => "Convert images to PNG",
+        (Export::WebP, true) => "Convert images to WebP",
+        (Export::ContactSheet, _) => "Create PNG contact sheet",
     };
-    let subtitle = match export {
-        Export::Png => "Save a PNG copy beside the original.",
-        Export::WebP => "Save a lossless WebP copy beside the original.",
-        Export::ContactSheet => "Save the arranged images as a PNG beside the originals.",
+    let subtitle = match (export, batch) {
+        (_, true) => "Save converted copies beside their originals.",
+        (Export::Png, false) => "Save a PNG copy beside the original.",
+        (Export::WebP, false) => "Save a lossless WebP copy beside the original.",
+        (Export::ContactSheet, false) => "Save the arranged images as a PNG beside the originals.",
     };
     let layout = controls::modal_layout(
         crate::assets::icons::COPY_PLUS,
@@ -81,7 +87,7 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         options.append(&arrangement);
         layout.body.append(&options);
         Some((options, name, buttons))
-    } else {
+    } else if !batch {
         let destination = export
             .destination(&paths, DEFAULT_SHEET_NAME)
             .expect("validated export paths");
@@ -92,6 +98,8 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         let name = gtk::Label::new(Some(&output_name));
         name.set_wrap(true);
         layout.body.append(&name);
+        None
+    } else {
         None
     };
     let status = gtk::Label::new(None);
@@ -150,7 +158,7 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
                 (name.text().to_string(), selected)
             },
         );
-        if export.destination(&paths, &sheet_name).is_none() {
+        if !batch && export.destination(&paths, &sheet_name).is_none() {
             status.set_text(&crate::i18n::tr("Enter a valid filename ending in .png."));
             return;
         }
@@ -161,28 +169,36 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         button.set_sensitive(false);
         status.set_text(&crate::i18n::tr("Working…"));
         let paths = paths.clone();
+        let total = paths.len();
         let status = status.clone();
         let layer = layer.clone();
         let worker_cancel = cancel.clone();
         let button = button.downgrade();
         glib::MainContext::default().spawn_local(async move {
             let result = gio::spawn_blocking(move || {
-                export.run(&paths, &sheet_name, arrangement, &worker_cancel)
+                if batch {
+                    export.run_batch(&paths, &worker_cancel)
+                } else {
+                    export
+                        .run(&paths, &sheet_name, arrangement, &worker_cancel)
+                        .map_err(|error| (0, error))
+                }
             })
             .await;
             if layer.upgrade().is_none_or(|layer| !layer.is_sensitive()) {
                 return;
             }
-            let message = match result {
-                Ok(Ok(())) => "Done",
-                Ok(Err(ExportError::Cancelled)) => return,
-                Ok(Err(ExportError::Exists)) => "An output file already exists.",
-                Ok(Err(ExportError::Busy)) => "Another image export is running.",
-                Ok(Err(ExportError::Unavailable)) | Err(_) => {
-                    "Unable to export the selected images."
+            let (saved, message) = match result {
+                Ok(Ok(())) => (total, "Done"),
+                Ok(Err((_, ExportError::Cancelled))) => return,
+                Ok(Err((saved, ExportError::Exists))) => (saved, "An output file already exists."),
+                Ok(Err((saved, ExportError::Busy))) => (saved, "Another image export is running."),
+                Ok(Err((saved, ExportError::Unavailable))) => {
+                    (saved, "Unable to export the selected images.")
                 }
+                Err(_) => (0, "Unable to export the selected images."),
             };
-            if !matches!(result, Ok(Ok(()))) {
+            if saved == 0 {
                 if let Some(button) = button.upgrade() {
                     button.set_sensitive(true);
                 }
@@ -190,7 +206,17 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
                     options.set_sensitive(true);
                 }
             }
-            status.set_text(&crate::i18n::tr(message));
+            let message = crate::i18n::tr(message);
+            if saved > 0 && saved < total {
+                let progress = rust_i18n::t!(
+                    "Images saved: %{saved}/%{total}.",
+                    saved = saved,
+                    total = total
+                );
+                status.set_text(&format!("{progress}\n{message}"));
+            } else {
+                status.set_text(&message);
+            }
         });
     });
 }

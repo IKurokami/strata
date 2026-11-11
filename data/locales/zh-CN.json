@@ -1472,5 +1472,8 @@
   "Another image export is running.": "正在执行另一项图像导出。",
   "Unable to export the selected images.": "无法导出所选图像。",
   "Convert image to WebP": "将图像转换为 WebP",
-  "Save a lossless WebP copy beside the original.": "在原图旁边保存一份无损 WebP 副本。"
+  "Save a lossless WebP copy beside the original.": "在原图旁边保存一份无损 WebP 副本。",
+  "Convert images to PNG": "批量转换为 PNG",
+  "Save converted copies beside their originals.": "将转换后的副本保存在原图旁边。",
+  "Images saved: %{saved}/%{total}.": "已保存 %{saved}/%{total} 张图像。"
 }

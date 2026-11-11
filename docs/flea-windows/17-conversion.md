@@ -1,8 +1,8 @@
 # 17 — Convert formats (single and batch)
 
 **Trạng thái Strata: MỘT PHẦN** · **Ưu tiên: P1**. Trình duyệt đã có lệnh
-[chuyển một ảnh sang PNG hoặc WebP lossless](../image-exports.md). Các định dạng đích khác và
-chuyển đổi hàng loạt vẫn thuộc thiết kế bên dưới.
+[chuyển một hoặc nhiều ảnh sang PNG hoặc WebP lossless](../image-exports.md).
+Các định dạng đích khác vẫn thuộc thiết kế bên dưới.
 
 ## Flea thực sự triển khai thế nào?
 Flea có Convert UI, classifier theo MIME, ảnh convert qua ImageMagick 'magick' (đuôi target chọn encoder) và optional strip metadata; staged private work+batch progress, avoid overwrite. Đây là external-tool orchestration.

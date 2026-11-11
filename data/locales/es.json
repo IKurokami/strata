@@ -1472,5 +1472,8 @@
   "Another image export is running.": "Hay otra exportación de imágenes en curso.",
   "Unable to export the selected images.": "No se pudieron exportar las imágenes seleccionadas.",
   "Convert image to WebP": "Convertir imagen a WebP",
-  "Save a lossless WebP copy beside the original.": "Guardar una copia WebP sin pérdida junto al original."
+  "Save a lossless WebP copy beside the original.": "Guardar una copia WebP sin pérdida junto al original.",
+  "Convert images to PNG": "Convertir imágenes a PNG",
+  "Save converted copies beside their originals.": "Guardar las copias convertidas junto a los originales.",
+  "Images saved: %{saved}/%{total}.": "Imágenes guardadas: %{saved}/%{total}."
 }
