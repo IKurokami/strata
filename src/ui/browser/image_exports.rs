@@ -26,6 +26,10 @@ fn paths(entries: &[FileEntry], export: Export) -> Option<Vec<PathBuf>> {
                     extension.as_str(),
                     "jpg" | "jpeg" | "jpe" | "bmp" | "gif" | "webp"
                 ),
+                Export::WebP => matches!(
+                    extension.as_str(),
+                    "png" | "jpg" | "jpeg" | "jpe" | "bmp" | "gif"
+                ),
                 Export::ContactSheet => {
                     matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "jpe" | "webp")
                 }
@@ -50,10 +54,12 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
     };
     let title = match export {
         Export::Png => "Convert image to PNG",
+        Export::WebP => "Convert image to WebP",
         Export::ContactSheet => "Create PNG contact sheet",
     };
     let subtitle = match export {
         Export::Png => "Save a PNG copy beside the original.",
+        Export::WebP => "Save a lossless WebP copy beside the original.",
         Export::ContactSheet => "Save the arranged images as a PNG beside the originals.",
     };
     let layout = controls::modal_layout(

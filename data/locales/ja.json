@@ -1470,5 +1470,7 @@
   "Enter a valid filename ending in .png.": "末尾が .png の有効なファイル名を入力してください。",
   "An output file already exists.": "出力先のファイルがすでに存在します。",
   "Another image export is running.": "別の画像を書き出しています。",
-  "Unable to export the selected images.": "選択した画像を書き出せませんでした。"
+  "Unable to export the selected images.": "選択した画像を書き出せませんでした。",
+  "Convert image to WebP": "画像を WebP に変換",
+  "Save a lossless WebP copy beside the original.": "元の画像と同じ場所に可逆圧縮の WebP コピーを保存します。"
 }

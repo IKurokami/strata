@@ -141,12 +141,19 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
     #[cfg(not(unix))]
     let _media_backend = MediaPreviewBackend::from_argument(media_backend)
         .ok_or_else(|| "Invalid media preview backend".to_owned())?;
-    if matches!(operation.as_str(), "inspect-image" | "convert-image") {
-        let tile = value == "1" && operation == "convert-image";
-        if value != "0" && !tile {
-            return Err("Invalid image conversion request".into());
-        }
-        return image_conversion::run(input, output, operation == "convert-image", tile);
+    if matches!(
+        operation.as_str(),
+        "inspect-image" | "convert-image" | "convert-webp"
+    ) {
+        use image_conversion::Request;
+        let request = match (operation.as_str(), value.as_str()) {
+            ("inspect-image", "0") => Request::Inspect,
+            ("convert-image", "0") => Request::Png,
+            ("convert-image", "1") => Request::Tile,
+            ("convert-webp", "0") => Request::WebP,
+            _ => return Err("Invalid image conversion request".into()),
+        };
+        return image_conversion::run(input, output, request);
     }
     #[cfg(unix)]
     if operation == "preview-media" || operation == "preview-audio" {

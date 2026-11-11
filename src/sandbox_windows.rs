@@ -151,6 +151,7 @@ pub(crate) enum ParseOperation {
     PreviewRawDevelop,
     InspectImage,
     ConvertImage,
+    ConvertWebP,
     DocumentImage,
     DocumentMermaid,
     DocumentMath {
@@ -197,6 +198,7 @@ impl ParseOperation {
             Self::PreviewRawDevelop => "preview-raw-develop",
             Self::InspectImage => "inspect-image",
             Self::ConvertImage => "convert-image",
+            Self::ConvertWebP => "convert-webp",
             Self::DocumentImage => "document-image",
             Self::DocumentMermaid => "document-mermaid",
             Self::DocumentMath { display: true } => "document-math",
@@ -233,6 +235,8 @@ impl ParseOperation {
                 | Self::InspectImage
         ) {
             "result.json"
+        } else if matches!(self, Self::ConvertWebP) {
+            "result.webp"
         } else if self.is_media() {
             "result.media"
         } else if matches!(self, Self::ArchiveList { .. }) {
@@ -268,7 +272,7 @@ impl ParseOperation {
             Self::ThumbnailCover(_) | Self::PreviewCover(_) => {
                 Some(crate::sandbox_helper::archive_cover::MAX_INPUT_BYTES)
             }
-            Self::InspectImage | Self::ConvertImage => {
+            Self::InspectImage | Self::ConvertImage | Self::ConvertWebP => {
                 Some(crate::services::image_conversion::MAX_INPUT_BYTES)
             }
             Self::PreviewWorkbook => Some(crate::services::table::WORKBOOK_BYTE_LIMIT),
@@ -380,6 +384,9 @@ fn read_text_layer(path: &Path) -> Option<crate::services::PdfTextLayer> {
 }
 
 fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
+    if matches!(operation, ParseOperation::ConvertWebP) {
+        return crate::services::image_conversion::is_webp_output(data);
+    }
     if matches!(operation, ParseOperation::SearchExtract) {
         return data.len() <= 1024 * 1024
             && serde_json::from_slice::<crate::services::smart_search::result::Extraction>(data)
@@ -521,7 +528,9 @@ fn parse_sandboxed(
         return Err(
             if matches!(
                 operation,
-                ParseOperation::InspectImage | ParseOperation::ConvertImage
+                ParseOperation::InspectImage
+                    | ParseOperation::ConvertImage
+                    | ParseOperation::ConvertWebP
             ) {
                 "The image exceeds the 32 MiB conversion limit. Choose a smaller image.".to_owned()
             } else if matches!(operation, ParseOperation::PreviewModel(_)) {

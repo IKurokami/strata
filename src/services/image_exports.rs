@@ -18,6 +18,7 @@ static EXPORT: Mutex<()> = Mutex::new(());
 #[derive(Clone, Copy)]
 pub(crate) enum Export {
     Png,
+    WebP,
     ContactSheet,
 }
 
@@ -55,6 +56,7 @@ impl Export {
         let parent = first.parent()?;
         match self {
             Self::Png if paths.len() == 1 => Some(first.with_extension("png")),
+            Self::WebP if paths.len() == 1 => Some(first.with_extension("webp")),
             Self::ContactSheet
                 if (2..=MAX_SHEET_IMAGES).contains(&paths.len())
                     && paths.iter().all(|path| path.parent() == Some(parent))
@@ -89,9 +91,16 @@ impl Export {
         let mut output =
             tempfile::NamedTempFile::new_in(parent).map_err(|_| ExportError::Unavailable)?;
         match self {
-            Self::Png => output
-                .write_all(&render(&paths[0], ParseOperation::ConvertImage, 0, cancel)?)
-                .map_err(|_| ExportError::Unavailable)?,
+            Self::Png | Self::WebP => {
+                let operation = if matches!(self, Self::WebP) {
+                    ParseOperation::ConvertWebP
+                } else {
+                    ParseOperation::ConvertImage
+                };
+                output
+                    .write_all(&render(&paths[0], operation, 0, cancel)?)
+                    .map_err(|_| ExportError::Unavailable)?;
+            }
             Self::ContactSheet => {
                 let sheet = contact_sheet(paths.len(), sheet_layout, |index| {
                     thumbnail(&paths[index], cancel)

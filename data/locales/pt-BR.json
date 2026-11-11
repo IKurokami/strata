@@ -1470,5 +1470,7 @@
   "Enter a valid filename ending in .png.": "Digite um nome de arquivo válido que termine em .png.",
   "An output file already exists.": "Já existe um arquivo de saída.",
   "Another image export is running.": "Outra exportação de imagem está em andamento.",
-  "Unable to export the selected images.": "Não foi possível exportar as imagens selecionadas."
+  "Unable to export the selected images.": "Não foi possível exportar as imagens selecionadas.",
+  "Convert image to WebP": "Converter imagem para WebP",
+  "Save a lossless WebP copy beside the original.": "Salve uma cópia WebP sem perdas ao lado da imagem original."
 }

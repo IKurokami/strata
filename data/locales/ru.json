@@ -1470,5 +1470,7 @@
   "Enter a valid filename ending in .png.": "Введите допустимое имя файла с расширением .png.",
   "An output file already exists.": "Выходной файл уже существует.",
   "Another image export is running.": "Уже выполняется другой экспорт изображений.",
-  "Unable to export the selected images.": "Не удалось экспортировать выбранные изображения."
+  "Unable to export the selected images.": "Не удалось экспортировать выбранные изображения.",
+  "Convert image to WebP": "Преобразовать изображение в WebP",
+  "Save a lossless WebP copy beside the original.": "Сохранить копию WebP без потерь рядом с оригиналом."
 }

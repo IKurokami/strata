@@ -929,6 +929,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Convert image to PNG",
         ContextHint::None,
     );
+    let export_webp = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert image to WebP",
+        ContextHint::None,
+    );
     let compress = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -996,6 +1001,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single.append(&copy_to);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&export_png);
+    single.append(&export_webp);
     single.append(&compress);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&pin);
@@ -1577,6 +1583,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     );
     for (button, export) in [
         (&export_png, crate::services::image_exports::Export::Png),
+        (&export_webp, crate::services::image_exports::Export::WebP),
         (
             &contact_sheet,
             crate::services::image_exports::Export::ContactSheet,
@@ -1775,6 +1782,13 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                     && super::image_exports::supports(
                         &entries,
                         crate::services::image_exports::Export::Png,
+                    ),
+            );
+            export_webp.set_visible(
+                !in_trash
+                    && super::image_exports::supports(
+                        &entries,
+                        crate::services::image_exports::Export::WebP,
                     ),
             );
             contact_sheet.set_visible(

@@ -1470,5 +1470,7 @@
   "Enter a valid filename ending in .png.": "Nhập tên tệp hợp lệ có đuôi .png.",
   "An output file already exists.": "Tệp đầu ra đã tồn tại.",
   "Another image export is running.": "Đang xuất một ảnh khác.",
-  "Unable to export the selected images.": "Không thể xuất các ảnh đã chọn."
+  "Unable to export the selected images.": "Không thể xuất các ảnh đã chọn.",
+  "Convert image to WebP": "Chuyển ảnh sang WebP",
+  "Save a lossless WebP copy beside the original.": "Lưu bản sao WebP không mất dữ liệu cạnh ảnh gốc."
 }

@@ -16,6 +16,15 @@ pub(crate) const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
 pub(crate) const MAX_PIXELS: u64 = 16_000_000;
 pub(crate) const MAX_EDGE: u32 = 16_384;
 
+pub(crate) fn is_webp_output(data: &[u8]) -> bool {
+    data.starts_with(b"RIFF")
+        && data.get(8..12) == Some(b"WEBP")
+        && data.get(4..8).is_some_and(|size| {
+            u64::from(u32::from_le_bytes(size.try_into().expect("four bytes"))) + 8
+                == data.len() as u64
+        })
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum ImageKind {
     Jpeg,

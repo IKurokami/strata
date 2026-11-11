@@ -11,8 +11,16 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-pub(super) fn run(input: &Path, output: &Path, convert: bool, tile: bool) -> Result<(), String> {
-    let result = process(input, convert, tile);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Request {
+    Inspect,
+    Png,
+    Tile,
+    WebP,
+}
+
+pub(super) fn run(input: &Path, output: &Path, request: Request) -> Result<(), String> {
+    let result = process(input, request);
     match result {
         Ok(bytes) => fs::write(output, bytes).map_err(|error| error.to_string()),
         Err(error) => {
@@ -40,7 +48,7 @@ fn check_dimensions(decoder: &impl ImageDecoder) -> Result<(), String> {
     Ok(())
 }
 
-fn process(input: &Path, convert: bool, tile: bool) -> Result<Vec<u8>, String> {
+fn process(input: &Path, request: Request) -> Result<Vec<u8>, String> {
     if fs::metadata(input)
         .map_err(|error| error.to_string())?
         .len()
@@ -121,13 +129,38 @@ fn process(input: &Path, convert: bool, tile: bool) -> Result<Vec<u8>, String> {
             return Err("This image's colour profile cannot be preserved in PNG. Choose an RGB or grayscale image.".into());
         }
     }
-    if !convert {
+    if request == Request::Inspect {
         return serde_json::to_vec(&kind).map_err(|error| error.to_string());
     }
-    if kind == ImageKind::Png && !tile {
+    if kind == ImageKind::Png && request == Request::Png {
         return fs::read(input).map_err(|error| error.to_string());
     }
-    let image = if tile {
+    if request == Request::WebP {
+        let mut bytes = Vec::new();
+        let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut bytes);
+        if let Some(profile) = profile {
+            // WebP decoders expose RGB channels even when the source is grayscale.
+            if profile.get(36..40) == Some(b"acsp") && profile.get(16..20) != Some(b"RGB ") {
+                return Err("WebP requires an RGB colour profile".into());
+            }
+            encoder
+                .set_icc_profile(profile)
+                .map_err(|error| error.to_string())?;
+        }
+        encoder
+            .write_image(
+                image.as_bytes(),
+                image.width(),
+                image.height(),
+                image.color().into(),
+            )
+            .map_err(invalid)?;
+        if bytes.len() as u64 > crate::sandbox::MAX_OUTPUT_BYTES {
+            return Err("WebP output exceeds the conversion limit".into());
+        }
+        return Ok(bytes);
+    }
+    let image = if request == Request::Tile {
         let edge = crate::services::image_exports::CELL;
         DynamicImage::ImageRgba8(image.thumbnail(edge, edge).into_rgba8())
     } else {
@@ -135,7 +168,9 @@ fn process(input: &Path, convert: bool, tile: bool) -> Result<Vec<u8>, String> {
     };
     let mut bytes = Cursor::new(Vec::new());
     let mut encoder = image::codecs::png::PngEncoder::new(&mut bytes);
-    if !tile && let Some(profile) = profile {
+    if request == Request::Png
+        && let Some(profile) = profile
+    {
         encoder
             .set_icc_profile(profile)
             .map_err(|error| error.to_string())?;

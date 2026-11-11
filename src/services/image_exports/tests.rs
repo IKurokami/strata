@@ -63,7 +63,7 @@ fn sheet_names_must_be_png_basenames() {
 
 #[cfg(windows)]
 #[test]
-fn windows_exports_publish_valid_pngs_from_the_contained_helper() {
+fn windows_exports_publish_valid_images_from_the_contained_helper() {
     let _serial = SERIAL.lock().unwrap();
     let directory = tempfile::tempdir().expect("temporary directory");
     let webp = directory.path().join("photo.webp");
@@ -92,6 +92,30 @@ fn windows_exports_publish_valid_pngs_from_the_contained_helper() {
         image::open(&converted).unwrap().to_rgba8().get_pixel(0, 0),
         &foreground
     );
+
+    Export::WebP
+        .run(
+            std::slice::from_ref(&blue),
+            DEFAULT_SHEET_NAME,
+            SheetLayout::Grid,
+            &cancel,
+        )
+        .unwrap();
+    let webp_output = blue.with_extension("webp");
+    let bytes = fs::read(&webp_output).unwrap();
+    assert!(crate::services::image_conversion::is_webp_output(&bytes));
+    let decoded = image::load_from_memory(&bytes).unwrap().into_rgba8();
+    assert!(decoded.pixels().all(|pixel| *pixel == background));
+    assert!(matches!(
+        Export::WebP.run(
+            std::slice::from_ref(&blue),
+            DEFAULT_SHEET_NAME,
+            SheetLayout::Grid,
+            &cancel
+        ),
+        Err(ExportError::Exists)
+    ));
+    assert_eq!(fs::read(webp_output).unwrap(), bytes);
 
     let paths = [converted, blue];
     for (name, layout) in [
