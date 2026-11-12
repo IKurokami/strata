@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Rastergröße (Spalten × Zeilen): %{columns} × %{rows}",
   "Convert image to JPEG": "Bild in JPEG umwandeln",
   "Convert images to JPEG": "Bilder in JPEG umwandeln",
-  "Save JPEG copies with a white background.": "JPEG-Kopien mit weißem Hintergrund speichern."
+  "Save JPEG copies with a white background.": "JPEG-Kopien mit weißem Hintergrund speichern.",
+  "Remove metadata and color profiles": "Metadaten und Farbprofile entfernen"
 }

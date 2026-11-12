@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "グリッドの大きさ（列 × 行）：%{columns} × %{rows}",
   "Convert image to JPEG": "画像を JPEG に変換",
   "Convert images to JPEG": "画像を一括で JPEG に変換",
-  "Save JPEG copies with a white background.": "白い背景の JPEG コピーを保存します。"
+  "Save JPEG copies with a white background.": "白い背景の JPEG コピーを保存します。",
+  "Remove metadata and color profiles": "メタデータとカラープロファイルを削除"
 }

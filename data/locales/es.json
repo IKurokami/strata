@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Tamaño de la cuadrícula (columnas × filas): %{columns} × %{rows}",
   "Convert image to JPEG": "Convertir imagen a JPEG",
   "Convert images to JPEG": "Convertir imágenes a JPEG",
-  "Save JPEG copies with a white background.": "Guardar copias JPEG con fondo blanco."
+  "Save JPEG copies with a white background.": "Guardar copias JPEG con fondo blanco.",
+  "Remove metadata and color profiles": "Eliminar metadatos y perfiles de color"
 }

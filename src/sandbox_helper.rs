@@ -146,15 +146,17 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         "inspect-image" | "convert-image" | "convert-webp" | "convert-jpeg"
     ) {
         use image_conversion::Request;
+        let strip_metadata = value.parse::<i32>().ok()
+            == Some(crate::services::image_conversion::STRIP_METADATA_REQUEST);
         let request = match (operation.as_str(), value.as_str()) {
             ("inspect-image", "0") => Request::Inspect,
-            ("convert-image", "0") => Request::Png,
             ("convert-image", "1") => Request::Tile,
-            ("convert-webp", "0") => Request::WebP,
-            ("convert-jpeg", "0") => Request::Jpeg,
+            ("convert-image", _) if value == "0" || strip_metadata => Request::Png,
+            ("convert-webp", _) if value == "0" || strip_metadata => Request::WebP,
+            ("convert-jpeg", _) if value == "0" || strip_metadata => Request::Jpeg,
             _ => return Err("Invalid image conversion request".into()),
         };
-        return image_conversion::run(input, output, request);
+        return image_conversion::run(input, output, request, strip_metadata);
     }
     #[cfg(unix)]
     if operation == "preview-media" || operation == "preview-audio" {

@@ -15,6 +15,7 @@ mod tests;
 pub(crate) const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
 pub(crate) const MAX_PIXELS: u64 = 16_000_000;
 pub(crate) const MAX_EDGE: u32 = 16_384;
+pub(crate) const STRIP_METADATA_REQUEST: i32 = 2;
 
 pub(crate) fn is_jpeg_output(data: &[u8]) -> bool {
     data.starts_with(b"\xff\xd8\xff") && data.ends_with(b"\xff\xd9")

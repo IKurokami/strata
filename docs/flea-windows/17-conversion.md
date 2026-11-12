@@ -2,6 +2,7 @@
 
 **Trạng thái Strata: MỘT PHẦN** · **Ưu tiên: P1**. Trình duyệt đã có lệnh
 [chuyển một hoặc nhiều ảnh sang PNG, WebP lossless hoặc JPEG](../image-exports.md).
+Hộp thoại chuyển đổi có tùy chọn xóa siêu dữ liệu và hồ sơ màu.
 Các định dạng đích khác vẫn thuộc thiết kế bên dưới.
 
 ## Flea thực sự triển khai thế nào?

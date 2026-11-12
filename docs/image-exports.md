@@ -19,6 +19,11 @@ PNG**, **Convert images to WebP**, or **Convert images to JPEG**. Strata checks 
 starting and processes the images in sequence. If an image fails or the dialog
 is closed during conversion, copies that were already saved remain in place.
 
+Enable **Remove metadata and color profiles** in a conversion dialog to save
+copies without embedded metadata or ICC profiles. Strata still applies the
+source orientation to the exported pixels. Removing a profile can change how
+the colors appear in other apps.
+
 Select 2–20 PNG, JPEG, or WebP images from the same folder and choose
 **Create PNG contact sheet**. Choose a grid, one row, or one column.
 Strata places thumbnails in selection order on a transparent background.

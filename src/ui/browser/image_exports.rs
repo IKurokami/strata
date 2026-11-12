@@ -132,6 +132,12 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
     } else {
         None
     };
+    let metadata_option = (!matches!(export, Export::ContactSheet)).then(|| {
+        let option =
+            controls::form_check_button(&crate::i18n::tr("Remove metadata and color profiles"));
+        layout.body.append(&option);
+        option
+    });
     let status = gtk::Label::new(None);
     status.set_wrap(true);
     layout.body.append(&status);
@@ -201,6 +207,13 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
             options.set_sensitive(false);
             options.downgrade()
         });
+        let strip_metadata = metadata_option
+            .as_ref()
+            .is_some_and(gtk::CheckButton::is_active);
+        let metadata_control = metadata_option.as_ref().map(|option| {
+            option.set_sensitive(false);
+            option.downgrade()
+        });
         button.set_sensitive(false);
         status.set_text(&crate::i18n::tr("Working…"));
         let paths = paths.clone();
@@ -212,10 +225,16 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         glib::MainContext::default().spawn_local(async move {
             let result = gio::spawn_blocking(move || {
                 if batch {
-                    export.run_batch(&paths, &worker_cancel)
+                    export.run_batch(&paths, strip_metadata, &worker_cancel)
                 } else {
                     export
-                        .run(&paths, &sheet_name, arrangement, &worker_cancel)
+                        .run(
+                            &paths,
+                            &sheet_name,
+                            arrangement,
+                            strip_metadata,
+                            &worker_cancel,
+                        )
                         .map_err(|error| (0, error))
                 }
             })
@@ -239,6 +258,9 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
                 }
                 if let Some(options) = options.and_then(|options| options.upgrade()) {
                     options.set_sensitive(true);
+                }
+                if let Some(option) = metadata_control.and_then(|option| option.upgrade()) {
+                    option.set_sensitive(true);
                 }
             }
             let message = crate::i18n::tr(message);

@@ -83,15 +83,17 @@ impl Export {
         paths: &[PathBuf],
         sheet_name: &str,
         sheet_layout: SheetLayout,
+        strip_metadata: bool,
         cancel: &Cancellation,
     ) -> Result<(), ExportError> {
         let _slot = EXPORT.try_lock().map_err(|_| ExportError::Busy)?;
-        self.run_one(paths, sheet_name, sheet_layout, cancel)
+        self.run_one(paths, sheet_name, sheet_layout, strip_metadata, cancel)
     }
 
     pub(crate) fn run_batch(
         self,
         paths: &[PathBuf],
+        strip_metadata: bool,
         cancel: &Cancellation,
     ) -> Result<(), (usize, ExportError)> {
         if matches!(self, Self::ContactSheet) || !(2..=MAX_EXPORT_IMAGES).contains(&paths.len()) {
@@ -114,6 +116,7 @@ impl Export {
                 std::slice::from_ref(path),
                 DEFAULT_SHEET_NAME,
                 SheetLayout::default(),
+                strip_metadata,
                 cancel,
             )
             .map_err(|error| (completed, error))?;
@@ -126,6 +129,7 @@ impl Export {
         paths: &[PathBuf],
         sheet_name: &str,
         sheet_layout: SheetLayout,
+        strip_metadata: bool,
         cancel: &Cancellation,
     ) -> Result<(), ExportError> {
         let destination = self
@@ -146,8 +150,13 @@ impl Export {
                     Self::Jpeg => ParseOperation::ConvertJpeg,
                     Self::ContactSheet => unreachable!(),
                 };
+                let value = if strip_metadata {
+                    super::image_conversion::STRIP_METADATA_REQUEST
+                } else {
+                    0
+                };
                 output
-                    .write_all(&render(&paths[0], operation, 0, cancel)?)
+                    .write_all(&render(&paths[0], operation, value, cancel)?)
                     .map_err(|_| ExportError::Unavailable)?;
             }
             Self::ContactSheet => {

@@ -17,6 +17,7 @@ fn export_preserves_existing_output_and_cancelled_jobs_leave_no_files() {
             std::slice::from_ref(&source),
             DEFAULT_SHEET_NAME,
             SheetLayout::default(),
+            false,
             &Cancellation::default()
         ),
         Err(ExportError::Exists)
@@ -32,6 +33,7 @@ fn export_preserves_existing_output_and_cancelled_jobs_leave_no_files() {
             std::slice::from_ref(&source),
             DEFAULT_SHEET_NAME,
             SheetLayout::default(),
+            false,
             &cancel
         ),
         Err(ExportError::Cancelled)
@@ -84,6 +86,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
             std::slice::from_ref(&webp),
             DEFAULT_SHEET_NAME,
             SheetLayout::default(),
+            false,
             &cancel,
         )
         .unwrap();
@@ -98,6 +101,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
             std::slice::from_ref(&blue),
             DEFAULT_SHEET_NAME,
             SheetLayout::default(),
+            false,
             &cancel,
         )
         .unwrap();
@@ -111,6 +115,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
             std::slice::from_ref(&blue),
             DEFAULT_SHEET_NAME,
             SheetLayout::default(),
+            false,
             &cancel
         ),
         Err(ExportError::Exists)
@@ -119,16 +124,21 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
 
     let paths = [converted, blue];
     let transparent = directory.path().join("transparent.png");
-    RgbaImage::from_pixel(12, 12, image::Rgba([0, 0, 0, 0]))
-        .save(&transparent)
+    use image::{ImageDecoder, ImageEncoder};
+    let mut encoder = image::codecs::png::PngEncoder::new(fs::File::create(&transparent).unwrap());
+    encoder.set_icc_profile(b"test profile".to_vec()).unwrap();
+    encoder
+        .write_image(&[0; 12 * 12 * 4], 12, 12, image::ExtendedColorType::Rgba8)
         .unwrap();
     let jpeg_batch = [paths[0].clone(), transparent];
-    Export::Jpeg.run_batch(&jpeg_batch, &cancel).unwrap();
+    Export::Jpeg.run_batch(&jpeg_batch, true, &cancel).unwrap();
     let white_jpeg = jpeg_batch[1].with_extension("jpg");
     let jpeg_bytes = fs::read(&white_jpeg).unwrap();
     assert!(crate::services::image_conversion::is_jpeg_output(
         &jpeg_bytes
     ));
+    let mut jpeg = image::codecs::jpeg::JpegDecoder::new(Cursor::new(&jpeg_bytes)).unwrap();
+    assert_eq!(jpeg.icc_profile().unwrap(), None);
     let decoded = image::load_from_memory(&jpeg_bytes).unwrap().into_rgb8();
     assert!(
         decoded
@@ -137,7 +147,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
     );
     assert!(image::open(jpeg_batch[0].with_extension("jpg")).is_ok());
     assert!(matches!(
-        Export::Jpeg.run_batch(&jpeg_batch, &cancel),
+        Export::Jpeg.run_batch(&jpeg_batch, false, &cancel),
         Err((0, ExportError::Exists))
     ));
     assert_eq!(fs::read(white_jpeg).unwrap(), jpeg_bytes);
@@ -151,6 +161,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
             &[paths[0].clone(), paths[1].clone(), third, fourth],
             "two-by-two.png",
             SheetLayout::Grid { columns: 2 },
+            false,
             &cancel,
         )
         .unwrap();
@@ -163,7 +174,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
         ("photos column.png", SheetLayout::Column),
     ] {
         Export::ContactSheet
-            .run(&paths, name, layout, &cancel)
+            .run(&paths, name, layout, false, &cancel)
             .unwrap();
         let output = directory.path().join(name);
         let bytes = fs::read(&output).unwrap();
@@ -172,7 +183,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
         assert!(sheet.pixels().any(|pixel| *pixel == background));
         assert!(sheet.pixels().any(|pixel| pixel[3] == 0));
         assert!(matches!(
-            Export::ContactSheet.run(&paths, name, layout, &cancel),
+            Export::ContactSheet.run(&paths, name, layout, false, &cancel),
             Err(ExportError::Exists)
         ));
         assert_eq!(fs::read(output).unwrap(), bytes);
@@ -188,14 +199,14 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
     let second_output = batch[1].with_extension("webp");
     fs::write(&second_output, b"existing output").unwrap();
     assert!(matches!(
-        Export::WebP.run_batch(&batch, &cancel),
+        Export::WebP.run_batch(&batch, false, &cancel),
         Err((0, ExportError::Exists))
     ));
     assert!(!first_output.exists());
     assert_eq!(fs::read(&second_output).unwrap(), b"existing output");
     fs::remove_file(second_output).unwrap();
     assert!(matches!(
-        Export::WebP.run_batch(&batch, &cancel),
+        Export::WebP.run_batch(&batch, false, &cancel),
         Err((1, ExportError::Unavailable))
     ));
     assert!(image::open(first_output).is_ok());

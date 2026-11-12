@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Kích thước lưới (cột × hàng): %{columns} × %{rows}",
   "Convert image to JPEG": "Chuyển ảnh sang JPEG",
   "Convert images to JPEG": "Chuyển nhiều ảnh sang JPEG",
-  "Save JPEG copies with a white background.": "Lưu bản sao JPEG với nền trắng."
+  "Save JPEG copies with a white background.": "Lưu bản sao JPEG với nền trắng.",
+  "Remove metadata and color profiles": "Xóa siêu dữ liệu và hồ sơ màu"
 }

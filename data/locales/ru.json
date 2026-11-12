@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Размер сетки (столбцы × строки): %{columns} × %{rows}",
   "Convert image to JPEG": "Преобразовать изображение в JPEG",
   "Convert images to JPEG": "Преобразовать изображения в JPEG",
-  "Save JPEG copies with a white background.": "Сохранить копии JPEG на белом фоне."
+  "Save JPEG copies with a white background.": "Сохранить копии JPEG на белом фоне.",
+  "Remove metadata and color profiles": "Удалить метаданные и цветовые профили"
 }

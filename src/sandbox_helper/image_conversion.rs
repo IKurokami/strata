@@ -20,8 +20,13 @@ pub(super) enum Request {
     Jpeg,
 }
 
-pub(super) fn run(input: &Path, output: &Path, request: Request) -> Result<(), String> {
-    let result = process(input, request);
+pub(super) fn run(
+    input: &Path,
+    output: &Path,
+    request: Request,
+    strip_metadata: bool,
+) -> Result<(), String> {
+    let result = process(input, request, strip_metadata);
     match result {
         Ok(bytes) => fs::write(output, bytes).map_err(|error| error.to_string()),
         Err(error) => {
@@ -49,7 +54,7 @@ fn check_dimensions(decoder: &impl ImageDecoder) -> Result<(), String> {
     Ok(())
 }
 
-fn process(input: &Path, request: Request) -> Result<Vec<u8>, String> {
+fn process(input: &Path, request: Request, strip_metadata: bool) -> Result<Vec<u8>, String> {
     if fs::metadata(input)
         .map_err(|error| error.to_string())?
         .len()
@@ -112,7 +117,9 @@ fn process(input: &Path, request: Request) -> Result<Vec<u8>, String> {
         let mut decoder = reader.into_decoder().map_err(invalid)?;
         check_dimensions(&decoder)?;
         let orientation = decoder.orientation().map_err(invalid)?;
-        profile = decoder.icc_profile().map_err(invalid)?;
+        if !strip_metadata {
+            profile = decoder.icc_profile().map_err(invalid)?;
+        }
         let mut image = DynamicImage::from_decoder(decoder).map_err(invalid)?;
         image.apply_orientation(orientation);
         image
@@ -133,7 +140,7 @@ fn process(input: &Path, request: Request) -> Result<Vec<u8>, String> {
     if request == Request::Inspect {
         return serde_json::to_vec(&kind).map_err(|error| error.to_string());
     }
-    if kind == ImageKind::Png && request == Request::Png {
+    if kind == ImageKind::Png && request == Request::Png && !strip_metadata {
         return fs::read(input).map_err(|error| error.to_string());
     }
     if request == Request::Jpeg {

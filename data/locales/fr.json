@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Taille de la grille (colonnes × lignes) : %{columns} × %{rows}",
   "Convert image to JPEG": "Convertir l’image en JPEG",
   "Convert images to JPEG": "Convertir les images en JPEG",
-  "Save JPEG copies with a white background.": "Enregistrer des copies JPEG sur fond blanc."
+  "Save JPEG copies with a white background.": "Enregistrer des copies JPEG sur fond blanc.",
+  "Remove metadata and color profiles": "Supprimer les métadonnées et les profils colorimétriques"
 }

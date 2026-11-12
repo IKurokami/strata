@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "网格大小（列 × 行）：%{columns} × %{rows}",
   "Convert image to JPEG": "将图像转换为 JPEG",
   "Convert images to JPEG": "批量转换为 JPEG",
-  "Save JPEG copies with a white background.": "保存白色背景的 JPEG 副本。"
+  "Save JPEG copies with a white background.": "保存白色背景的 JPEG 副本。",
+  "Remove metadata and color profiles": "移除元数据和色彩配置文件"
 }

@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "Tamanho da grade (colunas × linhas): %{columns} × %{rows}",
   "Convert image to JPEG": "Converter imagem para JPEG",
   "Convert images to JPEG": "Converter imagens para JPEG",
-  "Save JPEG copies with a white background.": "Salve cópias JPEG com fundo branco."
+  "Save JPEG copies with a white background.": "Salve cópias JPEG com fundo branco.",
+  "Remove metadata and color profiles": "Remover metadados e perfis de cor"
 }

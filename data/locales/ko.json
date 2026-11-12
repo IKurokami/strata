@@ -1479,5 +1479,6 @@
   "Grid size (columns × rows): %{columns} × %{rows}": "격자 크기(열 × 행): %{columns} × %{rows}",
   "Convert image to JPEG": "이미지를 JPEG로 변환",
   "Convert images to JPEG": "이미지를 JPEG로 일괄 변환",
-  "Save JPEG copies with a white background.": "흰색 배경의 JPEG 복사본을 저장합니다."
+  "Save JPEG copies with a white background.": "흰색 배경의 JPEG 복사본을 저장합니다.",
+  "Remove metadata and color profiles": "메타데이터와 색상 프로필 제거"
 }
