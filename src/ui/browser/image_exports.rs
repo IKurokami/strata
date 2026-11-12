@@ -30,6 +30,7 @@ fn paths(entries: &[FileEntry], export: Export) -> Option<Vec<PathBuf>> {
                     extension.as_str(),
                     "png" | "jpg" | "jpeg" | "jpe" | "bmp" | "gif"
                 ),
+                Export::Jpeg => matches!(extension.as_str(), "png" | "webp" | "bmp" | "gif"),
                 Export::ContactSheet => {
                     matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "jpe" | "webp")
                 }
@@ -58,11 +59,14 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
     let title = match (export, batch) {
         (Export::Png, false) => "Convert image to PNG",
         (Export::WebP, false) => "Convert image to WebP",
+        (Export::Jpeg, false) => "Convert image to JPEG",
         (Export::Png, true) => "Convert images to PNG",
         (Export::WebP, true) => "Convert images to WebP",
+        (Export::Jpeg, true) => "Convert images to JPEG",
         (Export::ContactSheet, _) => "Create PNG contact sheet",
     };
     let subtitle = match (export, batch) {
+        (Export::Jpeg, _) => "Save JPEG copies with a white background.",
         (_, true) => "Save converted copies beside their originals.",
         (Export::Png, false) => "Save a PNG copy beside the original.",
         (Export::WebP, false) => "Save a lossless WebP copy beside the original.",

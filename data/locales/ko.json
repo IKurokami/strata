@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "이미지를 PNG로 일괄 변환",
   "Save converted copies beside their originals.": "변환한 복사본을 원본 옆에 저장합니다.",
   "Images saved: %{saved}/%{total}.": "이미지 %{total}개 중 %{saved}개를 저장했습니다.",
-  "Grid size (columns × rows): %{columns} × %{rows}": "격자 크기(열 × 행): %{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "격자 크기(열 × 행): %{columns} × %{rows}",
+  "Convert image to JPEG": "이미지를 JPEG로 변환",
+  "Convert images to JPEG": "이미지를 JPEG로 일괄 변환",
+  "Save JPEG copies with a white background.": "흰색 배경의 JPEG 복사본을 저장합니다."
 }

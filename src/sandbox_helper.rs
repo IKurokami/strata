@@ -143,7 +143,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         .ok_or_else(|| "Invalid media preview backend".to_owned())?;
     if matches!(
         operation.as_str(),
-        "inspect-image" | "convert-image" | "convert-webp"
+        "inspect-image" | "convert-image" | "convert-webp" | "convert-jpeg"
     ) {
         use image_conversion::Request;
         let request = match (operation.as_str(), value.as_str()) {
@@ -151,6 +151,7 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             ("convert-image", "0") => Request::Png,
             ("convert-image", "1") => Request::Tile,
             ("convert-webp", "0") => Request::WebP,
+            ("convert-jpeg", "0") => Request::Jpeg,
             _ => return Err("Invalid image conversion request".into()),
         };
         return image_conversion::run(input, output, request);

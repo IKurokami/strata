@@ -8,8 +8,12 @@ Right-click one 8-bit PNG, JPEG, BMP, or single-frame GIF and choose
 **Convert image to WebP** to save a lossless WebP copy with transparency.
 The WebP export accepts RGB color profiles.
 
+Right-click a PNG, BMP, single-frame GIF, or static WebP and choose
+**Convert image to JPEG** to save a `.jpg` copy. Strata uses JPEG quality
+90, composites transparency on white, and accepts RGB color profiles.
+
 Select 2–20 images eligible for the same format and choose **Convert images to
-PNG** or **Convert images to WebP**. Strata checks the output names before
+PNG**, **Convert images to WebP**, or **Convert images to JPEG**. Strata checks the output names before
 starting and processes the images in sequence. If an image fails or the dialog
 is closed during conversion, copies that were already saved remain in place.
 

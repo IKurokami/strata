@@ -17,6 +17,7 @@ pub(super) enum Request {
     Png,
     Tile,
     WebP,
+    Jpeg,
 }
 
 pub(super) fn run(input: &Path, output: &Path, request: Request) -> Result<(), String> {
@@ -134,6 +135,42 @@ fn process(input: &Path, request: Request) -> Result<Vec<u8>, String> {
     }
     if kind == ImageKind::Png && request == Request::Png {
         return fs::read(input).map_err(|error| error.to_string());
+    }
+    if request == Request::Jpeg {
+        let mut bytes = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 90);
+        if let Some(profile) = profile {
+            if profile.get(36..40) == Some(b"acsp") && profile.get(16..20) != Some(b"RGB ") {
+                return Err("JPEG export requires an RGB colour profile".into());
+            }
+            encoder
+                .set_icc_profile(profile)
+                .map_err(|error| error.to_string())?;
+        }
+        let rgb = if image.color().has_alpha() {
+            let rgba = image.into_rgba8();
+            image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+                let [red, green, blue, alpha] = rgba.get_pixel(x, y).0;
+                let alpha = u16::from(alpha);
+                image::Rgb([red, green, blue].map(|channel| {
+                    ((u16::from(channel) * alpha + 255 * (255 - alpha) + 127) / 255) as u8
+                }))
+            })
+        } else {
+            image.into_rgb8()
+        };
+        encoder
+            .write_image(
+                rgb.as_raw(),
+                rgb.width(),
+                rgb.height(),
+                image::ExtendedColorType::Rgb8,
+            )
+            .map_err(invalid)?;
+        if bytes.len() as u64 > crate::sandbox::MAX_OUTPUT_BYTES {
+            return Err("JPEG output exceeds the conversion limit".into());
+        }
+        return Ok(bytes);
     }
     if request == Request::WebP {
         let mut bytes = Vec::new();

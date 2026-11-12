@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "Преобразовать изображения в PNG",
   "Save converted copies beside their originals.": "Сохранить преобразованные копии рядом с оригиналами.",
   "Images saved: %{saved}/%{total}.": "Сохранено изображений: %{saved}/%{total}.",
-  "Grid size (columns × rows): %{columns} × %{rows}": "Размер сетки (столбцы × строки): %{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "Размер сетки (столбцы × строки): %{columns} × %{rows}",
+  "Convert image to JPEG": "Преобразовать изображение в JPEG",
+  "Convert images to JPEG": "Преобразовать изображения в JPEG",
+  "Save JPEG copies with a white background.": "Сохранить копии JPEG на белом фоне."
 }

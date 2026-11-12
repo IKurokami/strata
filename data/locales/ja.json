@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "画像を一括で PNG に変換",
   "Save converted copies beside their originals.": "変換したコピーを元の画像と同じ場所に保存します。",
   "Images saved: %{saved}/%{total}.": "保存した画像は %{total} 枚中 %{saved} 枚です。",
-  "Grid size (columns × rows): %{columns} × %{rows}": "グリッドの大きさ（列 × 行）：%{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "グリッドの大きさ（列 × 行）：%{columns} × %{rows}",
+  "Convert image to JPEG": "画像を JPEG に変換",
+  "Convert images to JPEG": "画像を一括で JPEG に変換",
+  "Save JPEG copies with a white background.": "白い背景の JPEG コピーを保存します。"
 }

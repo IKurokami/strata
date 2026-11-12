@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "Convertir les images en PNG",
   "Save converted copies beside their originals.": "Enregistrer les copies converties à côté des originaux.",
   "Images saved: %{saved}/%{total}.": "Images enregistrées : %{saved}/%{total}.",
-  "Grid size (columns × rows): %{columns} × %{rows}": "Taille de la grille (colonnes × lignes) : %{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "Taille de la grille (colonnes × lignes) : %{columns} × %{rows}",
+  "Convert image to JPEG": "Convertir l’image en JPEG",
+  "Convert images to JPEG": "Convertir les images en JPEG",
+  "Save JPEG copies with a white background.": "Enregistrer des copies JPEG sur fond blanc."
 }

@@ -118,6 +118,30 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
     assert_eq!(fs::read(webp_output).unwrap(), bytes);
 
     let paths = [converted, blue];
+    let transparent = directory.path().join("transparent.png");
+    RgbaImage::from_pixel(12, 12, image::Rgba([0, 0, 0, 0]))
+        .save(&transparent)
+        .unwrap();
+    let jpeg_batch = [paths[0].clone(), transparent];
+    Export::Jpeg.run_batch(&jpeg_batch, &cancel).unwrap();
+    let white_jpeg = jpeg_batch[1].with_extension("jpg");
+    let jpeg_bytes = fs::read(&white_jpeg).unwrap();
+    assert!(crate::services::image_conversion::is_jpeg_output(
+        &jpeg_bytes
+    ));
+    let decoded = image::load_from_memory(&jpeg_bytes).unwrap().into_rgb8();
+    assert!(
+        decoded
+            .pixels()
+            .all(|pixel| pixel.0.iter().all(|channel| *channel >= 250))
+    );
+    assert!(image::open(jpeg_batch[0].with_extension("jpg")).is_ok());
+    assert!(matches!(
+        Export::Jpeg.run_batch(&jpeg_batch, &cancel),
+        Err((0, ExportError::Exists))
+    ));
+    assert_eq!(fs::read(white_jpeg).unwrap(), jpeg_bytes);
+
     let third = directory.path().join("third.png");
     let fourth = directory.path().join("fourth.png");
     fs::copy(&paths[0], &third).unwrap();

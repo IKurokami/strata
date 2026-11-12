@@ -1,7 +1,7 @@
 # 17 — Convert formats (single and batch)
 
 **Trạng thái Strata: MỘT PHẦN** · **Ưu tiên: P1**. Trình duyệt đã có lệnh
-[chuyển một hoặc nhiều ảnh sang PNG hoặc WebP lossless](../image-exports.md).
+[chuyển một hoặc nhiều ảnh sang PNG, WebP lossless hoặc JPEG](../image-exports.md).
 Các định dạng đích khác vẫn thuộc thiết kế bên dưới.
 
 ## Flea thực sự triển khai thế nào?

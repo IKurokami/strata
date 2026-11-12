@@ -20,6 +20,7 @@ static EXPORT: Mutex<()> = Mutex::new(());
 pub(crate) enum Export {
     Png,
     WebP,
+    Jpeg,
     ContactSheet,
 }
 
@@ -65,6 +66,7 @@ impl Export {
         match self {
             Self::Png if paths.len() == 1 => Some(first.with_extension("png")),
             Self::WebP if paths.len() == 1 => Some(first.with_extension("webp")),
+            Self::Jpeg if paths.len() == 1 => Some(first.with_extension("jpg")),
             Self::ContactSheet
                 if (2..=MAX_EXPORT_IMAGES).contains(&paths.len())
                     && paths.iter().all(|path| path.parent() == Some(parent))
@@ -137,11 +139,12 @@ impl Export {
         let mut output =
             tempfile::NamedTempFile::new_in(parent).map_err(|_| ExportError::Unavailable)?;
         match self {
-            Self::Png | Self::WebP => {
-                let operation = if matches!(self, Self::WebP) {
-                    ParseOperation::ConvertWebP
-                } else {
-                    ParseOperation::ConvertImage
+            Self::Png | Self::WebP | Self::Jpeg => {
+                let operation = match self {
+                    Self::Png => ParseOperation::ConvertImage,
+                    Self::WebP => ParseOperation::ConvertWebP,
+                    Self::Jpeg => ParseOperation::ConvertJpeg,
+                    Self::ContactSheet => unreachable!(),
                 };
                 output
                     .write_all(&render(&paths[0], operation, 0, cancel)?)

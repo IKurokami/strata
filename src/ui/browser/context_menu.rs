@@ -934,6 +934,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Convert image to WebP",
         ContextHint::None,
     );
+    let export_jpeg = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert image to JPEG",
+        ContextHint::None,
+    );
     let compress = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -1002,6 +1007,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&export_png);
     single.append(&export_webp);
+    single.append(&export_jpeg);
     single.append(&compress);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&pin);
@@ -1136,6 +1142,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Convert images to WebP",
         ContextHint::None,
     );
+    let export_jpeg_batch = item_context_option(
+        crate::assets::icons::COPY_PLUS,
+        "Convert images to JPEG",
+        ContextHint::None,
+    );
     let contact_sheet = item_context_option(
         crate::assets::icons::COPY_PLUS,
         "Create PNG contact sheet",
@@ -1170,6 +1181,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&compare_multiple);
     multiple.append(&export_png_batch);
     multiple.append(&export_webp_batch);
+    multiple.append(&export_jpeg_batch);
     multiple.append(&contact_sheet);
     multiple.append(&compress_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -1596,6 +1608,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     for (button, export) in [
         (&export_png, crate::services::image_exports::Export::Png),
         (&export_webp, crate::services::image_exports::Export::WebP),
+        (&export_jpeg, crate::services::image_exports::Export::Jpeg),
+        (
+            &export_jpeg_batch,
+            crate::services::image_exports::Export::Jpeg,
+        ),
         (
             &export_png_batch,
             crate::services::image_exports::Export::Png,
@@ -1811,6 +1828,13 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                         crate::services::image_exports::Export::WebP,
                     ),
             );
+            export_jpeg.set_visible(
+                !in_trash
+                    && super::image_exports::supports(
+                        &entries,
+                        crate::services::image_exports::Export::Jpeg,
+                    ),
+            );
             contact_sheet.set_visible(
                 !in_trash
                     && super::image_exports::supports(
@@ -1819,6 +1843,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                     ),
             );
             for (button, export) in [
+                (
+                    &export_jpeg_batch,
+                    crate::services::image_exports::Export::Jpeg,
+                ),
                 (
                     &export_png_batch,
                     crate::services::image_exports::Export::Png,

@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "Chuyển nhiều ảnh sang PNG",
   "Save converted copies beside their originals.": "Lưu các bản đã chuyển đổi cạnh ảnh gốc.",
   "Images saved: %{saved}/%{total}.": "Đã lưu %{saved}/%{total} ảnh.",
-  "Grid size (columns × rows): %{columns} × %{rows}": "Kích thước lưới (cột × hàng): %{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "Kích thước lưới (cột × hàng): %{columns} × %{rows}",
+  "Convert image to JPEG": "Chuyển ảnh sang JPEG",
+  "Convert images to JPEG": "Chuyển nhiều ảnh sang JPEG",
+  "Save JPEG copies with a white background.": "Lưu bản sao JPEG với nền trắng."
 }

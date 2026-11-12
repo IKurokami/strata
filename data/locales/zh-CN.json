@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "批量转换为 PNG",
   "Save converted copies beside their originals.": "将转换后的副本保存在原图旁边。",
   "Images saved: %{saved}/%{total}.": "已保存 %{saved}/%{total} 张图像。",
-  "Grid size (columns × rows): %{columns} × %{rows}": "网格大小（列 × 行）：%{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "网格大小（列 × 行）：%{columns} × %{rows}",
+  "Convert image to JPEG": "将图像转换为 JPEG",
+  "Convert images to JPEG": "批量转换为 JPEG",
+  "Save JPEG copies with a white background.": "保存白色背景的 JPEG 副本。"
 }

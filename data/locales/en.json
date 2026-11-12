@@ -1476,5 +1476,8 @@
   "Convert images to PNG": "Convert images to PNG",
   "Save converted copies beside their originals.": "Save converted copies beside their originals.",
   "Images saved: %{saved}/%{total}.": "Images saved: %{saved}/%{total}.",
-  "Grid size (columns × rows): %{columns} × %{rows}": "Grid size (columns × rows): %{columns} × %{rows}"
+  "Grid size (columns × rows): %{columns} × %{rows}": "Grid size (columns × rows): %{columns} × %{rows}",
+  "Convert image to JPEG": "Convert image to JPEG",
+  "Convert images to JPEG": "Convert images to JPEG",
+  "Save JPEG copies with a white background.": "Save JPEG copies with a white background."
 }
