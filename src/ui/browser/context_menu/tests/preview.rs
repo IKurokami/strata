@@ -76,7 +76,7 @@ fn item_context_focus_and_dismissal_preserve_preview_until_primary_selection_cha
                     preview.show(first, Some(0));
                     settle_callbacks();
                     provider.0.borrow_mut().clear();
-                    let title = super::menus::descendants(&preview.widget())
+                    let title = super::descendants(&preview.widget())
                         .into_iter()
                         .find_map(|widget| {
                             widget
@@ -85,7 +85,7 @@ fn item_context_focus_and_dismissal_preserve_preview_until_primary_selection_cha
                                 .filter(|label| label.has_css_class("preview-title"))
                         })
                         .expect("preview title");
-                    let menu = super::menus::open_menu(&view, Some("other.txt"));
+                    let menu = super::open_menu(&view, Some("other.txt"));
                     settle_callbacks();
                     assert!(
                         provider.0.borrow().is_empty(),

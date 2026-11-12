@@ -1,5 +1,7 @@
 # Export images from the file browser
 
+Right-click your selection and hover over **Images** to open the export submenu.
+
 Right-click one JPEG, BMP, single-frame GIF, or static WebP and choose
 **Convert image to PNG** to save a PNG copy alongside it. The conversion
 applies image orientation and preserves supported PNG color profiles.

@@ -939,6 +939,10 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Convert image to JPEG",
         ContextHint::None,
     );
+    let images_submenu = submenu_row(
+        &item_context_option(crate::assets::icons::PICTURES, "Images", ContextHint::None),
+        [&export_png, &export_webp, &export_jpeg],
+    );
     let compress = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -1005,9 +1009,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single.append(&move_to);
     single.append(&copy_to);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-    single.append(&export_png);
-    single.append(&export_webp);
-    single.append(&export_jpeg);
+    single.append(&images_submenu);
     single.append(&compress);
     single.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     single.append(&pin);
@@ -1152,6 +1154,15 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Create PNG contact sheet",
         ContextHint::None,
     );
+    let images_multiple_submenu = submenu_row(
+        &item_context_option(crate::assets::icons::PICTURES, "Images", ContextHint::None),
+        [
+            &export_png_batch,
+            &export_webp_batch,
+            &export_jpeg_batch,
+            &contact_sheet,
+        ],
+    );
     let compress_multiple = item_context_option(
         crate::assets::icons::PACKAGE_PLUS,
         "Compress…",
@@ -1179,10 +1190,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple.append(&copy_to_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&compare_multiple);
-    multiple.append(&export_png_batch);
-    multiple.append(&export_webp_batch);
-    multiple.append(&export_jpeg_batch);
-    multiple.append(&contact_sheet);
+    multiple.append(&images_multiple_submenu);
     multiple.append(&compress_multiple);
     multiple.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     multiple.append(&copy_paths);
@@ -1814,54 +1822,24 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             compress.set_visible(can_compress);
             compress_multiple.set_visible(can_compress);
             compare_multiple.set_visible(!in_trash && super::compare::supports(&entries));
-            export_png.set_visible(
-                !in_trash
-                    && super::image_exports::supports(
-                        &entries,
-                        crate::services::image_exports::Export::Png,
-                    ),
-            );
-            export_webp.set_visible(
-                !in_trash
-                    && super::image_exports::supports(
-                        &entries,
-                        crate::services::image_exports::Export::WebP,
-                    ),
-            );
-            export_jpeg.set_visible(
-                !in_trash
-                    && super::image_exports::supports(
-                        &entries,
-                        crate::services::image_exports::Export::Jpeg,
-                    ),
-            );
-            contact_sheet.set_visible(
-                !in_trash
-                    && super::image_exports::supports(
-                        &entries,
-                        crate::services::image_exports::Export::ContactSheet,
-                    ),
-            );
-            for (button, export) in [
-                (
-                    &export_jpeg_batch,
-                    crate::services::image_exports::Export::Jpeg,
-                ),
-                (
-                    &export_png_batch,
-                    crate::services::image_exports::Export::Png,
-                ),
-                (
-                    &export_webp_batch,
-                    crate::services::image_exports::Export::WebP,
-                ),
+            use crate::services::image_exports::Export;
+            let mut can_convert = false;
+            for (single, batch, export) in [
+                (&export_png, &export_png_batch, Export::Png),
+                (&export_webp, &export_webp_batch, Export::WebP),
+                (&export_jpeg, &export_jpeg_batch, Export::Jpeg),
             ] {
-                button.set_visible(
-                    !in_trash
-                        && entries.len() > 1
-                        && super::image_exports::supports(&entries, export),
-                );
+                let supported = !in_trash && super::image_exports::supports(&entries, export);
+                single.set_visible(supported && entries.len() == 1);
+                batch.set_visible(supported && entries.len() > 1);
+                can_convert |= supported;
             }
+            let can_make_sheet =
+                !in_trash && super::image_exports::supports(&entries, Export::ContactSheet);
+            contact_sheet.set_visible(can_make_sheet);
+            images_submenu.set_visible(can_convert && entries.len() == 1);
+            images_multiple_submenu
+                .set_visible(entries.len() > 1 && (can_convert || can_make_sheet));
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
             let directories = entries.iter().any(|entry| entry.is_directory());
