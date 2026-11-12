@@ -467,6 +467,27 @@ fn a_directory_reporting_changes_against_itself_is_not_its_own_child() {
 }
 
 #[test]
+fn monitor_batch_waits_for_quiet_but_flushes_during_sustained_activity() {
+    let first = Instant::now();
+    let late_change = first + Duration::from_millis(75);
+    assert!(monitor_batch_waits(
+        first,
+        late_change,
+        first + Duration::from_millis(100)
+    ));
+    assert!(!monitor_batch_waits(
+        first,
+        late_change,
+        first + Duration::from_millis(200)
+    ));
+    assert!(!monitor_batch_waits(
+        first,
+        first + Duration::from_millis(475),
+        first + Duration::from_millis(500)
+    ));
+}
+
+#[test]
 fn sustained_native_monitor_bursts_flush_without_rescanning() {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()

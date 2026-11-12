@@ -4,6 +4,25 @@ use super::*;
 use image::{GenericImageView, Rgba, RgbaImage};
 
 #[test]
+fn contact_sheet_tiles_are_reencoded_and_keep_transparency() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("tile.png");
+    let rgba = image::Rgba([35, 66, 91, 123]);
+    image::RgbaImage::from_pixel(12, 12, rgba)
+        .save(&path)
+        .expect("write PNG");
+    let mut original = fs::read(&path).unwrap();
+    original.extend_from_slice(b"private source trailer");
+    fs::write(&path, original).unwrap();
+
+    let tile = process(&path, Request::Tile, false).expect("render contact sheet tile");
+    assert!(!tile.ends_with(b"private source trailer"));
+    let decoded = image::load_from_memory_with_format(&tile, image::ImageFormat::Png)
+        .expect("decode tile")
+        .into_rgba8();
+    assert!(decoded.pixels().all(|pixel| *pixel == rgba));
+}
+#[test]
 fn static_inputs_convert_at_full_resolution_and_preserve_alpha() {
     let directory = tempfile::tempdir().expect("fixture");
     let path = directory.path().join("misleading.svg");
@@ -25,11 +44,13 @@ fn static_inputs_convert_at_full_resolution_and_preserve_alpha() {
             .save_with_format(&path, kind.format())
             .expect("input image");
         assert_eq!(
-            serde_json::from_slice::<ImageKind>(&process(&path, false).expect("inspect"))
-                .expect("kind"),
+            serde_json::from_slice::<ImageKind>(
+                &process(&path, Request::Inspect, false).expect("inspect")
+            )
+            .expect("kind"),
             kind
         );
-        let png = process(&path, true).expect("conversion");
+        let png = process(&path, Request::Png, false).expect("conversion");
         assert_eq!(
             image::guess_format(&png).expect("format"),
             image::ImageFormat::Png
@@ -62,13 +83,18 @@ fn jpeg_orientation_is_applied_and_colour_profile_is_preserved() {
         .write_image(&[128; 18], 2, 3, image::ExtendedColorType::Rgb8)
         .expect("JPEG");
     fs::write(&path, bytes).expect("fixture");
-    let png = process(&path, true).expect("convert");
+    let png = process(&path, Request::Png, false).expect("convert");
     let mut decoder = image::codecs::png::PngDecoder::new(Cursor::new(png)).expect("PNG");
     assert_eq!(decoder.dimensions(), (3, 2));
     assert_eq!(
         decoder.icc_profile().expect("ICC"),
         Some(b"test profile".to_vec())
     );
+    let stripped = process(&path, Request::Png, true).expect("strip metadata");
+    let mut decoder = image::codecs::png::PngDecoder::new(Cursor::new(stripped)).expect("PNG");
+    assert_eq!(decoder.dimensions(), (3, 2));
+    assert_eq!(decoder.icc_profile().expect("ICC"), None);
+    assert_eq!(decoder.exif_metadata().expect("EXIF"), None);
 }
 
 #[test]
@@ -86,7 +112,7 @@ fn grayscale_is_preserved_and_incompatible_profiles_are_rejected() {
             .write_image(&[128; 6], 2, 3, image::ExtendedColorType::L8)
             .expect("grayscale JPEG");
         fs::write(&path, bytes).expect("input");
-        let result = process(&path, true);
+        let result = process(&path, Request::Png, false);
         if space == b"CMYK" {
             assert!(
                 result
@@ -128,9 +154,17 @@ fn animated_gif_and_webp_are_rejected_before_conversion() {
         fs::write(&path, bytes).expect("fixture");
         for convert in [false, true] {
             assert!(
-                process(&path, convert)
-                    .expect_err("reject animation")
-                    .contains("Animated")
+                process(
+                    &path,
+                    if convert {
+                        Request::Png
+                    } else {
+                        Request::Inspect
+                    },
+                    false,
+                )
+                .expect_err("reject animation")
+                .contains("Animated")
             );
         }
     }
@@ -149,7 +183,7 @@ fn invalid_unsupported_and_oversized_images_do_not_produce_output() {
         b"GIF89a",
     ] {
         fs::write(&input, bytes).expect("fixture");
-        assert!(run(&input, &output, true).is_err());
+        assert!(run(&input, &output, Request::Png, false).is_err());
         assert!(!output.exists());
     }
     fs::File::create(&input)
@@ -157,7 +191,7 @@ fn invalid_unsupported_and_oversized_images_do_not_produce_output() {
         .set_len(MAX_INPUT_BYTES + 1)
         .expect("size");
     assert!(
-        process(&input, true)
+        process(&input, Request::Png, false)
             .expect_err("bounded input")
             .contains("32 MiB")
     );
@@ -173,7 +207,7 @@ fn invalid_unsupported_and_oversized_images_do_not_produce_output() {
     gif[6..8].copy_from_slice(&5000u16.to_le_bytes());
     gif[8..10].copy_from_slice(&5000u16.to_le_bytes());
     fs::write(&input, gif).expect("large dimensions");
-    let error = process(&input, true).expect_err("bounded pixels");
+    let error = process(&input, Request::Png, false).expect_err("bounded pixels");
     assert!(error.contains("megapixel"), "{error}");
 }
 
@@ -185,7 +219,7 @@ fn png_is_validated_without_reencoding() {
         .save_with_format(&path, image::ImageFormat::Png)
         .expect("PNG");
     assert_eq!(
-        process(&path, true).expect("PNG"),
+        process(&path, Request::Png, false).expect("PNG"),
         fs::read(path).expect("original")
     );
 }

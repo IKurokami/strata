@@ -14,6 +14,7 @@ pub(crate) mod file_providers;
 pub(crate) mod file_providers;
 mod file_source;
 pub(crate) mod image_conversion;
+pub(crate) mod image_exports;
 mod install_source;
 pub(crate) mod jobs;
 mod listeners;
@@ -32,6 +33,7 @@ pub(crate) mod rtf;
 mod search;
 pub(crate) mod smart_search;
 pub(crate) mod table;
+pub(crate) mod text_compare;
 mod transfer_action;
 mod update_check;
 #[cfg(not(windows))]

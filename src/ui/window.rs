@@ -312,7 +312,10 @@ pub(super) fn present_target(
 ) -> BrowserView {
     #[cfg(windows)]
     if let Some(tabs) = composition::existing_tab_window(application) {
-        let _ = super::windows_runtime::reuse(application);
+        let reused = super::windows_runtime::reuse(application);
+        if location.is_none() && reused.is_some() {
+            return tabs.active_browser();
+        }
         return tabs.present_external(location, selection, properties, auto_navigate);
     }
     #[cfg(windows)]
@@ -329,26 +332,26 @@ pub(super) fn present_target(
     let present_started = std::time::Instant::now();
     let preference_manager = super::preferences::PreferenceManager::shared();
     #[cfg(windows)]
-    let saved_session = auto_navigate
-        && restore_tabs
-        && location.is_none()
-        && preference_manager.restore_tabs()
-        && super::tabs_session::session_path().is_file();
-    #[cfg(windows)]
-    let session_load = saved_session.then(|| {
-        let default_directory = preference_manager.default_directory();
-        gio::spawn_blocking(move || {
-            if let Some(session) = super::tabs_session::load_restorable() {
-                super::tabs_session::StartupSession {
-                    session: Some(session),
-                    fallback: None,
-                    invalid_default: None,
-                }
-            } else {
-                super::tabs_session::StartupSession::fallback(default_directory)
-            }
-        })
-    });
+    let startup_load = {
+        let restore_saved_tabs = restore_tabs && preference_manager.restore_tabs();
+        let default = preference_manager.default_directory();
+        (auto_navigate && location.is_none() && (restore_saved_tabs || default.is_some())).then(
+            || {
+                gio::spawn_blocking(move || {
+                    if restore_saved_tabs
+                        && let Some(session) = super::tabs_session::load_restorable()
+                    {
+                        return super::tabs_session::StartupSession {
+                            session: Some(session),
+                            fallback: None,
+                            invalid_default: None,
+                        };
+                    }
+                    super::tabs_session::StartupSession::fallback(default)
+                })
+            },
+        )
+    };
     crate::assets::register_icon_theme();
     let _theme_manager = super::theme::ThemeManager::shared();
     load_styles();
@@ -385,25 +388,18 @@ pub(super) fn present_target(
     let browser = tabs.active_browser();
     #[cfg(windows)]
     let early_navigation = {
-        if auto_navigate && !saved_session {
-            let candidate = location.clone().unwrap_or_else(|| {
-                Location::local(
-                    preference_manager
-                        .default_directory()
-                        .unwrap_or_else(home_directory),
-                )
-            });
+        if auto_navigate && startup_load.is_none() {
+            let candidate = location
+                .clone()
+                .unwrap_or_else(|| Location::local(home_directory()));
             let local = candidate.native_path().is_some_and(|path| {
                 path.is_absolute() && strata_win_shell::is_fixed_local_drive(path)
             });
             if local {
-                let pending = location
-                    .clone()
-                    .unwrap_or_else(|| startup_location(&preference_manager));
                 if selection.is_empty() {
-                    browser.navigate_location(pending);
+                    browser.navigate_location(candidate);
                 } else {
-                    browser.reveal_locations(pending, selection.clone(), properties);
+                    browser.reveal_locations(candidate, selection.clone(), properties);
                 }
                 true
             } else {
@@ -426,9 +422,9 @@ pub(super) fn present_target(
     );
     crate::metrics::mark_window_presented();
     #[cfg(windows)]
-    if let Some(session_load) = session_load {
+    if let Some(startup_load) = startup_load {
         drop(tabs.restore_when_ready(async move {
-            session_load
+            startup_load
                 .await
                 .unwrap_or_else(|_| super::tabs_session::StartupSession {
                     session: None,
@@ -439,17 +435,24 @@ pub(super) fn present_target(
         return browser;
     }
     if auto_navigate && !early_navigation {
+        #[cfg(not(windows))]
         let restore = restore_tabs && location.is_none();
+        #[cfg(not(windows))]
         let pending_location = location.unwrap_or_else(|| startup_location(&preference_manager));
+        #[cfg(windows)]
+        let pending_location = location.unwrap_or_else(|| Location::local(home_directory()));
         let idle_browser = browser.clone();
         glib::idle_add_local_once(move || {
             let started = std::time::Instant::now();
+            #[cfg(not(windows))]
             if restore && tabs.try_restore() {
                 tracing::debug!(
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "present tab session restored"
                 );
-            } else if selection.is_empty() {
+                return;
+            }
+            if selection.is_empty() {
                 idle_browser.navigate_location(pending_location);
             } else {
                 idle_browser.reveal_locations(pending_location, selection, properties);

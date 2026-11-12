@@ -110,11 +110,12 @@ On Windows, **Settings → General → Desktop integration → Replace File Expl
 is off by default. It changes only the current user's default filesystem-folder
 and drive verbs, and routes Win+E to Strata. The Windows desktop, taskbar and
 virtual folders retain their system behavior. A standalone helper starts at
-sign-in while this preference is enabled. The runtime binds the saved setting before Settings opens
-and applies changes once across all windows. Turning it off immediately restores
+sign-in while this preference is enabled. The runtime checks the existing
+registration before Settings opens. Changes to the toggle and **Try again** apply
+across all windows. Turning it off immediately restores
 the previous defaults, provided Strata still owns those registrations. Changes
-made subsequently by another file manager are preserved. Errors restore the toggle
-to its prior value and show the failure rather than claiming a successful change.
+made subsequently by another file manager are preserved. Errors keep the saved
+choice and show the failure so the user can retry.
 The installer unregisters this installation before removing its files. A small
 standalone proxy under `%LOCALAPPDATA%\Strata\ShellIntegration` survives manual
 deletion of a portable folder. Its watcher checks the target every 500 ms and

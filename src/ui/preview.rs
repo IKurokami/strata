@@ -2322,19 +2322,18 @@ impl PreviewState {
         install_preview_drag(&picture, self);
         let weak_state = Rc::downgrade(self);
         let weak_media = media.downgrade();
-        picture.add_tick_callback(move |_, _| {
+        super::frame::observe_paint(&picture, move |_| {
             let Some(state) = weak_state.upgrade() else {
-                return glib::ControlFlow::Break;
+                return;
             };
             let Some(media) = weak_media.upgrade() else {
-                return glib::ControlFlow::Break;
+                return;
             };
             if !state.animating.get()
                 && let Some(media) = media.downcast_ref::<super::media::DecodedMedia>()
             {
                 media.resize(state.media_preview_size());
             }
-            glib::ControlFlow::Continue
         });
 
         let overlay = gtk::Overlay::new();
@@ -2906,14 +2905,13 @@ impl PreviewState {
         let zoom_for_tick = zoom.clone();
         let page_width_for_tick = page_width.clone();
         let visible_pages_for_tick = visible_pages.clone();
-        scroll.add_tick_callback(move |scroll, _| {
+        super::frame::observe_paint(&scroll, move |scroll| {
             if scroll.width() > PDF_PAGE_GAP * 2 + 1 {
                 let width = pdf_page_width(scroll, zoom_for_tick.get());
                 if width != page_width_for_tick.replace(width) {
                     resize_pdf_pages(&visible_pages_for_tick.borrow(), width);
                 }
             }
-            glib::ControlFlow::Continue
         });
         self.content.append(&scroll);
         if search_page > 0 {

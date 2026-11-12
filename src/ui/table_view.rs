@@ -316,16 +316,20 @@ impl TableState {
             .map(|column| column.downgrade())
             .collect::<Vec<_>>();
         let measured_width = Cell::new(0);
-        view.add_tick_callback(move |view, _| {
+        let resize_queued = Rc::new(Cell::new(false));
+        let weak_view = view.downgrade();
+        let resize = Rc::new(move |available: i32| {
             let Some(state) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
+                return;
             };
-            let available = (view.width() - 2).max(0);
+            if weak_view.upgrade().is_none_or(|view| !view.is_mapped()) {
+                return;
+            }
             if state.manually_sized.get()
                 || available == 0
                 || measured_width.replace(available) == available
             {
-                return glib::ControlFlow::Continue;
+                return;
             }
             let minimum_total = desired_widths
                 .iter()
@@ -355,8 +359,25 @@ impl TableState {
                 }
             }
             automatic_resize.set(false);
-            glib::ControlFlow::Continue
         });
+        let queue_resize = move |adjustment: &gtk::Adjustment| {
+            if resize_queued.replace(true) {
+                return;
+            }
+            let adjustment = adjustment.downgrade();
+            let resize = resize.clone();
+            let resize_queued = resize_queued.clone();
+            glib::idle_add_local_once(move || {
+                resize_queued.set(false);
+                if let Some(adjustment) = adjustment.upgrade() {
+                    resize((adjustment.page_size().round() as i32 - 2).max(0));
+                }
+            });
+        };
+        scroll
+            .hadjustment()
+            .connect_page_size_notify(queue_resize.clone());
+        scroll.connect_map(move |scroll| queue_resize(&scroll.hadjustment()));
         let key = gtk::EventControllerKey::new();
         let state = self.clone();
         let weak_view = view.downgrade();
