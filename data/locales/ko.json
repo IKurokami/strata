@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "원본 옆에 무손실 WebP 복사본을 저장합니다.",
   "Convert images to PNG": "이미지를 PNG로 일괄 변환",
   "Save converted copies beside their originals.": "변환한 복사본을 원본 옆에 저장합니다.",
-  "Images saved: %{saved}/%{total}.": "이미지 %{total}개 중 %{saved}개를 저장했습니다."
+  "Images saved: %{saved}/%{total}.": "이미지 %{total}개 중 %{saved}개를 저장했습니다.",
+  "Grid size (columns × rows): %{columns} × %{rows}": "격자 크기(열 × 행): %{columns} × %{rows}"
 }

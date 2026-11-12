@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "Enregistrer une copie WebP sans perte à côté de l’original.",
   "Convert images to PNG": "Convertir les images en PNG",
   "Save converted copies beside their originals.": "Enregistrer les copies converties à côté des originaux.",
-  "Images saved: %{saved}/%{total}.": "Images enregistrées : %{saved}/%{total}."
+  "Images saved: %{saved}/%{total}.": "Images enregistrées : %{saved}/%{total}.",
+  "Grid size (columns × rows): %{columns} × %{rows}": "Taille de la grille (colonnes × lignes) : %{columns} × %{rows}"
 }

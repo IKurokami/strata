@@ -16,8 +16,9 @@ is closed during conversion, copies that were already saved remain in place.
 Select 2–20 PNG, JPEG, or WebP images from the same folder and choose
 **Create PNG contact sheet**. Choose a grid, one row, or one column.
 Strata places thumbnails in selection order on a transparent background.
-The grid uses up to four columns, and all layouts use thumbnails up to
-256 pixels per side. Enter a filename ending in `.png`, or keep the default
+In grid mode, choose the number of columns. Strata displays the resulting
+row count, so four images with two columns form a 2 × 2 grid. All layouts
+use thumbnails up to 256 pixels per side. Enter a filename ending in `.png`, or keep the default
 `contact-sheet.png`. The result is saved alongside the originals.
 
 Both actions show the destination filename before saving. The worker accepts

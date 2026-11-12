@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "Сохранить копию WebP без потерь рядом с оригиналом.",
   "Convert images to PNG": "Преобразовать изображения в PNG",
   "Save converted copies beside their originals.": "Сохранить преобразованные копии рядом с оригиналами.",
-  "Images saved: %{saved}/%{total}.": "Сохранено изображений: %{saved}/%{total}."
+  "Images saved: %{saved}/%{total}.": "Сохранено изображений: %{saved}/%{total}.",
+  "Grid size (columns × rows): %{columns} × %{rows}": "Размер сетки (столбцы × строки): %{columns} × %{rows}"
 }

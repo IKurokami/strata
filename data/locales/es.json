@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "Guardar una copia WebP sin pérdida junto al original.",
   "Convert images to PNG": "Convertir imágenes a PNG",
   "Save converted copies beside their originals.": "Guardar las copias convertidas junto a los originales.",
-  "Images saved: %{saved}/%{total}.": "Imágenes guardadas: %{saved}/%{total}."
+  "Images saved: %{saved}/%{total}.": "Imágenes guardadas: %{saved}/%{total}.",
+  "Grid size (columns × rows): %{columns} × %{rows}": "Tamaño de la cuadrícula (columnas × filas): %{columns} × %{rows}"
 }

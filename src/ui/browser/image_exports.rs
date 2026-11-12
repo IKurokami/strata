@@ -85,8 +85,34 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
         let (arrangement, buttons) =
             controls::segmented_control(&["Grid layout", "Single row", "Single column"], 0);
         options.append(&arrangement);
+        let grid_options = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let count = paths.len();
+        let columns = gtk::SpinButton::with_range(1.0, count as f64, 1.0);
+        columns.set_numeric(true);
+        columns.set_value(f64::from(SheetLayout::default().dimensions(count).0));
+        let columns_label = controls::form_label(&crate::i18n::tr("Columns"));
+        columns_label.set_mnemonic_widget(Some(&columns));
+        let dimensions = controls::form_label("");
+        grid_options.append(&columns_label);
+        grid_options.append(&columns);
+        grid_options.append(&dimensions);
+        options.append(&grid_options);
+        let update_dimensions = move |columns: &gtk::SpinButton| {
+            let (columns, rows) = SheetLayout::Grid {
+                columns: columns.value_as_int() as u32,
+            }
+            .dimensions(count);
+            dimensions.set_text(&rust_i18n::t!(
+                "Grid size (columns × rows): %{columns} × %{rows}",
+                columns = columns,
+                rows = rows
+            ));
+        };
+        update_dimensions(&columns);
+        columns.connect_value_changed(update_dimensions);
+        buttons[0].connect_toggled(move |button| grid_options.set_visible(button.is_active()));
         layout.body.append(&options);
-        Some((options, name, buttons))
+        Some((options, name, buttons, columns))
     } else if !batch {
         let destination = export
             .destination(&paths, DEFAULT_SHEET_NAME)
@@ -148,13 +174,18 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
             return;
         }
         let (sheet_name, arrangement) = sheet_options.as_ref().map_or_else(
-            || (DEFAULT_SHEET_NAME.to_owned(), SheetLayout::Grid),
-            |(_, name, buttons)| {
-                let selected = [SheetLayout::Grid, SheetLayout::Row, SheetLayout::Column]
-                    .into_iter()
-                    .zip(buttons)
-                    .find_map(|(layout, button)| button.is_active().then_some(layout))
-                    .unwrap_or_default();
+            || (DEFAULT_SHEET_NAME.to_owned(), SheetLayout::default()),
+            |(_, name, buttons, columns)| {
+                columns.update();
+                let selected = if buttons[1].is_active() {
+                    SheetLayout::Row
+                } else if buttons[2].is_active() {
+                    SheetLayout::Column
+                } else {
+                    SheetLayout::Grid {
+                        columns: columns.value_as_int() as u32,
+                    }
+                };
                 (name.text().to_string(), selected)
             },
         );
@@ -162,7 +193,7 @@ pub(super) fn show(state: &Rc<ViewState>, entries: &[FileEntry], export: Export)
             status.set_text(&crate::i18n::tr("Enter a valid filename ending in .png."));
             return;
         }
-        let options = sheet_options.as_ref().map(|(options, _, _)| {
+        let options = sheet_options.as_ref().map(|(options, _, _, _)| {
             options.set_sensitive(false);
             options.downgrade()
         });

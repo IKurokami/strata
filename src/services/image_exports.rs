@@ -23,21 +23,28 @@ pub(crate) enum Export {
     ContactSheet,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(crate) enum SheetLayout {
-    #[default]
-    Grid,
+    Grid { columns: u32 },
     Row,
     Column,
 }
 
+impl Default for SheetLayout {
+    fn default() -> Self {
+        Self::Grid { columns: 4 }
+    }
+}
+
 impl SheetLayout {
-    fn columns(self, count: usize) -> u32 {
-        match self {
-            Self::Grid => count.min(4) as u32,
-            Self::Row => count as u32,
+    pub(crate) fn dimensions(self, count: usize) -> (u32, u32) {
+        let count = count as u32;
+        let columns = match self {
+            Self::Grid { columns } => columns.clamp(1, count.max(1)),
+            Self::Row => count.max(1),
             Self::Column => 1,
-        }
+        };
+        (columns, count.div_ceil(columns))
     }
 }
 
@@ -246,8 +253,7 @@ fn contact_sheet(
     layout: SheetLayout,
     mut thumbnail: impl FnMut(usize) -> Result<RgbaImage, ExportError>,
 ) -> Result<RgbaImage, ExportError> {
-    let columns = layout.columns(count);
-    let rows = (count as u32).div_ceil(columns);
+    let (columns, rows) = layout.dimensions(count);
     let mut sheet = RgbaImage::new(columns * (CELL + GAP) + GAP, rows * (CELL + GAP) + GAP);
     for index in 0..count {
         let tile = thumbnail(index)?;

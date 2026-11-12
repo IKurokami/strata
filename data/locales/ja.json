@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "元の画像と同じ場所に可逆圧縮の WebP コピーを保存します。",
   "Convert images to PNG": "画像を一括で PNG に変換",
   "Save converted copies beside their originals.": "変換したコピーを元の画像と同じ場所に保存します。",
-  "Images saved: %{saved}/%{total}.": "保存した画像は %{total} 枚中 %{saved} 枚です。"
+  "Images saved: %{saved}/%{total}.": "保存した画像は %{total} 枚中 %{saved} 枚です。",
+  "Grid size (columns × rows): %{columns} × %{rows}": "グリッドの大きさ（列 × 行）：%{columns} × %{rows}"
 }

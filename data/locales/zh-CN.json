@@ -1475,5 +1475,6 @@
   "Save a lossless WebP copy beside the original.": "在原图旁边保存一份无损 WebP 副本。",
   "Convert images to PNG": "批量转换为 PNG",
   "Save converted copies beside their originals.": "将转换后的副本保存在原图旁边。",
-  "Images saved: %{saved}/%{total}.": "已保存 %{saved}/%{total} 张图像。"
+  "Images saved: %{saved}/%{total}.": "已保存 %{saved}/%{total} 张图像。",
+  "Grid size (columns × rows): %{columns} × %{rows}": "网格大小（列 × 行）：%{columns} × %{rows}"
 }

@@ -97,7 +97,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
         .run(
             std::slice::from_ref(&blue),
             DEFAULT_SHEET_NAME,
-            SheetLayout::Grid,
+            SheetLayout::default(),
             &cancel,
         )
         .unwrap();
@@ -110,7 +110,7 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
         Export::WebP.run(
             std::slice::from_ref(&blue),
             DEFAULT_SHEET_NAME,
-            SheetLayout::Grid,
+            SheetLayout::default(),
             &cancel
         ),
         Err(ExportError::Exists)
@@ -118,8 +118,23 @@ fn windows_exports_publish_valid_images_from_the_contained_helper() {
     assert_eq!(fs::read(webp_output).unwrap(), bytes);
 
     let paths = [converted, blue];
+    let third = directory.path().join("third.png");
+    let fourth = directory.path().join("fourth.png");
+    fs::copy(&paths[0], &third).unwrap();
+    fs::copy(&paths[1], &fourth).unwrap();
+    Export::ContactSheet
+        .run(
+            &[paths[0].clone(), paths[1].clone(), third, fourth],
+            "two-by-two.png",
+            SheetLayout::Grid { columns: 2 },
+            &cancel,
+        )
+        .unwrap();
+    let square = image::open(directory.path().join("two-by-two.png")).unwrap();
+    assert_eq!(square.width(), square.height());
+
     for (name, layout) in [
-        (DEFAULT_SHEET_NAME, SheetLayout::Grid),
+        (DEFAULT_SHEET_NAME, SheetLayout::default()),
         ("photos row.png", SheetLayout::Row),
         ("photos column.png", SheetLayout::Column),
     ] {
